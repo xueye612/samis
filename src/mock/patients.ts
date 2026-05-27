@@ -1,0 +1,1 @@
+export { patients } from './qualitySeed';

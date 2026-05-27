@@ -1,0 +1,35 @@
+{
+  "name": "samis-web",
+  "version": "0.1.0",
+  "description": "手术麻醉管理系统 Web 前端原型，基于 Vue 3、TypeScript、Vite、Arco Design Vue 和本地 Mock 数据构建。",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --configLoader runner",
+    "build": "vue-tsc --noEmit && vite build --configLoader runner",
+    "test": "vitest run --config vitest.config.mjs --configLoader runner",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:screenshot": "playwright test e2e/screenshots.spec.ts",
+    "test:smoke": "playwright test e2e/smoke.spec.ts",
+    "preview:local": "node scripts/serve-dist.mjs 5174",
+    "lint:style": "node scripts/style-guard.mjs"
+  },
+  "dependencies": {
+    "@arco-design/web-vue": "^2.57.0",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "dayjs": "^1.11.13",
+    "echarts": "^5.6.0",
+    "pinia": "^2.3.1",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@vue/tsconfig": "^0.7.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4",
+    "vue-tsc": "^2.2.10"
+  }
+}

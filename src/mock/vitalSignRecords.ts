@@ -1,0 +1,1 @@
+export { vitalSignRecords } from './qualitySeed';

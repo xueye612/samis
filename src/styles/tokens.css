@@ -1,0 +1,94 @@
+:root {
+  --color-brand-50: #edf5ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+
+  --color-success-100: #dcfce7;
+  --color-success-600: #16a34a;
+  --color-warning-100: #ffedd5;
+  --color-warning-600: #ea580c;
+  --color-danger-100: #fee2e2;
+  --color-danger-600: #dc2626;
+
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-500: #64748b;
+  --color-neutral-700: #334155;
+  --color-neutral-900: #0f172a;
+
+  --text-primary: var(--color-neutral-900);
+  --text-secondary: var(--color-neutral-700);
+  --text-tertiary: var(--color-neutral-500);
+  --surface: var(--color-neutral-0);
+  --surface-muted: var(--color-neutral-50);
+  --border: var(--color-neutral-200);
+  --border-strong: var(--color-neutral-300);
+  --primary: var(--color-brand-600);
+  --primary-hover: var(--color-brand-500);
+  --primary-soft: var(--color-brand-50);
+  --warning: var(--color-warning-600);
+  --danger: var(--color-danger-600);
+  --medical-blue: var(--color-brand-600);
+  --medical-cyan: #14b8a6;
+  --medical-bg: #f1f5f9;
+  --medical-border: var(--border);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --card-radius: var(--radius-md);
+
+  --shadow-xs: 0 1px 2px rgb(15 23 42 / 6%);
+  --shadow-sm: 0 8px 24px rgb(15 23 42 / 8%);
+  --shadow-md: 0 14px 32px rgb(15 23 42 / 10%);
+  --shadow-card: var(--shadow-xs);
+
+  --font-family-base: "PingFang SC", "Microsoft YaHei", Inter, system-ui, sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --line-height-tight: 1.35;
+  --line-height-base: 1.5;
+}
+
+/* Arco theme bridge */
+:root {
+  --arcoblue-6: var(--color-brand-600);
+  --arcoblue-5: var(--color-brand-500);
+  --arcoblue-1: var(--color-brand-50);
+  --arcogreen-6: var(--color-success-600);
+  --orangered-6: var(--color-warning-600);
+  --red-6: var(--color-danger-600);
+}
+
+.quality-page {
+  --qc-primary: #0f766e;
+  --qc-primary-light: #ecfeff;
+  --qc-primary-mid: #14b8a6;
+  --qc-accent: var(--color-brand-600);
+  --qc-surface: var(--surface);
+  --qc-surface-muted: #f0fdfa;
+  --qc-border: #99f6e4;
+  --qc-border-soft: #ccfbf1;
+  --qc-text: var(--text-primary);
+  --qc-text-secondary: var(--text-secondary);
+  --qc-shadow: 0 8px 24px rgb(15 118 110 / 10%);
+  --qc-radius: 12px;
+}

@@ -1,0 +1,49 @@
+.arco-card {
+  border-radius: var(--card-radius);
+  border-color: var(--border);
+  box-shadow: var(--shadow-card);
+}
+
+.arco-card-header {
+  border-bottom-color: var(--border);
+}
+
+.arco-table-th {
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.arco-table-td {
+  color: var(--text-primary);
+}
+
+.arco-table-tr:hover .arco-table-td {
+  background: var(--primary-soft);
+}
+
+.arco-btn-primary {
+  background: var(--primary);
+}
+
+.arco-btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+.arco-btn {
+  border-radius: var(--radius-sm);
+}
+
+.arco-input-wrapper,
+.arco-select-view,
+.arco-picker {
+  border-radius: var(--radius-sm);
+}
+
+.arco-tag {
+  border-radius: 999px;
+}
+
+.arco-breadcrumb {
+  margin-top: 4px;
+}
