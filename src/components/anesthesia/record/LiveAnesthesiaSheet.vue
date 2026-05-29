@@ -1828,7 +1828,7 @@ onBeforeUnmount(() => {
 .line-segment {
   position: absolute;
   z-index: 3;
-  transform: translateY(-50%);
+  transform: none;
   min-width: 24px;
   border-top: 3px solid #165dff;
   color: #165dff;
@@ -1878,8 +1878,9 @@ onBeforeUnmount(() => {
 }
 
 .segment-label {
-  position: relative;
-  top: 2px;
+  position: absolute;
+  top: 3px;
+  left: 0;
   display: inline-block;
   max-width: 72px;
   padding: 0 3px;
