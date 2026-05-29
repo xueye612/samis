@@ -1707,10 +1707,10 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   min-height: 22px;
-  padding: 0 4px;
+  padding: 2px 4px 0;
   border-bottom: 1px solid #b8c0cc;
   font-size: 12px;
-  line-height: 1.15;
+  line-height: 1;
   text-align: center;
   overflow: hidden;
 }
@@ -1830,7 +1830,7 @@ onBeforeUnmount(() => {
 .line-segment {
   position: absolute;
   z-index: 3;
-  transform: none;
+  transform: translateY(-4px);
   min-width: 24px;
   border-top: 3px solid #165dff;
   color: #165dff;
