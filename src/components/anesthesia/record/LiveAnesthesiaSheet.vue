@@ -1704,12 +1704,14 @@ onBeforeUnmount(() => {
 }
 
 .band-labels span {
-  display: flex;
-  align-items: center;
+  display: grid;
+  place-items: center;
   min-height: 22px;
-  padding: 0 6px;
+  padding: 0 4px;
   border-bottom: 1px solid #b8c0cc;
   font-size: 12px;
+  line-height: 1.15;
+  text-align: center;
   overflow: hidden;
 }
 
