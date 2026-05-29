@@ -8,7 +8,13 @@
     </template>
 
     <div class="module-grid">
-      <section v-for="module in modules" :key="module.key" class="module-panel" :style="{ '--module-accent': module.accent }">
+      <section
+        v-for="module in modules"
+        :key="module.key"
+        class="module-panel"
+        :class="{ focused: focusModuleKeys.includes(module.key) }"
+        :style="{ '--module-accent': module.accent }"
+      >
         <header>
           <div>
             <strong>{{ module.title }}</strong>
@@ -39,8 +45,10 @@ import { getDynamicModuleEntries } from '@/services/anesthesiaRecordMethodEngine
 
 const props = withDefaults(defineProps<{
   methods: AnesthesiaMethodKey[];
+  focusModuleKeys?: AnesthesiaMethodKey[];
   compact?: boolean;
 }>(), {
+  focusModuleKeys: () => [],
   compact: false,
 });
 
@@ -86,6 +94,9 @@ const modules = computed(() => getDynamicModuleEntries(props.methods));
 .dynamic-modules-card.compact .module-grid {
   grid-template-columns: 1fr;
   gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .module-panel {
@@ -94,6 +105,11 @@ const modules = computed(() => getDynamicModuleEntries(props.methods));
   border-radius: 8px;
   background: #fff;
   box-shadow: inset 4px 0 0 var(--module-accent);
+}
+
+.module-panel.focused {
+  border-color: color-mix(in srgb, var(--module-accent) 45%, #dbe6f3);
+  background: color-mix(in srgb, var(--module-accent) 5%, #fff);
 }
 
 .module-panel header {

@@ -3,9 +3,13 @@ import {
   anesthesiaMethodOptions,
   anesthesiaTemplateOptions,
   dynamicAnesthesiaModuleEntries,
+  intraopStageOptions,
   quickEventOptions,
+  scenarioQuickActionsByStage,
+  surgeryScenarioOptions,
   stageQuickActionsByMethod,
   templateImpactMap,
+  workflowGuidanceRules,
   type AnesthesiaMethodKey,
   type AnesthesiaTemplateOption,
   type CompletionGap,
@@ -14,10 +18,14 @@ import {
   type TemplateLandingItem,
   type TemplateImpact,
   type QuickEventOption,
+  type SurgeryScenarioKey,
+  type SurgeryScenarioOption,
+  type TemplateQualityTip,
+  type WorkflowGuidanceKind,
 } from '@/mock/anesthesiaRecordPrototype';
 import type { AnesthesiaEvent, SurgeryCase } from '@/types/anesthesia';
 
-export type { AnesthesiaMethodKey, AnesthesiaTemplateOption, CompletionGap, DynamicModuleEntry, IntraopStage, QuickEventOption, TemplateImpact, TemplateLandingItem };
+export type { AnesthesiaMethodKey, AnesthesiaTemplateOption, CompletionGap, DynamicModuleEntry, IntraopStage, QuickEventOption, SurgeryScenarioKey, SurgeryScenarioOption, TemplateImpact, TemplateLandingItem };
 
 export interface AnesthesiaMethodSelection {
   primary: AnesthesiaMethodKey;
@@ -38,7 +46,39 @@ export interface TemplateLandingDraft extends AnesthesiaTemplateApplyDraft {
   items: TemplateLandingItem[];
 }
 
+export interface WorkflowGuidanceItem {
+  id: string;
+  kind: WorkflowGuidanceKind | 'pending';
+  level: '提示' | '关注' | '预警';
+  text: string;
+  relatedEventName?: string;
+  focusModuleKeys?: AnesthesiaMethodKey[];
+}
+
+export interface ScenarioWorkflowContext {
+  stageOptions: IntraopStage[];
+  scenarioOptions: SurgeryScenarioOption[];
+  quickEvents: QuickEventOption[];
+  recommendedItems: WorkflowGuidanceItem[];
+  pendingItems: WorkflowGuidanceItem[];
+  risks: WorkflowGuidanceItem[];
+  nextSteps: WorkflowGuidanceItem[];
+  focusModuleKeys: AnesthesiaMethodKey[];
+  qualityTips: TemplateQualityTip[];
+}
+
+export interface ScenarioWorkflowInput {
+  item: SurgeryCase;
+  methods: AnesthesiaMethodKey[];
+  scenario: SurgeryScenarioKey;
+  stage: IntraopStage;
+  selectedTemplateName?: string;
+  confirmedImpact?: TemplateImpact;
+}
+
 export const ANESTHESIA_METHOD_KEYS = anesthesiaMethodOptions.map((item) => item.key);
+export const INTRAOP_STAGE_OPTIONS = intraopStageOptions;
+export const SURGERY_SCENARIO_OPTIONS = surgeryScenarioOptions;
 
 export function mergeSelectedMethods(primary: AnesthesiaMethodKey, auxiliary: AnesthesiaMethodKey[] = []): AnesthesiaMethodKey[] {
   return Array.from(new Set([primary, ...auxiliary].filter(Boolean))) as AnesthesiaMethodKey[];
@@ -143,6 +183,18 @@ export function buildConfirmedTemplateImpact(items: TemplateLandingItem[]): Temp
   };
 }
 
+export function filterTemplateImpactForMethods(impact: TemplateImpact | undefined, methods: AnesthesiaMethodKey[]): TemplateImpact | undefined {
+  if (!impact) return undefined;
+  const selected = new Set(methods);
+  return {
+    events: impact.events,
+    medications: impact.medications.filter((item) => medicationMatchesSelectedMethods(item, selected)),
+    monitorCodes: impact.monitorCodes,
+    professionalFields: impact.professionalFields.filter((field) => selected.has(field.method)),
+    qualityTips: impact.qualityTips,
+  };
+}
+
 function emptyTemplateImpact(): TemplateImpact {
   return {
     events: [],
@@ -177,14 +229,136 @@ export function deriveCurrentStage(item: Pick<SurgeryCase, 'events' | 'anesthesi
   return '入室后';
 }
 
-export function getStageQuickEvents(stage: IntraopStage, methods: AnesthesiaMethodKey[], selectedTemplate = ''): QuickEventOption[] {
+export function inferSurgeryScenarioFromCase(item: Pick<SurgeryCase, 'surgeryName' | 'department' | 'locationType'>): SurgeryScenarioKey {
+  const text = `${item.surgeryName ?? ''} ${item.department ?? ''} ${item.locationType ?? ''}`.toLowerCase();
+  if (['腹腔镜', '腔镜', 'laparoscopic'].some((word) => text.includes(word))) return 'laparoscopic';
+  if (['剖宫产', '产科', 'cesarean'].some((word) => text.includes(word))) return 'cesarean';
+  if (['髋', '膝', '骨', '关节', '骨科', '止血带'].some((word) => text.includes(word))) return 'orthopedic';
+  if (['胸', '肺', '纵隔', '单肺'].some((word) => text.includes(word))) return 'thoracic';
+  if (['内镜', '胃肠镜', '肠镜', '胃镜'].some((word) => text.includes(word)) || item.locationType === '手术室外') return 'endoscopy';
+  if (['日间', '门诊', '短小'].some((word) => text.includes(word))) return 'ambulatoryMinor';
+  if (['颅', '脑', '神经外', '占位'].some((word) => text.includes(word))) return 'neurosurgery';
+  return 'generalSurgery';
+}
+
+export function getStageQuickEvents(stage: IntraopStage, methods: AnesthesiaMethodKey[], selectedTemplate = '', scenario?: SurgeryScenarioKey): QuickEventOption[] {
   const templateEvents = selectedTemplate ? (templateImpactMap[selectedTemplate]?.events.map((event) => event.name) ?? []) : [];
   const stageEvents = methods.flatMap((method) => stageQuickActionsByMethod[method][stage] ?? []);
+  const scenarioEvents = scenario ? (scenarioQuickActionsByStage[scenario][stage] ?? []) : [];
   const fallback = ['麻醉开始', '给药', '手术开始', '低血压', '麻醉结束', '离室'];
-  const names = Array.from(new Set([...stageEvents, ...templateEvents, ...fallback]));
+  const names = Array.from(new Set([...stageEvents, ...scenarioEvents, ...templateEvents, ...fallback]));
   return names
     .map((name) => quickEventOptions.find((event) => event.name === name))
     .filter((event): event is QuickEventOption => Boolean(event));
+}
+
+export function buildScenarioWorkflowContext(input: ScenarioWorkflowInput): ScenarioWorkflowContext {
+  const baseQuickEvents = getStageQuickEvents(input.stage, input.methods, input.selectedTemplateName ?? '', input.scenario);
+  const gaps = buildCompletionGaps(input.item, input.methods, input.confirmedImpact).map<WorkflowGuidanceItem>((gap) => ({
+    id: gap.id,
+    kind: 'pending',
+    level: gap.level,
+    text: gap.text,
+    relatedEventName: gap.relatedEventName,
+  }));
+  const guidance = [
+    ...buildScenarioMethodMismatchGuidance(input),
+    ...workflowGuidanceRules.filter((rule) => ruleMatchesWorkflow(rule, input)),
+  ]
+    .sort((a, b) => workflowRuleScore(b, input) - workflowRuleScore(a, input))
+    .map<WorkflowGuidanceItem>((rule) => ({
+      id: rule.id,
+      kind: rule.kind,
+      level: rule.level,
+      text: rule.text,
+      focusModuleKeys: rule.focusModuleKeys,
+    }));
+
+  const focusModuleKeys = Array.from(new Set([
+    ...input.methods.filter((method) => method === 'general' && ['诱导期', '术中', '苏醒期'].includes(input.stage)),
+    ...input.methods.filter((method) => method === 'neuraxial' && ['诱导期', '术中'].includes(input.stage)),
+    ...input.methods.filter((method) => method === 'nerveBlock' && ['诱导期', '术中'].includes(input.stage)),
+    ...input.methods.filter((method) => ['sedation', 'local'].includes(method) && ['入室后', '诱导期', '术中', '苏醒期'].includes(input.stage)),
+    ...guidance.flatMap((item) => item.focusModuleKeys ?? []),
+  ])) as AnesthesiaMethodKey[];
+
+  const qualityTips = [
+    ...(input.confirmedImpact?.qualityTips ?? []),
+    ...guidance
+      .filter((item) => item.kind === 'risk')
+      .map((item) => ({ level: item.level, text: item.text } satisfies TemplateQualityTip)),
+  ];
+
+  return {
+    stageOptions: INTRAOP_STAGE_OPTIONS,
+    scenarioOptions: SURGERY_SCENARIO_OPTIONS,
+    quickEvents: baseQuickEvents.slice(0, 6),
+    recommendedItems: guidance.filter((item) => item.kind === 'recommendation').slice(0, 2),
+    pendingItems: prioritizeGaps(gaps, input.item.events).slice(0, 3),
+    risks: guidance.filter((item) => item.kind === 'risk').slice(0, 2),
+    nextSteps: guidance.filter((item) => item.kind === 'nextStep').slice(0, 1),
+    focusModuleKeys,
+    qualityTips,
+  };
+}
+
+function buildScenarioMethodMismatchGuidance(input: ScenarioWorkflowInput): Array<(typeof workflowGuidanceRules)[number]> {
+  const requiresGeneralReview = ['neurosurgery', 'thoracic'].includes(input.scenario) && !input.methods.includes('general');
+  if (!requiresGeneralReview) return [];
+  return [{
+    id: 'scenario-method-review',
+    kind: 'risk',
+    level: '关注',
+    text: '当前手术场景与麻醉方式需复核：请确认是否需要全麻、气道或呼吸管理记录。',
+    scenarios: [input.scenario],
+    stages: [input.stage],
+  }];
+}
+
+function ruleMatchesWorkflow(rule: (typeof workflowGuidanceRules)[number], input: ScenarioWorkflowInput) {
+  const eventNames = input.item.events.map((event) => event.type);
+  const includesAny = (values: string[] | undefined, candidates: string[]) => !values?.length || values.some((value) => candidates.includes(value));
+  const eventIncludesAny = (values: string[] | undefined) => !values?.length || values.some((value) => eventNames.some((name) => name.includes(value)));
+  const eventExcludesAny = (values: string[] | undefined) => !values?.length || values.every((value) => !eventNames.some((name) => name.includes(value)));
+
+  return includesAny(rule.stages, [input.stage]) &&
+    includesAny(rule.methods, input.methods) &&
+    includesAny(rule.scenarios, [input.scenario]) &&
+    eventIncludesAny(rule.requiresAnyEvent) &&
+    eventExcludesAny(rule.excludesAnyEvent);
+}
+
+function medicationMatchesSelectedMethods(item: TemplateImpact['medications'][number], methods: Set<AnesthesiaMethodKey>) {
+  if (methods.has('general')) return true;
+  const route = item.route ?? '';
+  if (route.includes('椎管')) return methods.has('neuraxial');
+  if (route.includes('神经阻滞')) return methods.has('nerveBlock');
+  if (route.includes('局部') || route.includes('浸润')) return methods.has('local');
+  if (methods.has('sedation') && ['丙泊酚', '芬太尼', '瑞芬太尼'].includes(item.drug)) return true;
+  if (['丙泊酚', '芬太尼', '罗库溴铵', '瑞芬太尼'].includes(item.drug)) return false;
+  return true;
+}
+
+function workflowRuleScore(rule: (typeof workflowGuidanceRules)[number], input: ScenarioWorkflowInput) {
+  let score = 0;
+  if (rule.stages?.includes(input.stage)) score += 4;
+  if (rule.methods?.some((method) => input.methods.includes(method))) score += 3;
+  if (rule.scenarios?.includes(input.scenario)) score += 2;
+  if (rule.requiresAnyEvent?.length) score += 2;
+  if (!rule.methods?.length && !rule.scenarios?.length) score -= 1;
+  return score;
+}
+
+function prioritizeGaps(items: WorkflowGuidanceItem[], events: Pick<AnesthesiaEvent, 'type'>[]) {
+  const recentTypes = events.slice(-3).map((event) => event.type);
+  const levelScore = { 预警: 3, 关注: 2, 提示: 1 };
+  return [...items].sort((a, b) => {
+    const aRelated = a.relatedEventName;
+    const bRelated = b.relatedEventName;
+    const aRecent = aRelated && recentTypes.some((name) => name.includes(aRelated)) ? 10 : 0;
+    const bRecent = bRelated && recentTypes.some((name) => name.includes(bRelated)) ? 10 : 0;
+    return (bRecent + levelScore[b.level]) - (aRecent + levelScore[a.level]);
+  });
 }
 
 export function buildCompletionGaps(
@@ -198,16 +372,19 @@ export function buildCompletionGaps(
   const gaps: CompletionGap[] = [];
 
   if (methods.includes('general')) {
-    if (eventNames.some((name) => name.includes('插管')) && (!monitorCodes.has('EtCO2') || !confirmedLabels.has('气道方式'))) {
-      gaps.push({ id: 'general-intubation-detail', level: '关注', text: '已记录插管，请补充EtCO2确认、气道/导管信息和拔管/苏醒记录。', relatedEventName: '插管' });
+    if (eventNames.some((name) => name.includes('插管')) && (!monitorCodes.has('EtCO2') || !confirmedLabels.has('导管型号') || !confirmedLabels.has('呼吸机模式'))) {
+      gaps.push({ id: 'general-intubation-detail', level: '关注', text: '已记录插管，请补充导管型号、插管深度、EtCO2确认和呼吸机参数。', relatedEventName: '插管' });
     }
     gaps.push({ id: 'general-monitoring', level: '提示', text: '全麻病例建议持续关注体温、BIS、TOF记录。' });
   }
 
   if (methods.includes('neuraxial')) {
     const hasDose = eventNames.some((name) => name.includes('给药'));
+    const hasPlaneEvent = eventNames.some((name) => name.includes('平面测定'));
     const hasPlane = confirmedLabels.has('麻醉平面') || Boolean(item.anesthesiaPlanes?.length);
-    if (hasDose && !hasPlane) {
+    if (hasPlaneEvent && !hasPlane) {
+      gaps.push({ id: 'neuraxial-plane-detail', level: '关注', text: '已记录平面测定，请补充左右侧平面、最高阻滞平面和Bromage评分。', relatedEventName: '平面测定' });
+    } else if (hasDose && !hasPlane) {
       gaps.push({ id: 'neuraxial-plane', level: '预警', text: '椎管内给药后，请记录麻醉平面和Bromage评分。', relatedEventName: '平面测定' });
     }
   }

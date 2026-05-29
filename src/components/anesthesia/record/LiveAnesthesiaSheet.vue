@@ -1014,7 +1014,7 @@ const chartPoints = (item: VitalSignDictItem) => visibleVitals.value
   .map((entry) => ({
     key: `${entry.row.id ?? entry.row.time}-${item.shortCode}`,
     row: entry.row,
-    x: timeToPercent(entry.row.time, sheetStart.value, sheetEnd.value) * 10,
+    x: Math.min(988, Math.max(12, timeToPercent(entry.row.time, sheetStart.value, sheetEnd.value) * 10)),
     y: chartY(entry.value, item),
   }));
 const chartLine = (item: VitalSignDictItem) => chartPoints(item).map((point) => `${point.x},${point.y}`).join(' ');
@@ -1552,7 +1552,7 @@ onBeforeUnmount(() => {
 
 .professional-paper-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 6px;
 }
 
@@ -1572,13 +1572,13 @@ onBeforeUnmount(() => {
 
 .professional-paper-group dl {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   margin: 0;
 }
 
 .professional-paper-group dl div {
   display: grid;
-  grid-template-columns: 68px minmax(0, 1fr);
+  grid-template-columns: minmax(86px, 0.42fr) minmax(0, 1fr);
   min-height: 26px;
   border-right: 1px solid #e2e8f0;
   border-bottom: 1px solid #e2e8f0;
@@ -1590,7 +1590,9 @@ onBeforeUnmount(() => {
   padding: 4px 5px;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .professional-paper-group dt {
@@ -1627,7 +1629,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1280px) {
   .professional-paper-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }
 }
 
@@ -1768,6 +1770,9 @@ onBeforeUnmount(() => {
   position: absolute;
   z-index: 3;
   transform: translate(-50%, -50%);
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
 }
@@ -1843,7 +1848,10 @@ onBeforeUnmount(() => {
   position: absolute;
   z-index: 4;
   min-width: 34px;
+  max-width: 72px;
   padding: 1px 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transform: translate(-50%, -50%);
   border: 1px solid #7a6514;
   background: #ffeb57;
@@ -1871,9 +1879,15 @@ onBeforeUnmount(() => {
 
 .segment-label {
   position: relative;
-  top: -15px;
+  top: 2px;
+  display: inline-block;
+  max-width: 72px;
   padding: 0 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   background: rgba(255, 255, 255, 0.9);
+  line-height: 1.15;
+  vertical-align: top;
 }
 
 .segment-handle {
@@ -1912,7 +1926,7 @@ onBeforeUnmount(() => {
 }
 
 .vital-chart {
-  grid-template-columns: 260px 76px 1fr;
+  grid-template-columns: 176px 54px 1fr;
   height: 300px;
 }
 
@@ -1924,10 +1938,10 @@ onBeforeUnmount(() => {
 
 .chart-legend {
   display: grid;
-  grid-template-columns: 112px 1fr 36px;
-  gap: 4px;
-  padding: 4px 3px;
-  font-size: 12px;
+  grid-template-columns: 76px 1fr 22px;
+  gap: 2px;
+  padding: 4px 2px;
+  font-size: 11px;
 }
 
 .event-legend,
@@ -1935,7 +1949,7 @@ onBeforeUnmount(() => {
 .temp-scale-mini {
   display: grid;
   align-content: center;
-  gap: 3px;
+  gap: 1px;
   min-height: 0;
 }
 
@@ -1949,19 +1963,21 @@ onBeforeUnmount(() => {
 .vital-symbol-legend span {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  line-height: 1.1;
+  gap: 1px;
+  min-height: 15px;
+  line-height: 1.15;
 }
 
 .event-legend span {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   width: 100%;
   margin: 1px 0;
   overflow: hidden;
+  min-height: 15px;
   font-size: 11px;
-  line-height: 1.22;
+  line-height: 1.15;
   white-space: nowrap;
 }
 
@@ -1971,7 +1987,7 @@ onBeforeUnmount(() => {
 }
 
 .vital-symbol-legend {
-  padding-left: 2px;
+  padding-left: 1px;
   font-size: 11px;
 }
 
@@ -1979,6 +1995,7 @@ onBeforeUnmount(() => {
   justify-items: center;
   border-left: 1px solid #cbd5e1;
   font-size: 11px;
+  line-height: 1.1;
 }
 
 .temp-scale-mini em {
@@ -1992,14 +2009,14 @@ onBeforeUnmount(() => {
 
 .chart-scale span {
   position: absolute;
-  left: 4px;
+  left: 3px;
   transform: translateY(-50%);
   font-size: 12px;
 }
 
 .chart-scale em {
   position: absolute;
-  right: 7px;
+  right: 3px;
   transform: translateY(-50%);
   color: #475569;
   font-size: 12px;
@@ -2025,6 +2042,7 @@ onBeforeUnmount(() => {
   z-index: 2;
   width: 100%;
   height: 100%;
+  overflow: visible;
 }
 
 .chart-area polyline {
@@ -2284,7 +2302,10 @@ onBeforeUnmount(() => {
 }
 
 .live-modal-body {
-  overflow: auto;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 16px;
 }
 
@@ -2308,6 +2329,33 @@ onBeforeUnmount(() => {
   background: #fff;
 }
 
+.time-stepper {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.time-stepper button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  color: #1f2937;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.time-stepper input {
+  width: 100%;
+  min-width: 0;
+}
+
 .inline-options {
   display: flex;
   flex-wrap: wrap;
@@ -2327,14 +2375,6 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px 14px;
   overflow-x: hidden;
-}
-
-.monitor-form {
-  overflow-x: hidden;
-}
-
-.monitor-form .time-stepper {
-  max-width: 180px;
 }
 
 .monitor-form .monitor-item-grid label {

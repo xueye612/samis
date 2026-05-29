@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import anesthesiaRecordViewSource from '@/views/AnesthesiaRecord.vue?raw';
 import type { SurgeryCase } from '@/types/anesthesia';
 import {
   ANESTHESIA_METHOD_KEYS,
@@ -8,8 +9,11 @@ import {
   buildTemplateApplyDraft,
   buildTemplateLandingDraft,
   buildQuickEventPayload,
+  buildScenarioWorkflowContext,
   deriveCurrentStage,
   deriveMethodSelectionFromCase,
+  filterTemplateImpactForMethods,
+  inferSurgeryScenarioFromCase,
   getDynamicModuleEntries,
   getMethodLabels,
   getStageQuickEvents,
@@ -224,7 +228,7 @@ describe('anesthesiaRecordMethodEngine', () => {
     const generalCase = baseCase('全身麻醉');
     generalCase.events = [{ ...buildQuickEventPayload('插管', generalCase, '2026-05-27T08:15:00.000Z'), id: 'evt-intubation' }];
     expect(buildCompletionGaps(generalCase, ['general'], undefined).map((item) => item.text)).toEqual(expect.arrayContaining([
-      '已记录插管，请补充EtCO2确认、气道/导管信息和拔管/苏醒记录。',
+      '已记录插管，请补充导管型号、插管深度、EtCO2确认和呼吸机参数。',
       '全麻病例建议持续关注体温、BIS、TOF记录。',
     ]));
 
@@ -234,5 +238,192 @@ describe('anesthesiaRecordMethodEngine', () => {
 
     const confirmed = buildConfirmedTemplateImpact(buildTemplateLandingDraft('臂丛神经阻滞').items);
     expect(buildCompletionGaps(baseCase('臂丛神经阻滞'), ['nerveBlock'], confirmed).map((item) => item.text)).not.toContain('神经阻滞请补充感觉阻滞范围和阻滞效果。');
+  });
+
+  it('infers surgery scenarios from surgery name, location, and department', () => {
+    expect(inferSurgeryScenarioFromCase({ ...baseCase('全身麻醉'), surgeryName: '腹腔镜胆囊切除术' })).toBe('laparoscopic');
+    expect(inferSurgeryScenarioFromCase({ ...baseCase('腰麻'), surgeryName: '剖宫产', department: '产科' })).toBe('cesarean');
+    expect(inferSurgeryScenarioFromCase({ ...baseCase('静脉镇静'), surgeryName: '无痛胃肠镜', locationType: '手术室外' })).toBe('endoscopy');
+  });
+
+  it('builds a scenario workflow context from method, scenario, stage, and occurred events', () => {
+    const item = baseCase('全身麻醉');
+    item.surgeryName = '腹腔镜胆囊切除术';
+    item.events = [{ ...buildQuickEventPayload('插管', item, '2026-05-27T08:15:00.000Z'), id: 'evt-intubation' }];
+
+    const context = buildScenarioWorkflowContext({
+      item,
+      methods: ['general'],
+      scenario: 'laparoscopic',
+      stage: '术中',
+      selectedTemplateName: '',
+      confirmedImpact: undefined,
+    });
+
+    expect(context.quickEvents.map((event) => event.name)).toEqual(expect.arrayContaining(['气腹建立', '低血压']));
+    expect(context.recommendedItems.map((entry) => entry.text)).toEqual(expect.arrayContaining([
+      '确认EtCO2波形、气道固定深度和呼吸机参数。',
+      '腹腔镜气腹后复核气道压、EtCO2和循环变化。',
+    ]));
+    expect(context.pendingItems.map((entry) => entry.text)).toContain('已记录插管，请补充导管型号、插管深度、EtCO2确认和呼吸机参数。');
+    expect(context.nextSteps.map((entry) => entry.text)).toContain('维持期继续记录生命体征、用药调整、出入量和关键事件。');
+    expect(context.focusModuleKeys).toEqual(['general']);
+  });
+
+  it('updates workstation pending guidance after quick events are appended to the record', () => {
+    const item = baseCase('全身麻醉');
+    const before = buildScenarioWorkflowContext({
+      item,
+      methods: ['general'],
+      scenario: 'generalSurgery',
+      stage: '诱导期',
+      selectedTemplateName: '',
+      confirmedImpact: undefined,
+    });
+
+    item.events.push({ ...buildQuickEventPayload('插管', item, '2026-05-27T08:15:00.000Z'), id: 'evt-intubation' });
+    const after = buildScenarioWorkflowContext({
+      item,
+      methods: ['general'],
+      scenario: 'generalSurgery',
+      stage: '诱导期',
+      selectedTemplateName: '',
+      confirmedImpact: undefined,
+    });
+
+    expect(before.pendingItems.map((entry) => entry.id)).not.toContain('general-intubation-detail');
+    expect(after.pendingItems.map((entry) => entry.text)).toContain('已记录插管，请补充导管型号、插管深度、EtCO2确认和呼吸机参数。');
+    expect(item.events.map((event) => event.type)).toContain('插管');
+  });
+
+  it('surfaces plane measurement follow-up after a neuraxial plane event', () => {
+    const item = baseCase('腰麻');
+    item.events.push({ ...buildQuickEventPayload('平面测定', item, '2026-05-27T08:25:00.000Z'), id: 'evt-plane' });
+
+    const context = buildScenarioWorkflowContext({
+      item,
+      methods: ['neuraxial'],
+      scenario: 'cesarean',
+      stage: '术中',
+      selectedTemplateName: '',
+      confirmedImpact: undefined,
+    });
+
+    expect(context.pendingItems.map((entry) => entry.text)).toContain('已记录平面测定，请补充左右侧平面、最高阻滞平面和Bromage评分。');
+  });
+
+  it('uses method and generic fallback guidance when exact scenario rules do not match', () => {
+    const localOnly = buildScenarioWorkflowContext({
+      item: baseCase('局部麻醉'),
+      methods: ['local'],
+      scenario: 'thoracic',
+      stage: '离室',
+      selectedTemplateName: '',
+      confirmedImpact: undefined,
+    });
+
+    expect(localOnly.nextSteps.map((entry) => entry.text)).toContain('确认离室生命体征、去向、交接人和医生签名。');
+    expect(localOnly.quickEvents.map((event) => event.name)).toEqual(expect.arrayContaining(['离室']));
+  });
+
+  it('keeps the workstation summary concise for the current stage', () => {
+    const item = baseCase('全身麻醉');
+    item.surgeryName = '腹腔镜胆囊切除术';
+    item.events.push({ ...buildQuickEventPayload('插管', item, '2026-05-27T08:15:00.000Z'), id: 'evt-intubation' });
+    item.events.push({ ...buildQuickEventPayload('低血压', item, '2026-05-27T08:35:00.000Z'), id: 'evt-hypotension' });
+
+    const context = buildScenarioWorkflowContext({
+      item,
+      methods: ['general'],
+      scenario: 'laparoscopic',
+      stage: '术中',
+      selectedTemplateName: '',
+      confirmedImpact: undefined,
+    });
+
+    expect(context.quickEvents.length).toBeLessThanOrEqual(8);
+    expect(context.recommendedItems.length).toBeLessThanOrEqual(2);
+    expect(context.pendingItems.length).toBeLessThanOrEqual(3);
+    expect(context.risks.length).toBeLessThanOrEqual(2);
+    expect(context.nextSteps.length).toBeLessThanOrEqual(1);
+  });
+
+  it('keeps neuraxial plane guidance separate from nerve block guidance in compound contexts', () => {
+    const cesarean = baseCase('腰麻');
+    cesarean.surgeryName = '剖宫产';
+    cesarean.department = '产科';
+    cesarean.events = [{ ...buildQuickEventPayload('给药', cesarean, '2026-05-27T08:15:00.000Z'), id: 'evt-dose' }];
+
+    const neuraxialContext = buildScenarioWorkflowContext({
+      item: cesarean,
+      methods: ['neuraxial'],
+      scenario: 'cesarean',
+      stage: '术中',
+      selectedTemplateName: '',
+      confirmedImpact: undefined,
+    });
+
+    expect(neuraxialContext.pendingItems.map((entry) => entry.text)).toContain('椎管内给药后，请记录麻醉平面和Bromage评分。');
+    expect(neuraxialContext.recommendedItems.map((entry) => entry.text)).toContain('记录麻醉平面、Bromage评分、血压变化和升压处理。');
+
+    const blockContext = buildScenarioWorkflowContext({
+      item: baseCase('全麻 + 神经阻滞'),
+      methods: ['general', 'nerveBlock'],
+      scenario: 'orthopedic',
+      stage: '诱导期',
+      selectedTemplateName: '',
+      confirmedImpact: undefined,
+    });
+
+    expect(blockContext.pendingItems.map((entry) => entry.text)).toContain('神经阻滞请补充感觉阻滞范围和阻滞效果。');
+    expect(blockContext.pendingItems.map((entry) => entry.text)).not.toContain('椎管内给药后，请记录麻醉平面和Bromage评分。');
+    expect(blockContext.focusModuleKeys).toEqual(['general', 'nerveBlock']);
+  });
+
+  it('filters general anesthesia medications out of pure neuraxial template impact', () => {
+    const neuraxialOnly = filterTemplateImpactForMethods(buildTemplateApplyDraft('全麻 + 硬膜外').impact, ['neuraxial'])!;
+    const compound = filterTemplateImpactForMethods(buildTemplateApplyDraft('全麻 + 硬膜外').impact, ['general', 'neuraxial'])!;
+
+    expect(neuraxialOnly.medications.map((item) => item.drug)).not.toContain('罗库溴铵');
+    expect(neuraxialOnly.medications.map((item) => item.drug)).not.toContain('丙泊酚');
+    expect(neuraxialOnly.professionalFields.map((item) => item.label)).toContain('麻醉平面');
+    expect(compound.medications.map((item) => item.drug)).toEqual(expect.arrayContaining(['罗库溴铵', '罗哌卡因']));
+  });
+
+  it('adds a non-blocking mismatch review tip for neurosurgery or thoracic cases without general anesthesia', () => {
+    const neurosurgeryNeuraxial = buildScenarioWorkflowContext({
+      item: baseCase('椎管内麻醉'),
+      methods: ['neuraxial'],
+      scenario: 'neurosurgery',
+      stage: '术中',
+      selectedTemplateName: '',
+      confirmedImpact: undefined,
+    });
+    const thoracicLocal = buildScenarioWorkflowContext({
+      item: baseCase('局部麻醉'),
+      methods: ['local'],
+      scenario: 'thoracic',
+      stage: '术中',
+      selectedTemplateName: '',
+      confirmedImpact: undefined,
+    });
+
+    expect(neurosurgeryNeuraxial.risks.map((item) => item.text)).toContain('当前手术场景与麻醉方式需复核：请确认是否需要全麻、气道或呼吸管理记录。');
+    expect(thoracicLocal.risks.map((item) => item.text)).toContain('当前手术场景与麻醉方式需复核：请确认是否需要全麻、气道或呼吸管理记录。');
+  });
+
+  it('keeps print styles scoped to the formal record body', () => {
+    const printBlock = anesthesiaRecordViewSource.match(/@media print \{[\s\S]*?<\/style>/)?.[0] ?? '';
+
+    expect(printBlock).toContain('.record-topbar');
+    expect(printBlock).toContain('.work-mode-bar');
+    expect(printBlock).toContain('.patient-queue');
+    expect(printBlock).toContain('.record-toolbox');
+    expect(printBlock).toContain('.record-detail-tabs');
+    expect(anesthesiaRecordViewSource).toContain('@page');
+    expect(anesthesiaRecordViewSource).toContain('A4 landscape');
+    expect(printBlock).toContain('display: none !important');
+    expect(anesthesiaRecordViewSource).toContain('<LiveAnesthesiaSheet');
+    expect(anesthesiaRecordViewSource).toContain('class="sheet-workbench"');
   });
 });

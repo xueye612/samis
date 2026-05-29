@@ -100,19 +100,28 @@
           <aside class="record-toolbox">
             <IntraopWorkflowPanel
               :stage="currentStage"
+              :stage-options="scenarioContext.stageOptions"
+              :scenario="selectedScenario"
+              :scenario-options="scenarioContext.scenarioOptions"
               :method-labels="appliedMethodLabels"
               :selected-template-name="selectedTemplateName"
               :recent-event-label="recentEventLabel"
-              :quick-events="stageQuickEvents"
+              :quick-events="scenarioContext.quickEvents"
               :pending-items="pendingLandingItems"
               :completion-gaps="completionGaps"
+              :recommended-items="scenarioContext.recommendedItems"
+              :pending-guidance="scenarioContext.pendingItems"
+              :risk-items="scenarioContext.risks"
+              :next-steps="scenarioContext.nextSteps"
               :locked="current.locked"
+              @update:stage="updateCurrentStage"
+              @update:scenario="updateSurgeryScenario"
               @quick-event="addEvent"
               @confirm-all="confirmAllLandingItems"
               @confirm-item="confirmLandingItem"
             />
 
-            <a-collapse :default-active-key="['detail', 'templates']" :bordered="false">
+            <a-collapse :default-active-key="['detail']" :bordered="false">
               <a-collapse-item key="detail" header="事件补录">
                 <EventDetailPanel
                   :event-name="selectedEventName"
@@ -133,7 +142,7 @@
                 />
               </a-collapse-item>
               <a-collapse-item key="modules" header="专业字段预览">
-                <DynamicAnesthesiaModules compact :methods="selectedMethodKeys" />
+                <DynamicAnesthesiaModules compact :methods="selectedMethodKeys" :focus-module-keys="scenarioContext.focusModuleKeys" />
               </a-collapse-item>
             </a-collapse>
           </aside>
@@ -202,18 +211,22 @@ import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog } from '@/servic
 import {
   buildCompletionGaps,
   buildConfirmedTemplateImpact,
+  buildScenarioWorkflowContext,
   buildTemplateApplyDraft,
   buildTemplateLandingDraft,
   buildQuickEventPayload,
   deriveCurrentStage,
   deriveMethodSelectionFromCase,
+  filterTemplateImpactForMethods,
+  inferSurgeryScenarioFromCase,
   getDynamicModuleEntries,
   getQuickEventOption,
   getMethodLabels,
-  getStageQuickEvents,
   hasAnesthesiaPlaneModule,
   mergeSelectedMethods,
   type AnesthesiaTemplateApplyDraft,
+  type IntraopStage,
+  type SurgeryScenarioKey,
   type TemplateLandingDraft,
 } from '@/services/anesthesiaRecordMethodEngine';
 import { sortCasesByClinicalPriority } from '@/services/scheduleHelpers';
@@ -242,6 +255,8 @@ const confirmedLandingItems = ref<TemplateLandingItem[]>([]);
 const confirmedQualityTips = ref<TemplateQualityTip[]>([]);
 const recentEventLabel = ref('');
 const selectedEventName = ref('');
+const manualStage = ref<IntraopStage | ''>('');
+const selectedScenario = ref<SurgeryScenarioKey>('generalSurgery');
 
 const sortedCases = computed(() => sortCasesByClinicalPriority(store.cases));
 const filteredCases = computed(() => {
@@ -270,15 +285,32 @@ const sheetTemplateName = computed(() => confirmedLandingItems.value.length ? se
 const sheetAppliedMethodLabels = computed(() => getMethodLabels(sheetMethodKeys.value));
 const sheetAppliedModules = computed(() => getDynamicModuleEntries(sheetMethodKeys.value));
 const sheetShowAnesthesiaPlane = computed(() => hasAnesthesiaPlaneModule(sheetMethodKeys.value));
-const currentStage = computed(() => current.value ? deriveCurrentStage(current.value) : '入室后');
-const stageQuickEvents = computed(() => getStageQuickEvents(currentStage.value, selectedMethodKeys.value, selectedTemplateName.value).slice(0, 10));
+const derivedStage = computed(() => current.value ? deriveCurrentStage(current.value) : '入室后');
+const currentStage = computed(() => manualStage.value || derivedStage.value);
 const confirmedTemplateImpact = computed(() => {
   if (!confirmedLandingItems.value.length) return undefined;
   const impact = buildConfirmedTemplateImpact(confirmedLandingItems.value);
   impact.qualityTips = confirmedQualityTips.value;
-  return impact;
+  return filterTemplateImpactForMethods(impact, selectedMethodKeys.value);
 });
 const completionGaps = computed(() => current.value ? buildCompletionGaps(current.value, selectedMethodKeys.value, confirmedTemplateImpact.value) : []);
+const scenarioContext = computed(() => current.value
+  ? buildScenarioWorkflowContext({
+    item: current.value,
+    methods: selectedMethodKeys.value,
+    scenario: selectedScenario.value,
+    stage: currentStage.value,
+    selectedTemplateName: selectedTemplateName.value,
+    confirmedImpact: confirmedTemplateImpact.value,
+  })
+  : buildScenarioWorkflowContext({
+    item: sortedCases.value[0]!,
+    methods: selectedMethodKeys.value,
+    scenario: selectedScenario.value,
+    stage: currentStage.value,
+    selectedTemplateName: selectedTemplateName.value,
+    confirmedImpact: confirmedTemplateImpact.value,
+  }));
 
 watch(() => route.params.id, (id) => {
   if (id) selectedId.value = String(id);
@@ -295,6 +327,8 @@ watch(selectedId, (id) => {
   confirmedQualityTips.value = [];
   recentEventLabel.value = '';
   selectedEventName.value = '';
+  manualStage.value = '';
+  selectedScenario.value = current.value ? inferSurgeryScenarioFromCase(current.value) : 'generalSurgery';
   pendingTemplateDraft.value = null;
   templateModalVisible.value = false;
 });
@@ -309,6 +343,8 @@ watch(current, (item) => {
   confirmedQualityTips.value = [];
   recentEventLabel.value = '';
   selectedEventName.value = '';
+  manualStage.value = '';
+  selectedScenario.value = item ? inferSurgeryScenarioFromCase(item) : 'generalSurgery';
   pendingTemplateDraft.value = null;
   templateModalVisible.value = false;
 }, { immediate: true });
@@ -385,6 +421,12 @@ const updatePrimaryMethod = (value: AnesthesiaMethodKey) => {
 const updateAuxiliaryMethods = (value: AnesthesiaMethodKey[]) => {
   auxiliaryMethods.value = value;
   clearAppliedTemplateName();
+};
+const updateCurrentStage = (stage: IntraopStage) => {
+  manualStage.value = stage;
+};
+const updateSurgeryScenario = (scenario: SurgeryScenarioKey) => {
+  selectedScenario.value = scenario;
 };
 const addEvent = (type: string) => {
   if (!current.value) return;
@@ -612,13 +654,14 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 .record-workspace {
   display: grid;
-  grid-template-columns: minmax(860px, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) 340px;
   gap: 14px;
   align-items: start;
 }
 
 .sheet-workbench {
   min-width: 0;
+  overflow: auto;
   padding: 10px;
   border: 1px solid #dbe6f3;
   border-radius: 8px;
@@ -672,7 +715,9 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
     position: static;
     grid-column: 1 / -1;
   }
+}
 
+@media (max-width: 1100px) {
   .record-workspace {
     grid-template-columns: 1fr;
   }
@@ -695,12 +740,28 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   }
 }
 
+@page {
+  size: A4 landscape;
+  margin: 8mm;
+}
+
 @media print {
+  :global(html),
+  :global(body),
+  :global(#app) {
+    width: auto !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    background: #fff !important;
+  }
+
   .app-sider,
   .app-header,
   .app-subnav,
   .record-topbar,
+  .work-mode-bar,
   .patient-queue,
+  .record-toolbox,
   .record-side,
   .record-detail-tabs {
     display: none !important;
@@ -711,7 +772,18 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   .record-center {
     display: block !important;
     padding: 0 !important;
+    margin: 0 !important;
     background: #fff !important;
+  }
+
+  .record-workspace,
+  .sheet-workbench {
+    display: block !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    overflow: visible !important;
   }
 }
 </style>

@@ -58,6 +58,7 @@ export interface TemplateImpact {
 export type IntraopStage = '入室后' | '诱导期' | '术中' | '苏醒期' | '离室';
 export type LandingItemKind = 'event' | 'medication' | 'monitor' | 'field';
 export type LandingItemStatus = 'pending' | 'confirmed';
+export type SurgeryScenarioKey = 'generalSurgery' | 'laparoscopic' | 'cesarean' | 'orthopedic' | 'thoracic' | 'ambulatoryMinor' | 'endoscopy' | 'neurosurgery';
 
 export interface TemplateLandingItem {
   landingId: string;
@@ -78,6 +79,28 @@ export interface CompletionGap {
   level: '提示' | '关注' | '预警';
   text: string;
   relatedEventName?: string;
+}
+
+export interface SurgeryScenarioOption {
+  key: SurgeryScenarioKey;
+  label: string;
+  description: string;
+  tags: string[];
+}
+
+export type WorkflowGuidanceKind = 'recommendation' | 'risk' | 'nextStep';
+
+export interface WorkflowGuidanceRule {
+  id: string;
+  kind: WorkflowGuidanceKind;
+  level: '提示' | '关注' | '预警';
+  text: string;
+  stages?: IntraopStage[];
+  methods?: AnesthesiaMethodKey[];
+  scenarios?: SurgeryScenarioKey[];
+  requiresAnyEvent?: string[];
+  excludesAnyEvent?: string[];
+  focusModuleKeys?: AnesthesiaMethodKey[];
 }
 
 export interface DynamicModuleItem {
@@ -127,6 +150,19 @@ export const anesthesiaTemplateOptions: AnesthesiaTemplateOption[] = [
   { name: '全麻 + 神经阻滞', primary: 'general', auxiliary: ['nerveBlock'], description: '全麻联合区域镇痛。' },
   { name: '全麻 + 硬膜外', primary: 'general', auxiliary: ['neuraxial'], description: '全麻联合硬膜外镇痛或阻滞。' },
   { name: '镇静 + 局麻', primary: 'sedation', auxiliary: ['local'], description: 'MAC 镇静联合局部浸润。' },
+];
+
+export const intraopStageOptions: IntraopStage[] = ['入室后', '诱导期', '术中', '苏醒期', '离室'];
+
+export const surgeryScenarioOptions: SurgeryScenarioOption[] = [
+  { key: 'generalSurgery', label: '普通手术', description: '常规手术室内麻醉记录流程。', tags: ['常规', '普外'] },
+  { key: 'laparoscopic', label: '腹腔镜', description: '关注气腹后气道压、EtCO2、循环和体温。', tags: ['气腹', 'EtCO2', '体温'] },
+  { key: 'cesarean', label: '剖宫产', description: '关注椎管内阻滞、母体循环、胎儿娩出和产科出血。', tags: ['产科', '胎儿娩出', '出血'] },
+  { key: 'orthopedic', label: '骨科', description: '关注神经阻滞、止血带、失血和深静脉风险。', tags: ['止血带', '神经阻滞'] },
+  { key: 'thoracic', label: '胸科', description: '关注单肺通气、氧合、气道压和肺复张。', tags: ['单肺通气', '氧合'] },
+  { key: 'ambulatoryMinor', label: '门诊短小手术', description: '关注快速周转、镇静深度、离室评分。', tags: ['日间', '快速苏醒'] },
+  { key: 'endoscopy', label: '内镜/手术室外', description: '关注镇静、氧疗、呼吸抑制和非手术室环境。', tags: ['手术室外', '镇静', '氧疗'] },
+  { key: 'neurosurgery', label: '神经外科', description: '关注颅内压、循环稳定、出入量和转ICU。', tags: ['颅脑', 'ICU'] },
 ];
 
 const generalIntubationImpact: TemplateImpact = {
@@ -456,6 +492,7 @@ export const quickEventOptions: QuickEventOption[] = [
   { name: '插管', stage: '诱导期', severity: '轻度' },
   { name: '喉罩置入', stage: '诱导期', severity: '轻度' },
   { name: '接麻醉机', stage: '诱导期', severity: '轻度' },
+  { name: '单肺通气', stage: '诱导期', severity: '中度' },
   { name: '定位', stage: '诱导期', severity: '轻度' },
   { name: '穿刺', stage: '诱导期', severity: '轻度' },
   { name: '置管', stage: '诱导期', severity: '轻度' },
@@ -466,11 +503,21 @@ export const quickEventOptions: QuickEventOption[] = [
   { name: '局麻', stage: '诱导期', severity: '轻度' },
   { name: '镇静评估', stage: '术中', severity: '轻度' },
   { name: '手术开始', stage: '术中', severity: '轻度', syncField: 'surgeryStart' },
+  { name: '气腹建立', stage: '术中', severity: '轻度' },
+  { name: '胎儿娩出', stage: '术中', severity: '轻度' },
+  { name: '止血带充气', stage: '术中', severity: '轻度' },
+  { name: '止血带放气', stage: '术中', severity: '中度' },
+  { name: '内镜开始', stage: '术中', severity: '轻度' },
+  { name: '内镜结束', stage: '术中', severity: '轻度' },
+  { name: '肺复张', stage: '术中', severity: '轻度' },
   { name: '低血压', stage: '术中', severity: '中度', treatment: '快捷事件：低血压，已记录升压/补液处理思路。' },
+  { name: '低氧', stage: '术中', severity: '中度' },
+  { name: '低体温', stage: '术中', severity: '中度' },
   { name: '升压药', stage: '术中', severity: '轻度' },
   { name: '拔管', stage: '苏醒期', severity: '轻度' },
   { name: '拔除喉罩', stage: '苏醒期', severity: '轻度' },
   { name: '麻醉结束', stage: '苏醒期', severity: '轻度' },
+  { name: '苏醒评估', stage: '苏醒期', severity: '轻度' },
   { name: '离室', stage: '苏醒期', severity: '轻度', syncField: 'leaveRoomTime' },
 ];
 
@@ -511,3 +558,158 @@ export const stageQuickActionsByMethod: Record<AnesthesiaMethodKey, Partial<Reco
     离室: ['离室'],
   },
 };
+
+export const scenarioQuickActionsByStage: Record<SurgeryScenarioKey, Partial<Record<IntraopStage, string[]>>> = {
+  generalSurgery: {
+    术中: ['手术开始', '给药', '低血压'],
+    苏醒期: ['麻醉结束', '离室'],
+  },
+  laparoscopic: {
+    术中: ['气腹建立', '低血压', '低体温', '手术开始'],
+    苏醒期: ['拔管', '麻醉结束', '离室'],
+  },
+  cesarean: {
+    诱导期: ['穿刺', '给药', '平面测定', '手术开始'],
+    术中: ['胎儿娩出', '低血压', '升压药', '平面测定'],
+    苏醒期: ['麻醉结束', '离室'],
+  },
+  orthopedic: {
+    诱导期: ['定位', '穿刺', '给药', '阻滞评估', '手术开始'],
+    术中: ['止血带充气', '止血带放气', '低血压', '阻滞评估'],
+  },
+  thoracic: {
+    诱导期: ['插管', '单肺通气', '接麻醉机', '手术开始'],
+    术中: ['单肺通气', '低氧', '肺复张', '低血压'],
+    苏醒期: ['拔管', '麻醉结束', '离室'],
+  },
+  ambulatoryMinor: {
+    入室后: ['麻醉开始', '镇静开始'],
+    诱导期: ['镇静开始', '局麻', '手术开始'],
+    术中: ['镇静评估', '给药', '低氧'],
+    苏醒期: ['苏醒评估', '麻醉结束', '离室'],
+  },
+  endoscopy: {
+    入室后: ['麻醉开始', '镇静开始'],
+    诱导期: ['镇静开始', '内镜开始'],
+    术中: ['镇静评估', '低氧', '内镜结束'],
+    苏醒期: ['苏醒评估', '麻醉结束', '离室'],
+  },
+  neurosurgery: {
+    诱导期: ['诱导开始', '插管', '接麻醉机', '手术开始'],
+    术中: ['低血压', '给药', '低体温'],
+    苏醒期: ['麻醉结束', '离室'],
+  },
+};
+
+export const workflowGuidanceRules: WorkflowGuidanceRule[] = [
+  {
+    id: 'general-intubated-airway-check',
+    kind: 'recommendation',
+    level: '关注',
+    text: '确认EtCO2波形、气道固定深度和呼吸机参数。',
+    methods: ['general'],
+    stages: ['诱导期', '术中'],
+    requiresAnyEvent: ['插管', '喉罩置入'],
+    focusModuleKeys: ['general'],
+  },
+  {
+    id: 'laparoscopic-pneumoperitoneum',
+    kind: 'recommendation',
+    level: '关注',
+    text: '腹腔镜气腹后复核气道压、EtCO2和循环变化。',
+    scenarios: ['laparoscopic'],
+    stages: ['术中'],
+    focusModuleKeys: ['general'],
+  },
+  {
+    id: 'laparoscopic-hypothermia-risk',
+    kind: 'risk',
+    level: '关注',
+    text: '腹腔镜长时间手术需持续关注体温和主动保温记录。',
+    scenarios: ['laparoscopic'],
+    stages: ['术中'],
+  },
+  {
+    id: 'neuraxial-cesarean-plane',
+    kind: 'recommendation',
+    level: '关注',
+    text: '记录麻醉平面、Bromage评分、血压变化和升压处理。',
+    methods: ['neuraxial'],
+    scenarios: ['cesarean'],
+    stages: ['诱导期', '术中'],
+    focusModuleKeys: ['neuraxial'],
+  },
+  {
+    id: 'cesarean-delivery-next',
+    kind: 'nextStep',
+    level: '提示',
+    text: '胎儿娩出后记录时间、宫缩/出血、缩宫素或升压处理。',
+    scenarios: ['cesarean'],
+    stages: ['术中'],
+    excludesAnyEvent: ['胎儿娩出'],
+  },
+  {
+    id: 'nerve-block-effect-check',
+    kind: 'recommendation',
+    level: '提示',
+    text: '阻滞完成后补充感觉阻滞范围、运动阻滞情况和阻滞效果。',
+    methods: ['nerveBlock'],
+    stages: ['诱导期', '术中'],
+    focusModuleKeys: ['nerveBlock'],
+  },
+  {
+    id: 'orthopedic-tourniquet-risk',
+    kind: 'risk',
+    level: '关注',
+    text: '骨科止血带使用时记录充气/放气时间和放气后循环变化。',
+    scenarios: ['orthopedic'],
+    stages: ['术中'],
+  },
+  {
+    id: 'sedation-respiratory-risk',
+    kind: 'risk',
+    level: '预警',
+    text: '镇静/监护麻醉需密切观察SpO2、RR和呼吸抑制处置。',
+    methods: ['sedation'],
+    stages: ['诱导期', '术中', '苏醒期'],
+    focusModuleKeys: ['sedation'],
+  },
+  {
+    id: 'endoscopy-oxygen-next',
+    kind: 'nextStep',
+    level: '提示',
+    text: '内镜场景下一步关注氧疗方式、体位、呼吸道通畅和苏醒评分。',
+    scenarios: ['endoscopy'],
+    stages: ['诱导期', '术中', '苏醒期'],
+  },
+  {
+    id: 'thoracic-one-lung-risk',
+    kind: 'risk',
+    level: '预警',
+    text: '胸科单肺通气需记录氧合、气道压、肺复张和双肺通气恢复。',
+    scenarios: ['thoracic'],
+    stages: ['诱导期', '术中'],
+    focusModuleKeys: ['general'],
+  },
+  {
+    id: 'recovery-next',
+    kind: 'nextStep',
+    level: '提示',
+    text: '苏醒期补齐拔管/喉罩拔除、意识、呼吸循环、疼痛评分和离室去向。',
+    stages: ['苏醒期'],
+  },
+  {
+    id: 'leave-room-next',
+    kind: 'nextStep',
+    level: '提示',
+    text: '确认离室生命体征、去向、交接人和医生签名。',
+    stages: ['离室'],
+  },
+  {
+    id: 'maintenance-next',
+    kind: 'nextStep',
+    level: '提示',
+    text: '维持期继续记录生命体征、用药调整、出入量和关键事件。',
+    stages: ['术中'],
+  },
+];
