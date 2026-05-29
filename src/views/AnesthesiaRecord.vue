@@ -68,24 +68,77 @@
       </aside>
 
       <main class="record-center">
-        <LiveAnesthesiaSheet
-          :record="current"
-          :vitals="vitalCatalog"
-          :drugs="drugCatalog"
-          :fluids="fluidCatalog"
-          :blood-types="store.configGenericDicts.bloodTypes"
-          :rh-types="store.configGenericDicts.rhTypes"
-          :transfusion-reactions="store.configGenericDicts.transfusionReactions"
-          :monitor-order="monitorOrder"
-          :read-only="current.locked"
-          @save-medication="saveMedication"
-          @save-fluid="saveFluid"
-          @save-vital="saveVital"
-          @save-output="saveOutput"
-          @save-plane="savePlane"
-          @save-monitor-order="saveMonitorOrder"
-          @delete-record="deleteRecord"
-        />
+        <div class="record-workspace">
+          <section class="sheet-workbench">
+            <LiveAnesthesiaSheet
+              :record="current"
+              :vitals="vitalCatalog"
+              :drugs="drugCatalog"
+              :fluids="fluidCatalog"
+              :blood-types="store.configGenericDicts.bloodTypes"
+              :rh-types="store.configGenericDicts.rhTypes"
+              :transfusion-reactions="store.configGenericDicts.transfusionReactions"
+              :monitor-order="monitorOrder"
+              :read-only="current.locked"
+              :show-anesthesia-plane="sheetShowAnesthesiaPlane"
+              :applied-template-name="sheetTemplateName"
+              :applied-method-labels="sheetAppliedMethodLabels"
+              :applied-modules="sheetAppliedModules"
+              :template-impact="confirmedTemplateImpact"
+              :recent-event-label="recentEventLabel"
+              @select-event="selectSheetEvent"
+              @save-medication="saveMedication"
+              @save-fluid="saveFluid"
+              @save-vital="saveVital"
+              @save-output="saveOutput"
+              @save-plane="savePlane"
+              @save-monitor-order="saveMonitorOrder"
+              @delete-record="deleteRecord"
+            />
+          </section>
+
+          <aside class="record-toolbox">
+            <IntraopWorkflowPanel
+              :stage="currentStage"
+              :method-labels="appliedMethodLabels"
+              :selected-template-name="selectedTemplateName"
+              :recent-event-label="recentEventLabel"
+              :quick-events="stageQuickEvents"
+              :pending-items="pendingLandingItems"
+              :completion-gaps="completionGaps"
+              :locked="current.locked"
+              @quick-event="addEvent"
+              @confirm-all="confirmAllLandingItems"
+              @confirm-item="confirmLandingItem"
+            />
+
+            <a-collapse :default-active-key="['detail', 'templates']" :bordered="false">
+              <a-collapse-item key="detail" header="事件补录">
+                <EventDetailPanel
+                  :event-name="selectedEventName"
+                  :fields="confirmedLandingItems"
+                  :completion-gaps="completionGaps"
+                />
+              </a-collapse-item>
+              <a-collapse-item key="templates" header="方案初始化">
+                <AnesthesiaTemplateSelector compact :selected-template-name="selectedTemplateName" @apply="applyTemplate" />
+              </a-collapse-item>
+              <a-collapse-item key="methods" header="麻醉方式">
+                <AnesthesiaTypeSelector
+                  compact
+                  :primary="primaryMethod"
+                  :auxiliary="auxiliaryMethods"
+                  @update:primary="updatePrimaryMethod"
+                  @update:auxiliary="updateAuxiliaryMethods"
+                />
+              </a-collapse-item>
+              <a-collapse-item key="modules" header="专业字段预览">
+                <DynamicAnesthesiaModules compact :methods="selectedMethodKeys" />
+              </a-collapse-item>
+            </a-collapse>
+          </aside>
+        </div>
+
         <RecordDetailTabs
           v-model:active-tab="activeTab"
           :record="current"
@@ -120,20 +173,53 @@
         </template>
       </a-table>
     </a-modal>
+
+    <AnesthesiaTemplateApplyModal
+      :visible="templateModalVisible"
+      :draft="pendingTemplateDraft"
+      @apply="confirmTemplateApply"
+      @cancel="templateModalVisible = false"
+    />
   </div>
   <a-empty v-else description="暂无麻醉记录单病例" />
 </template>
 
 <script setup lang="ts">
+import { Message } from '@arco-design/web-vue';
 import dayjs from 'dayjs';
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import AnesthesiaTemplateApplyModal from '@/components/anesthesia/record/AnesthesiaTemplateApplyModal.vue';
+import AnesthesiaTemplateSelector from '@/components/anesthesia/record/AnesthesiaTemplateSelector.vue';
+import AnesthesiaTypeSelector from '@/components/anesthesia/record/AnesthesiaTypeSelector.vue';
+import DynamicAnesthesiaModules from '@/components/anesthesia/record/DynamicAnesthesiaModules.vue';
+import EventDetailPanel from '@/components/anesthesia/record/EventDetailPanel.vue';
+import IntraopWorkflowPanel from '@/components/anesthesia/record/IntraopWorkflowPanel.vue';
 import LiveAnesthesiaSheet from '@/components/anesthesia/record/LiveAnesthesiaSheet.vue';
 import RecordDetailTabs from '@/components/anesthesia/record/RecordDetailTabs.vue';
 import RecordQualityPanel from '@/components/anesthesia/record/RecordQualityPanel.vue';
 import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog } from '@/services/anesthesiaRecordEngine';
+import {
+  buildCompletionGaps,
+  buildConfirmedTemplateImpact,
+  buildTemplateApplyDraft,
+  buildTemplateLandingDraft,
+  buildQuickEventPayload,
+  deriveCurrentStage,
+  deriveMethodSelectionFromCase,
+  getDynamicModuleEntries,
+  getQuickEventOption,
+  getMethodLabels,
+  getStageQuickEvents,
+  hasAnesthesiaPlaneModule,
+  mergeSelectedMethods,
+  type AnesthesiaTemplateApplyDraft,
+  type TemplateLandingDraft,
+} from '@/services/anesthesiaRecordMethodEngine';
 import { sortCasesByClinicalPriority } from '@/services/scheduleHelpers';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import type { AnesthesiaMethodKey, TemplateLandingItem, TemplateQualityTip } from '@/mock/anesthesiaRecordPrototype';
+import type { AnesthesiaEvent } from '@/types/anesthesia';
 import type { AnesthesiaPlaneRecord, FluidRecord, MedicationRecord, OutputDetailRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
 
 const route = useRoute();
@@ -146,6 +232,16 @@ const keyword = ref('');
 const qualityVisible = ref(false);
 const patientPanelOpen = ref(false);
 const qualityPanelOpen = ref(false);
+const primaryMethod = ref<AnesthesiaMethodKey>('general');
+const auxiliaryMethods = ref<AnesthesiaMethodKey[]>([]);
+const selectedTemplateName = ref('');
+const templateModalVisible = ref(false);
+const pendingTemplateDraft = ref<TemplateLandingDraft | null>(null);
+const pendingLandingItems = ref<TemplateLandingItem[]>([]);
+const confirmedLandingItems = ref<TemplateLandingItem[]>([]);
+const confirmedQualityTips = ref<TemplateQualityTip[]>([]);
+const recentEventLabel = ref('');
+const selectedEventName = ref('');
 
 const sortedCases = computed(() => sortCasesByClinicalPriority(store.cases));
 const filteredCases = computed(() => {
@@ -163,6 +259,26 @@ const monitorOrder = computed(() => {
   const draft = store.recordDrafts[selectedId.value] as { monitorOrder?: string[] } | undefined;
   return draft?.monitorOrder ?? [];
 });
+const selectedMethodKeys = computed(() => mergeSelectedMethods(primaryMethod.value, auxiliaryMethods.value));
+const appliedMethodLabels = computed(() => getMethodLabels(selectedMethodKeys.value));
+const appliedModules = computed(() => getDynamicModuleEntries(selectedMethodKeys.value));
+const defaultMethodSelection = computed(() => deriveMethodSelectionFromCase(current.value));
+const defaultMethodKeys = computed(() => mergeSelectedMethods(defaultMethodSelection.value.primary, defaultMethodSelection.value.auxiliary));
+const hasConfirmedTemplateLanding = computed(() => !selectedTemplateName.value || confirmedLandingItems.value.length > 0);
+const sheetMethodKeys = computed(() => hasConfirmedTemplateLanding.value ? selectedMethodKeys.value : defaultMethodKeys.value);
+const sheetTemplateName = computed(() => confirmedLandingItems.value.length ? selectedTemplateName.value : '');
+const sheetAppliedMethodLabels = computed(() => getMethodLabels(sheetMethodKeys.value));
+const sheetAppliedModules = computed(() => getDynamicModuleEntries(sheetMethodKeys.value));
+const sheetShowAnesthesiaPlane = computed(() => hasAnesthesiaPlaneModule(sheetMethodKeys.value));
+const currentStage = computed(() => current.value ? deriveCurrentStage(current.value) : '入室后');
+const stageQuickEvents = computed(() => getStageQuickEvents(currentStage.value, selectedMethodKeys.value, selectedTemplateName.value).slice(0, 10));
+const confirmedTemplateImpact = computed(() => {
+  if (!confirmedLandingItems.value.length) return undefined;
+  const impact = buildConfirmedTemplateImpact(confirmedLandingItems.value);
+  impact.qualityTips = confirmedQualityTips.value;
+  return impact;
+});
+const completionGaps = computed(() => current.value ? buildCompletionGaps(current.value, selectedMethodKeys.value, confirmedTemplateImpact.value) : []);
 
 watch(() => route.params.id, (id) => {
   if (id) selectedId.value = String(id);
@@ -170,8 +286,32 @@ watch(() => route.params.id, (id) => {
 watch(selectedId, (id) => {
   const draft = store.recordDrafts[id] as { selectedTab?: string } | undefined;
   activeTab.value = draft?.selectedTab ?? 'patient';
+  const selection = deriveMethodSelectionFromCase(current.value);
+  primaryMethod.value = selection.primary;
+  auxiliaryMethods.value = selection.auxiliary;
+  selectedTemplateName.value = '';
+  pendingLandingItems.value = [];
+  confirmedLandingItems.value = [];
+  confirmedQualityTips.value = [];
+  recentEventLabel.value = '';
+  selectedEventName.value = '';
+  pendingTemplateDraft.value = null;
+  templateModalVisible.value = false;
 });
 watch(activeTab, () => saveDraft(false));
+watch(current, (item) => {
+  const selection = deriveMethodSelectionFromCase(item);
+  primaryMethod.value = selection.primary;
+  auxiliaryMethods.value = selection.auxiliary;
+  selectedTemplateName.value = '';
+  pendingLandingItems.value = [];
+  confirmedLandingItems.value = [];
+  confirmedQualityTips.value = [];
+  recentEventLabel.value = '';
+  selectedEventName.value = '';
+  pendingTemplateDraft.value = null;
+  templateModalVisible.value = false;
+}, { immediate: true });
 
 const selectCase = (id: string) => {
   selectedId.value = id;
@@ -215,17 +355,68 @@ const submitSignature = () => {
   }
   store.lockRecord(selectedId.value);
 };
+const applyTemplate = (templateName: string) => {
+  pendingTemplateDraft.value = buildTemplateLandingDraft(templateName);
+  templateModalVisible.value = true;
+};
+const confirmTemplateApply = (selection: AnesthesiaTemplateApplyDraft) => {
+  primaryMethod.value = selection.primary;
+  auxiliaryMethods.value = selection.auxiliary;
+  selectedTemplateName.value = selection.templateName ?? '';
+  const landingDraft = 'items' in selection ? selection as TemplateLandingDraft : buildTemplateLandingDraft(selection.templateName);
+  pendingLandingItems.value = landingDraft.items;
+  confirmedLandingItems.value = [];
+  confirmedQualityTips.value = selection.impact.qualityTips;
+  templateModalVisible.value = false;
+  pendingTemplateDraft.value = null;
+  Message.info(`已生成${pendingLandingItems.value.length}项待确认落单`);
+};
+const clearAppliedTemplateName = () => {
+  selectedTemplateName.value = '';
+  pendingLandingItems.value = [];
+  confirmedLandingItems.value = [];
+  confirmedQualityTips.value = [];
+};
+const updatePrimaryMethod = (value: AnesthesiaMethodKey) => {
+  primaryMethod.value = value;
+  auxiliaryMethods.value = auxiliaryMethods.value.filter((item) => item !== value);
+  clearAppliedTemplateName();
+};
+const updateAuxiliaryMethods = (value: AnesthesiaMethodKey[]) => {
+  auxiliaryMethods.value = value;
+  clearAppliedTemplateName();
+};
 const addEvent = (type: string) => {
-  store.appendEvent(selectedId.value, {
-    type,
-    stage: type === '抢救' ? '术中' : '入室后',
-    severity: type === '抢救' ? '危急' : '轻度',
-    treatment: '麻醉记录单快捷记录关键节点。',
-  });
-  if (type === '麻醉开始' && current.value) current.value.anesthesiaStart = dayjs().toISOString();
-  if (type === '手术开始' && current.value) current.value.surgeryStart = dayjs().toISOString();
-  if (type === '手术结束' && current.value) current.value.surgeryEnd = dayjs().toISOString();
-  if (type === '离室' && current.value) current.value.leaveRoomTime = dayjs().toISOString();
+  if (!current.value) return;
+  const payload = buildQuickEventPayload(type, current.value);
+  store.appendEvent(selectedId.value, payload);
+  const option = getQuickEventOption(type);
+  if (option.syncField && current.value) current.value[option.syncField] = payload.time;
+  recentEventLabel.value = `${type} ${dayjs(payload.time).format('HH:mm')}`;
+  selectedEventName.value = type;
+  Message.success(`已记录：${recentEventLabel.value}`);
+};
+const confirmLandingItem = (landingId: string) => {
+  const item = pendingLandingItems.value.find((entry) => entry.landingId === landingId);
+  if (!item) return;
+  confirmedLandingItems.value = [...confirmedLandingItems.value, { ...item, status: 'confirmed' }];
+  pendingLandingItems.value = pendingLandingItems.value.filter((entry) => entry.landingId !== landingId);
+  if (item.kind === 'event') selectedEventName.value = item.label;
+  Message.success(`已确认落单：${item.label}`);
+};
+const confirmAllLandingItems = () => {
+  if (!pendingLandingItems.value.length) return;
+  confirmedLandingItems.value = [
+    ...confirmedLandingItems.value,
+    ...pendingLandingItems.value.map((item) => ({ ...item, status: 'confirmed' as const })),
+  ];
+  selectedEventName.value = pendingLandingItems.value.find((item) => item.kind === 'event')?.label ?? selectedEventName.value;
+  const count = pendingLandingItems.value.length;
+  pendingLandingItems.value = [];
+  Message.success(`已确认${count}项落单`);
+};
+const selectSheetEvent = (event: Pick<AnesthesiaEvent, 'type'>) => {
+  selectedEventName.value = event.type;
 };
 const addDrug = (name: string) => store.appendMedicationFromDict(selectedId.value, name);
 const addFluid = (name: string) => store.appendFluidFromDict(selectedId.value, name);
@@ -419,6 +610,50 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   min-width: 0;
 }
 
+.record-workspace {
+  display: grid;
+  grid-template-columns: minmax(860px, 1fr) 340px;
+  gap: 14px;
+  align-items: start;
+}
+
+.sheet-workbench {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dbe6f3;
+  border-radius: 8px;
+  background: #f8fbff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+}
+
+.record-toolbox {
+  position: sticky;
+  top: 124px;
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #dbe6f3;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.toolbox-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.event-feedback {
+  margin-top: 10px;
+}
+
+.record-toolbox :deep(.arco-collapse-item-content-box) {
+  padding: 8px 0 12px;
+}
+
 .record-side {
   position: sticky;
   top: 82px;
@@ -436,6 +671,15 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   .record-side {
     position: static;
     grid-column: 1 / -1;
+  }
+
+  .record-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .record-toolbox {
+    position: static;
+    max-height: none;
   }
 }
 

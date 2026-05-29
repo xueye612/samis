@@ -5,6 +5,7 @@
       <h2>XXX医院麻醉记录单</h2>
       <div class="doc-meta"><span>编号</span><i>{{ record.patientId }}</i><strong>E</strong></div>
     </div>
+    <div v-if="record.locked" class="sheet-locked-ribbon">已锁定，仅可查看</div>
 
     <div class="patient-lines">
       <div>
@@ -35,6 +36,38 @@
       </div>
     </div>
 
+    <section class="sheet-professional-summary" :class="{ 'has-impact': Boolean(templateImpact) }">
+      <div class="professional-summary-head">
+        <strong>专业麻醉记录</strong>
+        <span v-if="appliedTemplateName">模板：{{ appliedTemplateName }}</span>
+        <span>麻醉方法：{{ sheetAnesthesiaMethod }}</span>
+        <span v-if="recentEventLabel" class="recent-event-pill">最近记录：{{ recentEventLabel }}</span>
+      </div>
+      <div class="professional-paper-grid">
+        <section v-for="group in professionalFieldGroups" :key="group.title" class="professional-paper-group">
+          <b>{{ group.title }}</b>
+          <dl>
+            <div v-for="item in group.items" :key="`${group.title}-${item.label}`">
+              <dt>{{ item.label }}</dt>
+              <dd>{{ item.value || '待记录' }}</dd>
+            </div>
+          </dl>
+        </section>
+        <section class="professional-paper-group template-events" v-if="templateEventRows.length">
+          <b>模板事件落单</b>
+          <p>
+            <span v-for="event in templateEventRows" :key="event.id">{{ event.time }} {{ event.type }}</span>
+          </p>
+        </section>
+        <section class="professional-paper-group quality-tips" v-if="templateQualityTips.length">
+          <b>质控提醒</b>
+          <p>
+            <span v-for="tip in templateQualityTips" :key="tip.text" :class="`tip-${tip.level}`">{{ tip.level }}：{{ tip.text }}</span>
+          </p>
+        </section>
+      </div>
+    </section>
+
     <div class="sheet-ruler">
       <div class="ruler-label">项目</div>
       <div class="ruler-track">
@@ -46,9 +79,9 @@
     <div class="sheet-band medication-band" :style="{ '--rows': medicationRowCount }">
       <div class="band-side">麻醉用药</div>
       <div class="band-labels">
-        <span>麻醉平面</span>
+        <span v-if="showAnesthesiaPlane">麻醉平面</span>
         <span v-for="row in medicationRows" :key="row.key">{{ row.label }}</span>
-        <span v-for="index in Math.max(0, medicationRowCount - medicationRows.length - 1)" :key="`med-empty-${index}`"></span>
+        <span v-for="index in Math.max(0, medicationRowCount - medicationRows.length - planeRowOffset)" :key="`med-empty-${index}`"></span>
       </div>
       <div class="band-track" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'drugGrid')">
         <GridLines :grid="bandGrid(medicationRowCount)" />
@@ -64,6 +97,7 @@
           <span
             v-if="!row.end"
             class="drug-point"
+            :class="{ 'is-template': row.template }"
             :style="pointStyle(row.time, row.index, medicationRowCount)"
             @contextmenu.prevent.stop="openMenu($event, 'medication', row.source)"
             @dblclick="openMedicationEditor(row.source)"
@@ -71,6 +105,7 @@
           <span
             v-else
             class="line-segment drug-line"
+            :class="{ 'is-template': row.template }"
             :style="segmentStyle(row.time, row.end, row.index, medicationRowCount)"
             @contextmenu.prevent.stop="openMenu($event, 'medication', row.source)"
             @dblclick="openMedicationEditor(row.source)"
@@ -180,6 +215,7 @@
           :class="event.className"
           :style="{ left: leftFor(event.time) }"
           :title="event.type"
+          @click.stop="emit('selectEvent', event)"
         >{{ event.symbol }}</span>
       </div>
     </div>
@@ -261,7 +297,7 @@
     <div class="sheet-footer-summary">
       <div><strong>术后诊断</strong><span>{{ record.diagnosis }}</span></div>
       <div><strong>实施手术</strong><span>{{ record.surgeryName }}</span></div>
-      <div><strong>麻醉方法</strong><span>{{ record.anesthesiaMethod }}</span></div>
+      <div><strong>麻醉方法</strong><span>{{ sheetAnesthesiaMethod }}</span></div>
       <div><strong>手术医师</strong><span>{{ record.surgeon }}</span></div>
       <div><strong>麻醉医师</strong><span>{{ record.signatures?.anesthesiologist || record.anesthesiologist }}</span></div>
       <div><strong>洗手护士</strong><span>{{ record.anesthesiaNurse }}</span></div>
@@ -525,7 +561,8 @@
 import dayjs from 'dayjs';
 import { computed, defineComponent, h, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import RecordModalShell from './RecordModalShell.vue';
-import type { AnesthesiaPlaneRecord, FluidRecord, MedicationRecord, OutputDetailRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
+import type { AnesthesiaEvent, AnesthesiaPlaneRecord, FluidRecord, MedicationRecord, OutputDetailRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
+import type { DynamicModuleEntry, TemplateImpact, TemplateImpactEvent, TemplateImpactMedication } from '@/mock/anesthesiaRecordPrototype';
 import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/types/system';
 import {
   buildMonitorCells,
@@ -579,12 +616,24 @@ const props = withDefaults(defineProps<{
   transfusionReactions?: string[];
   monitorOrder?: string[];
   readOnly?: boolean;
+  showAnesthesiaPlane?: boolean;
+  appliedTemplateName?: string;
+  appliedMethodLabels?: string[];
+  appliedModules?: DynamicModuleEntry[];
+  templateImpact?: TemplateImpact;
+  recentEventLabel?: string;
 }>(), {
   bloodTypes: () => [],
   rhTypes: () => [],
   transfusionReactions: () => ['无'],
   monitorOrder: () => [],
   readOnly: false,
+  showAnesthesiaPlane: true,
+  appliedTemplateName: '',
+  appliedMethodLabels: () => [],
+  appliedModules: () => [],
+  templateImpact: undefined,
+  recentEventLabel: '',
 });
 
 const emit = defineEmits<{
@@ -595,6 +644,7 @@ const emit = defineEmits<{
   savePlane: [record: AnesthesiaPlaneRecord];
   saveMonitorOrder: [codes: string[]];
   deleteRecord: [kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane', id: string];
+  selectEvent: [event: AnesthesiaEvent];
 }>();
 
 type MenuType = 'grid' | 'planeGrid' | 'plane' | 'drugGrid' | 'medication' | 'infusionGrid' | 'infusion' | 'transfusionGrid' | 'transfusion' | 'monitor' | 'chart' | 'vital' | 'balance' | 'output';
@@ -711,9 +761,33 @@ const vitalDragState = reactive<{
 const sheetStart = computed(() => isoOrClockToClock(props.record.anesthesiaStart ?? props.record.actualStart ?? props.record.plannedStart) || '08:00');
 const sheetEnd = computed(() => calculateLiveSheetEnd(sheetStart.value, collectRecordTimes(props.record)));
 const timeScale = computed(() => buildLiveTimeScale(sheetStart.value, sheetEnd.value));
+const sheetAnesthesiaMethod = computed(() => props.appliedMethodLabels.length ? props.appliedMethodLabels.join(' + ') : props.record.anesthesiaMethod);
 const gridBackgroundStyle = computed(() => ({ '--minor-count': Math.max(1, timeScale.value.minorTicks.length - 1) }));
 const bandGrid = (rows: number) => buildRecordBandGrid(timeScale.value, rows);
 const chartGrid = computed(() => buildRecordBandGrid(timeScale.value, 8));
+const professionalFieldGroups = computed(() => {
+  const fields = props.templateImpact?.professionalFields.length
+    ? props.templateImpact.professionalFields
+    : props.appliedModules.flatMap((module) => module.sections.flatMap((section) => section.items.map((item) => ({
+      group: section.title,
+      label: item.label,
+      value: item.value,
+      method: module.key,
+    }))));
+  const grouped = new Map<string, Array<{ label: string; value: string }>>();
+  fields.forEach((field) => {
+    if (!grouped.has(field.group)) grouped.set(field.group, []);
+    grouped.get(field.group)?.push({ label: field.label, value: field.value });
+  });
+  return Array.from(grouped.entries()).map(([title, items]) => ({ title, items }));
+});
+const templateQualityTips = computed(() => props.templateImpact?.qualityTips ?? []);
+const templateEventRows = computed(() => (props.templateImpact?.events ?? []).map((event, index) => ({
+  id: `template-event-${index}-${event.name}`,
+  type: event.name,
+  time: event.time,
+  source: event,
+})));
 const visibleVitals = computed(() => [...props.record.vitals].sort((a, b) => isoOrClockToClock(a.time).localeCompare(isoOrClockToClock(b.time))));
 const enabledVitalItems = computed(() => props.vitals.filter((item) => item.enabled));
 const selectedMonitorItems = computed(() => selectedMonitorCodes.value
@@ -722,11 +796,13 @@ const selectedMonitorItems = computed(() => selectedMonitorCodes.value
 const availableMonitorItems = computed(() => enabledVitalItems.value.filter((item) => !selectedMonitorCodes.value.includes(item.shortCode)));
 const monitorRows = computed(() => {
   const selected = selectedMonitorCodes.value.length ? selectedMonitorCodes.value : enabledVitalItems.value.slice(0, 8).map((item) => item.shortCode);
-  return selected
+  const selectedWithTemplate = Array.from(new Set([...(props.templateImpact?.monitorCodes ?? []), ...selected]));
+  return selectedWithTemplate
     .map((code) => enabledVitalItems.value.find((item) => item.shortCode === code))
     .filter((item): item is VitalSignDictItem => Boolean(item))
     .slice(0, 10);
 });
+const monitorOrderCodes = computed(() => monitorRows.value.map((item) => item.shortCode));
 const chartVitals = computed(() => monitorRows.value.filter((item) => item.chartEnabled));
 const chartTicks = computed(() => [220, 200, 180, 160, 140, 120, 100, 80, 60, 40, 20].map((value) => ({ value, top: (chartYWithPadding(value, { min: 20, max: 220, height: 300, padding: 18 }) / 300) * 100 })));
 const respiratoryTicks = computed(() => [26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2].map((value) => ({ value, top: (chartYWithPadding(value, { min: 2, max: 26, height: 300, padding: 18 }) / 300) * 100 })));
@@ -735,13 +811,14 @@ const bloodCatalog = computed(() => props.fluids.filter((item) => item.enabled &
 const commonDrugs = computed(() => props.drugs.filter((item) => item.enabled && item.common).slice(0, 8));
 const otherDrugs = computed(() => props.drugs.filter((item) => item.enabled && !item.common));
 const bloodLabel = computed(() => props.record.fluids.find((item) => item.category === '血液制品' && item.bloodType)?.bloodType ?? '-');
-const planeRows = computed(() => (props.record.anesthesiaPlanes ?? []).map((item) => ({
+const planeRowOffset = computed(() => props.showAnesthesiaPlane ? 1 : 0);
+const planeRows = computed(() => (props.showAnesthesiaPlane ? (props.record.anesthesiaPlanes ?? []) : []).map((item) => ({
   key: item.id,
   label: `${item.level}${planeDirectionText(item.direction)}`,
   time: item.time,
   source: item,
 })));
-const medicationRowCount = computed(() => Math.max(5, medicationRows.value.length + 1));
+const medicationRowCount = computed(() => Math.max(5, medicationRows.value.length + planeRowOffset.value));
 const infusionRowCount = computed(() => Math.max(3, infusionRows.value.length));
 const transfusionRowCount = computed(() => Math.max(2, transfusionRows.value.length));
 const monitorRowCount = computed(() => Math.max(4, monitorRows.value.length));
@@ -763,13 +840,13 @@ const eventLegend = [
   { symbol: 'Ⓞ', label: '手术结束' },
   { symbol: 'Φ', label: '麻醉插管' },
 ];
-const monitorCells = computed(() => buildMonitorCells(visibleVitals.value, monitorRows.value, selectedMonitorCodes.value, {
+const monitorCells = computed(() => buildMonitorCells(visibleVitals.value, monitorRows.value, monitorOrderCodes.value, {
   start: sheetStart.value,
   end: sheetEnd.value,
   cellOffsetPercent: Math.min(1.2, Math.max(0.35, 45 / Math.max(180, timeScale.value.totalMinutes))),
 }));
 const hasLineTarget = computed(() => ['plane', 'medication', 'infusion', 'transfusion', 'vital', 'output'].includes(menu.type) && Boolean(menu.target));
-const showPlaneMenus = computed(() => ['grid', 'planeGrid', 'plane', 'drugGrid'].includes(menu.type));
+const showPlaneMenus = computed(() => props.showAnesthesiaPlane && ['grid', 'planeGrid', 'plane', 'drugGrid'].includes(menu.type));
 const showDrugMenus = computed(() => ['grid', 'drugGrid', 'medication'].includes(menu.type));
 const showFluidMenus = computed(() => ['grid', 'infusionGrid', 'transfusionGrid', 'infusion', 'transfusion'].includes(menu.type));
 const showVitalMenus = computed(() => ['grid', 'monitor', 'chart', 'vital'].includes(menu.type));
@@ -782,14 +859,14 @@ const defaultDataList = computed(() => {
   if (['monitor', 'chart', 'vital'].includes(menu.type)) return 'vitals';
   return 'outputs';
 });
-const dataTabs = [
+const dataTabs = computed(() => ([
   { key: 'planes', label: '麻醉平面' },
   { key: 'medications', label: '用药' },
   { key: 'infusions', label: '输液' },
   { key: 'transfusions', label: '输血' },
   { key: 'vitals', label: '生命体征' },
   { key: 'outputs', label: '出入量' },
-] as const;
+] as const).filter((item) => props.showAnesthesiaPlane || item.key !== 'planes'));
 
 watch([enabledVitalItems, () => props.monitorOrder], ([items, order]) => {
   const enabledCodes = items.map((item) => item.shortCode);
@@ -798,14 +875,31 @@ watch([enabledVitalItems, () => props.monitorOrder], ([items, order]) => {
   if (!selectedMonitorCodes.value.length || saved.length) selectedMonitorCodes.value = saved.length ? saved : fallback;
 }, { immediate: true });
 
-const medicationRows = computed(() => props.record.medications.map((item, index) => ({
+const templateMedicationSources = computed<MedicationRecord[]>(() => (props.templateImpact?.medications ?? []).map((item: TemplateImpactMedication, index) => ({
+  id: `template-med-${index}-${item.drug}`,
+  mode: item.mode ?? '单次用药',
+  time: item.time,
+  startTime: item.mode === '持续泵入' ? item.time : undefined,
+  endTime: item.endTime,
+  stopTime: item.endTime,
+  drug: item.drug,
+  name: item.drug,
+  dose: item.dose,
+  unit: item.unit,
+  route: item.route,
+  executor: props.record.anesthesiologist,
+  pumpRate: item.pumpRate,
+  reason: props.appliedTemplateName ? `模板落单：${props.appliedTemplateName}` : '模板落单',
+})));
+const medicationRows = computed(() => [...props.record.medications, ...templateMedicationSources.value].map((item, index) => ({
   key: item.id,
   label: item.drug,
   amount: item.mode === '持续泵入' ? (item.pumpRate || `${item.dose ?? ''}${item.unit ?? ''}`) : `${item.dose ?? ''}${item.unit ?? ''}`,
   time: item.time ?? item.startTime ?? props.record.plannedStart,
   end: item.stopTime ?? item.endTime,
-  index: index + 1,
+  index: index + planeRowOffset.value,
   source: item,
+  template: item.id.startsWith('template-med-'),
 })));
 const infusionRows = computed(() => props.record.fluids.filter((item) => item.category !== '血液制品').map((item, index) => ({
   key: item.id,
@@ -839,14 +933,31 @@ const outputRows = computed(() => {
   const indexByType: Record<OutputDetailRecord['type'], number> = { 尿量: 0, 出血量: 1, 引流量: 2, 其他: 3 };
   return records.map((row) => ({ id: row.id, time: row.time, volume: row.volume, index: indexByType[row.type], source: row }));
 });
-const statusEvents = computed(() => props.record.events.map((event) => ({
-  ...event,
-  symbol: event.type.includes('入室') ? '>' : event.type.includes('麻醉开始') ? 'X' : event.type.includes('麻醉结束') ? '*' : event.type.includes('手术开始') ? '◎' : event.type.includes('手术结束') ? 'Ⓞ' : event.type.includes('插管') ? 'Φ' : event.type.includes('拔管') ? 'Θ' : event.type.includes('离室') ? '▶' : '•',
-  className: event.severity === '危急' || event.severity === '重度' ? 'is-critical' : '',
+const symbolForEvent = (type: string) => (type.includes('入室') ? '>' : type.includes('麻醉开始') ? 'X' : type.includes('麻醉结束') ? '*' : type.includes('手术开始') ? '◎' : type.includes('手术结束') ? 'Ⓞ' : type.includes('插管') ? 'Φ' : type.includes('喉罩') ? '罩' : type.includes('穿刺') ? '针' : type.includes('平面') ? 'T' : type.includes('阻滞') ? 'B' : type.includes('拔管') ? 'Θ' : type.includes('离室') ? '▶' : '•');
+const templateStatusEvents = computed(() => (props.templateImpact?.events ?? []).map((event: TemplateImpactEvent, index) => ({
+  id: `template-status-${index}-${event.name}`,
+  type: event.name,
+  time: event.time,
+  stage: event.stage,
+  severity: event.severity,
+  treatment: event.note,
+  staff: [props.record.anesthesiologist],
+  reported: false,
+  qualityIncluded: event.severity !== '轻度',
+  symbol: symbolForEvent(event.name),
+  className: event.severity === '危急' || event.severity === '重度' ? 'is-critical is-template' : 'is-template',
 })));
-const medSummary = computed(() => props.record.medications.slice(0, 4).map((item) => `${item.drug}${item.dose ?? ''}${item.unit ?? ''}`).join('、') || '待记录');
-const eventSummary = computed(() => props.record.events.filter((item) => item.severity === '重度' || item.severity === '危急').map((item) => item.type).join('、') || '无特殊事件');
-const operationSummary = computed(() => props.record.events.filter((item) => ['手术开始', '手术结束', '插管', '拔管'].some((key) => item.type.includes(key))).map((item) => item.type).join('、') || eventSummary.value);
+const statusEvents = computed(() => [
+  ...props.record.events.map((event) => ({
+    ...event,
+    symbol: symbolForEvent(event.type),
+    className: `${event.severity === '危急' || event.severity === '重度' ? 'is-critical' : ''}${props.recentEventLabel.startsWith(event.type) ? ' is-recent' : ''}`.trim(),
+  })),
+  ...templateStatusEvents.value,
+]);
+const medSummary = computed(() => medicationRows.value.slice(0, 4).map((item) => `${item.label}${item.amount}`).join('、') || '待记录');
+const eventSummary = computed(() => statusEvents.value.filter((item) => item.severity === '重度' || item.severity === '危急').map((item) => item.type).join('、') || '无特殊事件');
+const operationSummary = computed(() => statusEvents.value.filter((item) => ['手术开始', '手术结束', '插管', '拔管', '喉罩', '穿刺', '阻滞'].some((key) => item.type.includes(key))).map((item) => item.type).join('、') || eventSummary.value);
 const postopAnalgesiaSummary = computed(() => (props.record.postoperativeAnalgesia ? `镇痛方式：${props.record.recoveryRecord?.conclusion ?? '待记录'}` : '未启用'));
 
 const formatDate = (value?: string) => (value ? dayjs(value).format('YYYY-MM-DD') : '-');
@@ -1321,11 +1432,27 @@ onBeforeUnmount(() => {
 <style scoped>
 .live-record-card {
   position: relative;
-  border: 1px solid #111827;
+  border: 2px solid #111827;
   background: #fff;
   color: #111827;
   font-family: "SimSun", "Microsoft YaHei", serif;
   overflow: auto;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+}
+
+.sheet-locked-ribbon {
+  position: absolute;
+  top: 44px;
+  right: 18px;
+  z-index: 8;
+  padding: 3px 10px;
+  border: 1px solid #c2410c;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-family: "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .print-heading {
@@ -1385,6 +1512,125 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.sheet-professional-summary {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #111827;
+  background: #fcfdff;
+  font-size: 12px;
+}
+
+.sheet-professional-summary.has-impact {
+  background: linear-gradient(90deg, #f0f7ff 0%, #ffffff 28%, #ffffff 100%);
+}
+
+.professional-summary-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.professional-summary-head strong {
+  font-size: 13px;
+}
+
+.professional-summary-head span {
+  padding-bottom: 1px;
+  border-bottom: 1px solid #999;
+}
+
+.recent-event-pill {
+  border: 1px solid #27c346;
+  border-radius: 999px;
+  padding: 2px 8px !important;
+  background: #f0fff4;
+  color: #15803d;
+  font-family: "Microsoft YaHei", sans-serif;
+}
+
+.professional-paper-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.professional-paper-group {
+  min-width: 0;
+  border: 1px solid #b9c6d5;
+  background: #fff;
+}
+
+.professional-paper-group b {
+  display: block;
+  padding: 4px 6px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+.professional-paper-group dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.professional-paper-group dl div {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  min-height: 26px;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.professional-paper-group dt,
+.professional-paper-group dd {
+  margin: 0;
+  padding: 4px 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.professional-paper-group dt {
+  border-right: 1px solid #e2e8f0;
+  color: #475569;
+}
+
+.professional-paper-group dd {
+  font-weight: 700;
+}
+
+.template-events p,
+.quality-tips p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 5px 6px;
+}
+
+.template-events span,
+.quality-tips span {
+  white-space: nowrap;
+}
+
+.tip-关注 {
+  color: #c2410c;
+}
+
+.tip-预警 {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+@media (max-width: 1280px) {
+  .professional-paper-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .sheet-ruler,
 .sheet-band,
 .vital-chart {
@@ -1411,7 +1657,7 @@ onBeforeUnmount(() => {
 
 .band-track,
 .chart-area {
-  background-image: linear-gradient(to right, rgba(100, 116, 139, 0.42) 1px, transparent 1px);
+  background-image: linear-gradient(to right, rgba(100, 116, 139, 0.28) 1px, transparent 1px);
   background-repeat: repeat;
   background-size: calc(100% / var(--minor-count, 42)) 100%;
 }
@@ -1533,6 +1779,12 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+.drug-point.is-template {
+  border-color: #165dff;
+  background: #dbeafe;
+  color: #0f3a8c;
+}
+
 .blood-point,
 .output-point {
   color: #dc2626;
@@ -1580,6 +1832,11 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   cursor: grab;
   user-select: none;
+}
+
+.line-segment.is-template {
+  border-top-color: #165dff;
+  color: #0f3a8c;
 }
 
 .plane-marker {
@@ -1816,7 +2073,7 @@ onBeforeUnmount(() => {
 
 .status-track {
   position: relative;
-  background-image: linear-gradient(to right, rgba(100, 116, 139, 0.42) 1px, transparent 1px);
+  background-image: linear-gradient(to right, rgba(100, 116, 139, 0.28) 1px, transparent 1px);
   background-repeat: repeat;
   background-size: calc(100% / var(--minor-count, 42)) 100%;
 }
@@ -1843,6 +2100,20 @@ onBeforeUnmount(() => {
 .surgery-status-symbol.is-critical {
   border-color: #dc2626;
   color: #dc2626;
+}
+
+.surgery-status-symbol.is-template {
+  border-color: #165dff;
+  background: #e8f3ff;
+  color: #0f3a8c;
+  box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.12);
+}
+
+.surgery-status-symbol.is-recent {
+  border-color: #00b42a;
+  background: #f0fff4;
+  color: #15803d;
+  box-shadow: 0 0 0 4px rgba(0, 180, 42, 0.14);
 }
 
 .sheet-notes {

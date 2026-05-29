@@ -136,6 +136,7 @@
 <script setup lang="ts">
 import dayjs from 'dayjs';
 import { computed, ref, watch } from 'vue';
+import { quickEventOptions } from '@/mock/anesthesiaRecordPrototype';
 import type { SurgeryCase, VitalSign } from '@/types/anesthesia';
 import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/types/system';
 import type { LiveRecordQualityCheck } from '@/services/anesthesiaRecordEngine';
@@ -159,7 +160,7 @@ const activeKey = ref(props.activeTab ?? 'patient');
 watch(() => props.activeTab, (value) => { if (value) activeKey.value = value; });
 watch(activeKey, (value) => emit('update:activeTab', value));
 
-const eventOptions = ['入室', '麻醉开始', '诱导', '插管', '手术开始', '手术结束', '拔管', '麻醉结束', '离室', '转PACU', '抢救'];
+const eventOptions = quickEventOptions.map((item) => item.name);
 const drugOptions = computed(() => props.drugItems.filter((item) => item.enabled).map((item) => ({ label: item.name, value: item.name })));
 const fluidOptions = computed(() => props.fluidItems.filter((item) => item.enabled).map((item) => ({ label: `${item.subCategory} / ${item.name}`, value: item.name })));
 const sortedEvents = computed(() => [...props.record.events].sort((a, b) => a.time.localeCompare(b.time)));
