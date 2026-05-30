@@ -264,8 +264,7 @@
             </div>
           </div>
           <div class="room-entry-legend">
-            <span><b>▷</b>入手术室</span>
-            <span><b>▶</b>出手术室</span>
+            <span v-for="item in roomLegendItems" :key="item.label"><b>{{ item.symbol }}</b>{{ item.label }}</span>
           </div>
           <div class="vital-symbol-legend">
             <span v-for="item in referenceLegendItems" :key="item.shortCode">
@@ -463,7 +462,14 @@
         <button v-if="(menu.type === 'medication' || menu.type === 'inhaled') && medicationTarget?.mode === '持续泵入'" :disabled="readOnly" @click="pauseMedication">暂停泵注</button>
         <button v-if="(menu.type === 'medication' || menu.type === 'inhaled') && medicationTarget?.status === 'paused'" :disabled="readOnly" @click="resumeMedication">恢复泵注</button>
         <button v-if="menu.type === 'medication' || menu.type === 'inhaled'" :disabled="readOnly" @click="voidMedication">作废用药</button>
-        <button class="danger-menu" :disabled="readOnly" @click="deleteTarget">删除当前项</button>
+        <button v-if="!pendingDelete" class="danger-menu" :disabled="readOnly" @click="pendingDelete = true">删除当前项</button>
+        <div v-else class="menu-delete-confirm">
+          <p>确认删除？此操作会记入修改痕迹，无法在记录中追溯原始数据。</p>
+          <div class="menu-delete-actions">
+            <button @click.stop="pendingDelete = false">取消</button>
+            <button class="danger-menu" :disabled="readOnly" @click="deleteTarget">确认删除</button>
+          </div>
+        </div>
       </div>
 
       <div v-if="showDrugMenus" class="menu-section">
@@ -804,6 +810,7 @@ import { buildLiveTimeScale } from '@/services/anesthesiaRecordEngine';
 import { buildRecordPagination, clipSegmentToPage, isSegmentCrossingPage, isTimeOnPage } from '@/services/recordPaginationEngine';
 import { buildMonitorLayoutObjects, mergeLayoutWarnings, resolveLayoutCollisions } from '@/services/recordLayoutEngine';
 import { buildMilestoneStatusEvents } from '@/services/methodTimelineEngine';
+import { buildEventLegendPairs, buildRoomLegendItems, resolveEventSymbol } from '@/config/recordEventSymbols';
 
 const GridLines = defineComponent({
   name: 'GridLines',
@@ -928,6 +935,7 @@ const menu = reactive<{ visible: boolean; x: number; y: number; type: MenuType; 
   at: '',
 });
 
+const pendingDelete = ref(false);
 const lineVisible = ref(false);
 const monitorVisible = ref(false);
 const monitorBatch = ref(false);
@@ -1190,11 +1198,8 @@ const referenceLegendItems = computed(() => chartVitals.value.map((item) => ({
           : item.shortCode === 'TEMP' ? '体温'
             : item.shortCode,
 })));
-const eventLegendPairs = [
-  [{ symbol: 'X', label: '麻醉开始' }, { symbol: '*', label: '麻醉结束' }],
-  [{ symbol: '◎', label: '手术开始' }, { symbol: 'Ⓞ', label: '手术结束' }],
-  [{ symbol: 'Φ', label: '麻醉插管' }, { symbol: 'Θ', label: '麻醉拔管' }],
-];
+const eventLegendPairs = buildEventLegendPairs();
+const roomLegendItems = buildRoomLegendItems();
 const monitorCells = computed(() => {
   const raw = buildMonitorCells(visibleVitals.value, monitorRows.value, monitorOrderCodes.value, {
     start: sheetStart.value,
@@ -1342,7 +1347,7 @@ const clockToIsoTime = (clock: string) => {
   const [hour, minute] = clock.split(':').map(Number);
   return dayjs(base).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
 };
-const symbolForEvent = (type: string) => (type.includes('入室') ? '>' : type.includes('麻醉开始') ? 'X' : type.includes('麻醉结束') ? '*' : type.includes('手术开始') ? '◎' : type.includes('手术结束') ? 'Ⓞ' : type.includes('插管') ? 'Φ' : type.includes('喉罩') ? '罩' : type.includes('穿刺') ? '针' : type.includes('平面') ? 'T' : type.includes('阻滞') ? 'B' : type.includes('拔管') ? 'Θ' : type.includes('离室') ? '▶' : '•');
+const symbolForEvent = (type: string) => resolveEventSymbol(type);
 const timelineKeyForEventType = (type: string) => {
   const nodes = getMethodTimelineNodes(props.methodKeys);
   const node = nodes.find((item) => item.eventType === type || type.includes(item.eventType ?? '') || (item.eventType && item.eventType.includes(type)));
@@ -1596,6 +1601,7 @@ const eventClock = (event: MouseEvent) => {
   return percentToTime(percent, sheetStart.value, sheetEnd.value);
 };
 const openMenu = (event: MouseEvent, type: MenuType, target: unknown = null) => {
+  pendingDelete.value = false;
   menu.visible = true;
   menu.x = Math.min(event.clientX, window.innerWidth - 260);
   menu.y = Math.min(event.clientY, window.innerHeight - 360);
@@ -1603,7 +1609,7 @@ const openMenu = (event: MouseEvent, type: MenuType, target: unknown = null) => 
   menu.target = target;
   menu.at = eventClock(event);
 };
-const closeMenu = () => { menu.visible = false; };
+const closeMenu = () => { menu.visible = false; pendingDelete.value = false; };
 
 const applyLineDraft = (draft: ReturnType<typeof createMedicationLineDraft> | ReturnType<typeof createFluidLineDraft>) => {
   lineForm.kind = draft.kind;
@@ -2099,15 +2105,49 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .live-record-card {
+  /* 布局尺寸 */
   --sheet-side-col: 28px;
   --sheet-label-col: 112px;
   --sheet-left-total: 140px;
   --chart-status-row: 28px;
   --chart-scale-gutter: 54px;
+
+  /*
+   * 统一视觉规范（设计令牌）。麻醉记录单是正式医疗文书，配色应专业克制：
+   * 以墨色线框为骨架，仅在“用药/输液/输血/吸入/监测”等业务维度使用低饱和的区分色。
+   * 修改配色或线宽时只需调整此处，打印（彩色 / 黑白）与屏幕共用同一套令牌。
+   */
+  /* 文字与框线 */
+  --sheet-ink: #111827;
+  --sheet-ink-soft: #334155;
+  --sheet-muted: #64748b;
+  --sheet-frame: #111827;
+  --sheet-grid-minor: #94a3b8;
+  --sheet-grid-major: #111827;
+  --sheet-row-line: #aeb8c4;
+  --sheet-label-bg: #f8fafc;
+  /* 线宽 */
+  --sheet-segment-width: 3px;
+  /* 业务维度区分色（线 / 点）*/
+  --sheet-drug-ink: #111827;
+  --sheet-drug-fill: #fef08a;
+  --sheet-iv-fluid: #047857;
+  --sheet-blood: #dc2626;
+  --sheet-inhaled: #7c3aed;
+  --sheet-autologous: #b45309;
+  --sheet-monitor: #165dff;
+  --sheet-abnormal: #dc2626;
+  /* 状态色 */
+  --sheet-active: #2563eb;
+  --sheet-template: #165dff;
+  --sheet-locked: #d97706;
+  --sheet-rescue: #dc2626;
+  --sheet-recent: #00b42a;
+
   position: relative;
-  border: 2px solid #111827;
+  border: 2px solid var(--sheet-frame);
   background: #fff;
-  color: #111827;
+  color: var(--sheet-ink);
   font-family: "SimSun", "Microsoft YaHei", serif;
   overflow-x: hidden;
   overflow-y: visible;
@@ -2116,7 +2156,7 @@ onBeforeUnmount(() => {
 }
 
 .live-record-card.is-rescue {
-  border-color: #dc2626;
+  border-color: var(--sheet-rescue);
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12), 0 18px 48px rgba(15, 23, 42, 0.12);
 }
 
@@ -2487,11 +2527,11 @@ onBeforeUnmount(() => {
   top: 0;
   bottom: 0;
   width: 0;
-  border-left: 1px solid #94a3b8;
+  border-left: 1px solid var(--sheet-grid-minor);
 }
 
 :deep(.print-grid-lines span.major) {
-  border-left-color: #111827;
+  border-left-color: var(--sheet-grid-major);
 }
 
 :deep(.print-row-lines span),
@@ -2499,7 +2539,7 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   height: 0;
-  border-top: 1px solid #aeb8c4;
+  border-top: 1px solid var(--sheet-row-line);
 }
 
 .drug-point,
@@ -2519,20 +2559,20 @@ onBeforeUnmount(() => {
 
 .drug-point {
   padding: 0 4px;
-  border: 1px solid #111827;
-  background: #fef08a;
+  border: 1px solid var(--sheet-drug-ink);
+  background: var(--sheet-drug-fill);
   font-weight: 700;
 }
 
 .drug-point.is-template {
-  border-color: #165dff;
+  border-color: var(--sheet-template);
   background: #dbeafe;
   color: #0f3a8c;
 }
 
 .blood-point,
 .output-point {
-  color: #dc2626;
+  color: var(--sheet-blood);
   font-weight: 700;
 }
 
@@ -2554,7 +2594,7 @@ onBeforeUnmount(() => {
   text-align: center;
   text-overflow: ellipsis;
   background: rgba(255, 255, 255, 0.86);
-  color: #165dff;
+  color: var(--sheet-monitor);
   font-weight: 700;
   line-height: 1;
   pointer-events: auto;
@@ -2562,7 +2602,7 @@ onBeforeUnmount(() => {
 }
 
 .monitor-value.abnormal {
-  color: #dc2626;
+  color: var(--sheet-abnormal);
 }
 
 .line-segment {
@@ -2570,8 +2610,8 @@ onBeforeUnmount(() => {
   z-index: 3;
   transform: translateY(-4px);
   min-width: 24px;
-  border-top: 3px solid #165dff;
-  color: #165dff;
+  border-top: var(--sheet-segment-width) solid var(--sheet-monitor);
+  color: var(--sheet-monitor);
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
@@ -2580,7 +2620,7 @@ onBeforeUnmount(() => {
 }
 
 .line-segment.is-template {
-  border-top-color: #165dff;
+  border-top-color: var(--sheet-template);
   color: #0f3a8c;
 }
 
@@ -2657,28 +2697,28 @@ onBeforeUnmount(() => {
 }
 
 .inhaled-line {
-  border-top-color: #7c3aed;
-  color: #7c3aed;
+  border-top-color: var(--sheet-inhaled);
+  color: var(--sheet-inhaled);
 }
 
 .inhaled-point {
-  color: #7c3aed;
-  border-color: #7c3aed;
+  color: var(--sheet-inhaled);
+  border-color: var(--sheet-inhaled);
 }
 
 .autologous-line {
-  border-top-color: #b45309;
-  color: #b45309;
+  border-top-color: var(--sheet-autologous);
+  color: var(--sheet-autologous);
 }
 
 .fluid-line {
-  border-top-color: #047857;
-  color: #047857;
+  border-top-color: var(--sheet-iv-fluid);
+  color: var(--sheet-iv-fluid);
 }
 
 .blood-line {
-  border-top-color: #dc2626;
-  color: #dc2626;
+  border-top-color: var(--sheet-blood);
+  color: var(--sheet-blood);
 }
 
 .vital-chart {
@@ -2820,24 +2860,24 @@ onBeforeUnmount(() => {
 }
 
 .chart-status-symbol.is-active {
-  box-shadow: 0 0 0 2px #2563eb;
+  box-shadow: 0 0 0 2px var(--sheet-active);
   background: #eff6ff;
 }
 
 .chart-status-symbol.is-critical {
-  border-color: #dc2626;
-  color: #dc2626;
+  border-color: var(--sheet-rescue);
+  color: var(--sheet-rescue);
 }
 
 .chart-status-symbol.is-template {
-  border-color: #165dff;
+  border-color: var(--sheet-template);
   background: #e8f3ff;
   color: #0f3a8c;
   box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.12);
 }
 
 .chart-status-symbol.is-recent {
-  border-color: #00b42a;
+  border-color: var(--sheet-recent);
   background: #f0fff4;
   color: #15803d;
   box-shadow: 0 0 0 4px rgba(0, 180, 42, 0.14);
@@ -2967,7 +3007,7 @@ onBeforeUnmount(() => {
 }
 
 .sequence-marker.is-active {
-  box-shadow: 0 0 0 2px #2563eb;
+  box-shadow: 0 0 0 2px var(--sheet-active);
 }
 
 .sequence-marker.orange {
@@ -3035,7 +3075,36 @@ onBeforeUnmount(() => {
 }
 
 .danger-menu {
-  color: #dc2626;
+  color: var(--sheet-blood, #dc2626);
+}
+
+.menu-delete-confirm {
+  padding: 6px 10px;
+}
+
+.menu-delete-confirm p {
+  margin: 0 0 6px;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.menu-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.menu-delete-actions button {
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  padding: 4px 12px;
+}
+
+.menu-delete-actions .danger-menu {
+  border-color: #f1a5a5;
+  background: #fef2f2;
+  font-weight: 700;
 }
 
 .live-modal-body {
@@ -3369,6 +3438,14 @@ onBeforeUnmount(() => {
     border: 1px solid #111;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
+  }
+
+  /* 避免时间段、趋势图、底部汇总在物理分页处被拦腰截断 */
+  .sheet-ruler,
+  .sheet-band,
+  .vital-chart,
+  .reference-notes {
+    break-inside: avoid;
   }
 
   .is-print-mode .sequence-marker {
