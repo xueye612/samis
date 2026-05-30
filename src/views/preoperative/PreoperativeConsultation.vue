@@ -1,48 +1,99 @@
 <template>
-  <div class="page-stack">
-    <a-card class="section-card" :bordered="false" title="麻醉会诊">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
-        <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
-          </a-table-column>
-        </template>
-      </a-table>
-    </a-card>
-  </div>
+  <ModulePageShell title="麻醉会诊" description="跨科室会诊申请与麻醉评估意见">
+    <template #chips>
+      <a-tag color="orangered">待会诊 {{ pendingCount }}</a-tag>
+      <a-tag color="green">已完成 {{ store.consultations.length - pendingCount }}</a-tag>
+    </template>
+    <a-row :gutter="16">
+      <a-col :span="14">
+        <a-card class="section-card" :bordered="false" title="会诊列表">
+          <a-table
+            :data="store.consultations"
+            :pagination="false"
+            row-key="id"
+            :row-class="rowClass"
+            @row-click="selectConsultation"
+          >
+            <template #columns>
+              <a-table-column title="患者" data-index="patientName" />
+              <a-table-column title="申请科室" data-index="requestDept" />
+              <a-table-column title="会诊日期" data-index="consultDate" :width="120" />
+              <a-table-column title="会诊医师" data-index="consultant" :width="100" />
+              <a-table-column title="状态" :width="100">
+                <template #cell="{ record }">
+                  <a-tag :color="record.status === '已完成' ? 'green' : 'orangered'">{{ record.status }}</a-tag>
+                </template>
+              </a-table-column>
+            </template>
+          </a-table>
+        </a-card>
+      </a-col>
+      <a-col :span="10">
+        <a-card class="section-card" :bordered="false" title="会诊意见">
+          <template v-if="selected">
+            <a-descriptions :column="1" bordered size="small">
+              <a-descriptions-item label="患者">{{ selected.patientName }}</a-descriptions-item>
+              <a-descriptions-item label="申请科室">{{ selected.requestDept }}</a-descriptions-item>
+              <a-descriptions-item label="会诊医师">{{ selected.consultant }}</a-descriptions-item>
+              <a-descriptions-item label="状态">
+                <a-tag :color="selected.status === '已完成' ? 'green' : 'orangered'">{{ selected.status }}</a-tag>
+              </a-descriptions-item>
+            </a-descriptions>
+            <a-divider />
+            <div class="opinion-block">
+              <div class="opinion-label">麻醉评估意见</div>
+              <p>{{ selected.opinion }}</p>
+            </div>
+            <a-button type="text" @click="router.push(`/surgery/detail/${selected.caseId}`)">查看患者详情</a-button>
+          </template>
+          <EmptyState v-else title="选择会诊记录" description="点击左侧列表查看会诊意见" icon="IconList" />
+        </a-card>
+      </a-col>
+    </a-row>
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import type { TableData } from '@arco-design/web-vue/es/table/interface';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import EmptyState from '@/components/shared/EmptyState.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
-
-interface RowItem { id: string; label: string; desc: string; link?: string }
+import type { ConsultationRecord } from '@/types/clinicalModules';
 
 const store = useAnesthesiaStore();
 const router = useRouter();
-const rows = computed(() => buildRows('cases'));
+const selectedId = ref(store.consultations[0]?.id ?? '');
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
+const pendingCount = computed(() => store.consultations.filter((item) => item.status === '待会诊').length);
+const selected = computed(() => store.consultations.find((item) => item.id === selectedId.value));
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/record/${record.link}`);
+const selectConsultation = (record: TableData) => {
+  selectedId.value = (record as ConsultationRecord).id;
 };
+
+const rowClass = (record: ConsultationRecord) => (record.id === selectedId.value ? 'row-active' : '');
 </script>
+
+<style scoped>
+.opinion-block {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  margin-bottom: var(--space-3);
+}
+.opinion-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+.opinion-block p {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+:deep(.row-active td) {
+  background: rgb(219 234 254 / 40%);
+}
+</style>

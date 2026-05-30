@@ -1,11 +1,11 @@
 <template>
   <section class="timeline-rail" :class="{ embedded }">
-    <header v-if="!embedded" class="timeline-rail-head">
+    <header v-if="!embedded && showHeader" class="timeline-rail-head">
       <strong>关键时间轴</strong>
       <span>{{ methodLabels.join(' + ') || '待确认麻醉方式' }}</span>
     </header>
 
-    <div v-if="embedded" class="sheet-band timeline-band">
+    <div v-if="embedded" class="sheet-band timeline-band" :style="timelineBandStyle">
       <div class="band-side">关键时间</div>
       <div class="band-labels timeline-labels"></div>
       <div ref="trackRef" class="band-track timeline-track" :style="trackStyle">
@@ -28,7 +28,10 @@
             type="button"
             class="timeline-node-embedded"
             :class="{ recorded: node.recorded, active: activeKey === node.key, disabled: locked }"
-            :style="{ left: `${node.leftPercent}%` }"
+            :style="{
+              left: `${node.displayPercent}%`,
+              transform: `translate(-50%, calc(-50% + ${node.lane * laneStepPx}px))`,
+            }"
             :disabled="locked"
             @click.stop="openPopover(node)"
           >
@@ -55,31 +58,49 @@
       </div>
     </div>
 
-    <div v-else class="timeline-track">
+    <div v-else class="timeline-list">
       <a-popover
-        v-for="node in nodes"
+        v-for="(node, index) in nodes"
         :key="node.key"
         trigger="click"
-        position="bottom"
+        position="left"
         :popup-visible="popoverKey === node.key"
         @popup-visible-change="(visible) => onPopoverVisible(node.key, visible)"
       >
         <button
           type="button"
-          class="timeline-node"
-          :class="{ recorded: node.recorded, active: activeKey === node.key }"
+          class="timeline-row"
+          :class="{
+            recorded: node.recorded,
+            active: activeKey === node.key,
+            pending: !node.recorded,
+            last: index === nodes.length - 1,
+          }"
           :disabled="locked"
           @click="openPopover(node)"
         >
-          <span class="node-label">{{ node.label }}</span>
-          <span class="node-time">{{ node.recorded ? formatTimelineClock(node.time) : '待记录' }}</span>
+          <span class="timeline-marker" aria-hidden="true">
+            <i class="timeline-dot"></i>
+            <i v-if="index < nodes.length - 1" class="timeline-stem"></i>
+          </span>
+          <span class="timeline-row-main">
+            <span class="node-label">{{ node.label }}</span>
+            <span class="node-time">{{ node.recorded ? formatTimelineClock(node.time) : '待记录' }}</span>
+          </span>
         </button>
         <template #content>
           <div class="timeline-popover">
-            <a-time-picker v-model="editorTime" format="HH:mm" value-format="HH:mm" style="width: 100%" />
+            <p>{{ node.label }}</p>
+            <a-time-picker
+              v-model="editorTime"
+              format="HH:mm"
+              value-format="HH:mm"
+              style="width: 100%"
+              :disabled="locked"
+            />
             <a-space>
-              <a-button size="mini" type="primary" @click="saveNow(node)">现在</a-button>
-              <a-button size="mini" type="primary" @click="saveNode(node)">保存</a-button>
+              <a-button size="mini" type="primary" :disabled="locked" @click="saveNow(node)">现在</a-button>
+              <a-button size="mini" type="primary" :disabled="locked" @click="saveNode(node)">保存</a-button>
             </a-space>
           </div>
         </template>
@@ -92,7 +113,8 @@
 import dayjs from 'dayjs';
 import { computed, ref, watch } from 'vue';
 import { buildRecordBandGrid, buildLiveTimeScale, timeToPercent } from '@/services/anesthesiaRecordEngine';
-import { buildTimelineNodeStates, formatTimelineClock, type MethodTimelineNode } from '@/services/methodTimelineEngine';
+import { resolveTimelineNodeLanes } from '@/services/recordLayoutEngine';
+import { buildTimelineNodeStates, buildRecordClockIso, buildRecordNowIso, formatTimelineClock, type MethodTimelineNode } from '@/services/methodTimelineEngine';
 import type { AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
 import type { SurgeryCase } from '@/types/anesthesia';
 
@@ -105,11 +127,13 @@ const props = withDefaults(defineProps<{
   sheetStart?: string;
   sheetEnd?: string;
   activeKey?: string;
+  showHeader?: boolean;
 }>(), {
   methodLabels: () => [],
   locked: false,
   embedded: true,
   activeKey: '',
+  showHeader: true,
 });
 
 const emit = defineEmits<{
@@ -143,24 +167,27 @@ const positionedNodes = computed(() => {
   const start = props.sheetStart || timeScale.value.start;
   const end = props.sheetEnd || timeScale.value.end;
   const total = nodes.value.length || 1;
-  return nodes.value.map((node, index) => ({
+  const raw = nodes.value.map((node, index) => ({
     ...node,
     leftPercent: node.time
       ? timeToPercent(node.time, start, end)
-      : Number((((index + 0.5) / total) * 100)).toFixed(4),
+      : Number(((index + 0.5) / total) * 100),
   }));
+  return resolveTimelineNodeLanes(raw);
 });
 
-const buildIsoTime = (clock: string) => {
-  const base = props.record.plannedStart || props.record.anesthesiaStart || dayjs().toISOString();
-  const [hour, minute] = clock.split(':').map(Number);
-  return dayjs(base).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
-};
+const maxTimelineLane = computed(() => positionedNodes.value.reduce((max, node) => Math.max(max, node.lane), 0));
+const timelineBandStyle = computed(() => ({
+  minHeight: `${Math.max(64, 36 + (maxTimelineLane.value + 1) * 28)}px`,
+}));
+const laneStepPx = 28;
+
+const buildIsoTime = (clock: string) => buildRecordClockIso(props.record, clock);
 
 const openPopover = (node: MethodTimelineNode & { time?: string }) => {
   if (props.locked) return;
   popoverKey.value = node.key;
-  editorTime.value = node.time ? dayjs(node.time).format('HH:mm') : dayjs().format('HH:mm');
+  editorTime.value = node.time ? dayjs(node.time).format('HH:mm') : dayjs(buildRecordNowIso(props.record)).format('HH:mm');
   emit('focus', node);
 };
 
@@ -176,7 +203,7 @@ const saveNode = (node: MethodTimelineNode) => {
 
 const saveNow = (node: MethodTimelineNode) => {
   if (props.locked) return;
-  emit('save', node, dayjs().toISOString());
+  emit('save', node, buildRecordNowIso(props.record));
   popoverKey.value = '';
 };
 
@@ -204,7 +231,7 @@ defineExpose({ trackRef });
 .timeline-band {
   display: grid;
   grid-template-columns: var(--sheet-side-col, 28px) var(--sheet-label-col, 112px) 1fr;
-  min-height: 56px;
+  min-height: 64px;
   border-bottom: 1px solid #111827;
 }
 
@@ -226,6 +253,7 @@ defineExpose({ trackRef });
 .timeline-track {
   position: relative;
   min-height: 56px;
+  overflow: visible;
   background-image: linear-gradient(to right, rgba(71, 85, 105, 0.32) 1px, transparent 1px);
   background-repeat: repeat;
 }
@@ -250,8 +278,9 @@ defineExpose({ trackRef });
   z-index: 3;
   display: grid;
   gap: 2px;
-  min-width: 62px;
-  padding: 4px 6px;
+  min-width: 56px;
+  max-width: 72px;
+  padding: 3px 5px;
   border: 1.5px solid #64748b;
   border-radius: 6px;
   background: #fff;
@@ -305,26 +334,134 @@ defineExpose({ trackRef });
   cursor: not-allowed;
 }
 
-.timeline-track:not(.timeline-track) {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-}
-
-.timeline-node {
+.timeline-rail:not(.embedded) .timeline-list {
   display: grid;
-  gap: 2px;
-  min-width: 88px;
-  padding: 8px 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #f8fafc;
-  cursor: pointer;
+  gap: 0;
+  max-height: min(420px, calc(100vh - 220px));
+  overflow: auto;
+  padding: 2px 0;
 }
 
-.timeline-node.recorded {
+.timeline-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
+  width: 100%;
+  min-height: 34px;
+  margin: 0;
+  padding: 2px 4px 2px 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.timeline-row:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.timeline-row.active {
+  background: #eff6ff;
+}
+
+.timeline-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.timeline-marker {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  width: 18px;
+  min-height: 34px;
+}
+
+.timeline-dot {
+  position: relative;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  margin-top: 12px;
+  border: 2px solid #94a3b8;
+  border-radius: 50%;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.timeline-row.recorded .timeline-dot {
+  border-color: #2563eb;
+  background: #2563eb;
+}
+
+.timeline-row.active .timeline-dot {
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 18%);
+}
+
+.timeline-stem {
+  position: absolute;
+  top: 20px;
+  bottom: -2px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: #dbeafe;
+}
+
+.timeline-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.timeline-row.recorded .timeline-row-main {
+  border-color: #dbeafe;
+  background: #f8fbff;
+}
+
+.timeline-row.pending .timeline-row-main {
+  border-color: #e2e8f0;
+  background: #fff;
+  border-style: dashed;
+}
+
+.timeline-row.active .timeline-row-main {
   border-color: #93c5fd;
   background: #eff6ff;
+}
+
+.node-label {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-time {
+  flex-shrink: 0;
+  min-width: 42px;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-row.pending .node-time {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .timeline-popover {

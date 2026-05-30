@@ -107,3 +107,40 @@ export function mergeLayoutWarnings(...groups: LayoutWarning[][]): LayoutWarning
   groups.flat().forEach((item) => map.set(item.id, item));
   return Array.from(map.values());
 }
+
+export function resolveTimelineNodeLanes<T extends { leftPercent: number }>(
+  nodes: T[],
+  nodeWidthPercent = 4.8,
+): Array<T & { lane: number; displayPercent: number }> {
+  const sorted = [...nodes].sort((a, b) => a.leftPercent - b.leftPercent);
+  const placed: Array<T & { lane: number; displayPercent: number }> = [];
+
+  const overlaps = (percent: number, laneIndex: number) => placed.some((item) =>
+    item.lane === laneIndex && Math.abs(item.displayPercent - percent) < nodeWidthPercent,
+  );
+
+  sorted.forEach((node) => {
+    let lane = 0;
+    let displayPercent = node.leftPercent;
+
+    while (overlaps(displayPercent, lane)) {
+      lane += 1;
+    }
+
+    if (lane > 0) {
+      const prevLane = placed
+        .filter((item) => item.lane === lane - 1)
+        .sort((a, b) => Math.abs(a.displayPercent - displayPercent) - Math.abs(b.displayPercent - displayPercent))[0];
+      if (prevLane && Math.abs(prevLane.displayPercent - displayPercent) < nodeWidthPercent) {
+        displayPercent = Math.min(
+          99,
+          Math.max(1, displayPercent + (nodeWidthPercent - Math.abs(prevLane.displayPercent - displayPercent)) * 0.55),
+        );
+      }
+    }
+
+    placed.push({ ...node, lane, displayPercent });
+  });
+
+  return placed;
+}

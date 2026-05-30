@@ -1,48 +1,80 @@
 <template>
-  <div class="page-stack">
-    <a-card class="section-card" :bordered="false" title="质控总览">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
+  <ModulePageShell title="质控总览" description="日常质控抽查与 26 项专业指标看板入口">
+    <template #chips>
+      <a-tag color="red">不合格 {{ resultCount('不合格') }}</a-tag>
+      <a-tag color="green">合格 {{ resultCount('合格') }}</a-tag>
+      <a-tag color="orangered">待查 {{ resultCount('待查') }}</a-tag>
+    </template>
+    <template #stats>
+      <MetricCard label="抽查项" :value="store.qualityChecks.length" icon="IconFile" />
+      <MetricCard label="不合格" :value="resultCount('不合格')" icon="IconClose" variant="danger" />
+      <MetricCard label="待整改" :value="rectifyCount" icon="IconExclamationCircle" variant="warn" />
+    </template>
+    <a-card class="section-card" :bordered="false">
+      <template #title>26 项质控指标</template>
+      <template #extra>
+        <a-button type="primary" @click="router.push('/quality/dashboard')">
+          进入质控看板
+        </a-button>
+      </template>
+      <p class="bridge-desc">查看 26 项麻醉专业医疗质量控制指标的当前值、趋势分析与病例穿透。</p>
+    </a-card>
+    <a-card class="section-card" :bordered="false" title="质控抽查记录">
+      <a-table :data="store.qualityChecks" :pagination="false" row-key="id">
         <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
+          <a-table-column title="检查项" data-index="checkItem" />
+          <a-table-column title="标准" data-index="standard" />
+          <a-table-column title="结果" :width="100">
+            <template #cell="{ record }">
+              <a-tag :color="checkResultColor(record.result)">{{ record.result }}</a-tag>
+            </template>
+          </a-table-column>
+          <a-table-column title="检查人" data-index="checker" :width="100" />
+          <a-table-column title="检查日期" data-index="checkDate" :width="120" />
+          <a-table-column title="问题描述" data-index="issueDesc" />
+          <a-table-column title="整改状态" :width="100">
+            <template #cell="{ record }">
+              <a-tag v-if="record.rectifyStatus" :color="rectifyColor(record.rectifyStatus)">{{ record.rectifyStatus }}</a-tag>
+              <span v-else class="muted">—</span>
+            </template>
           </a-table-column>
         </template>
       </a-table>
     </a-card>
-  </div>
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
+import MetricCard from '@/components/MetricCard.vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
-
-interface RowItem { id: string; label: string; desc: string; link?: string }
+import type { QualityCheckRecord } from '@/types/clinicalModules';
 
 const store = useAnesthesiaStore();
 const router = useRouter();
-const rows = computed(() => buildRows('indicatorDetails'));
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
+const resultCount = (result: QualityCheckRecord['result']) => store.qualityChecks.filter((item) => item.result === result).length;
+const rectifyCount = computed(() => store.qualityChecks.filter((item) => item.rectifyStatus && item.rectifyStatus !== '已闭环').length);
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/record/${record.link}`);
-};
+const checkResultColor = (result: QualityCheckRecord['result']) => ({
+  合格: 'green',
+  不合格: 'red',
+  待查: 'orangered',
+}[result] ?? 'gray');
+
+const rectifyColor = (status: NonNullable<QualityCheckRecord['rectifyStatus']>) => ({
+  待整改: 'orangered',
+  整改中: 'arcoblue',
+  已闭环: 'green',
+}[status] ?? 'gray');
 </script>
+
+<style scoped>
+.bridge-desc {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+</style>

@@ -1,57 +1,66 @@
 <template>
-  <div class="page-stack">
-    <section class="module-hero">
-      <div>
-        <h2 class="module-hero__title">非计划事件追踪</h2>
-        <p class="module-hero__desc">识别术后非计划事件，快速进入病例详情开展整改。</p>
-      </div>
-      <div class="module-hero__chips">
-        <a-tag color="red">事件 {{ rows.length }}</a-tag>
-      </div>
-    </section>
-    <a-card class="section-card" :bordered="false" title="非计划事件追踪">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
+  <ModulePageShell title="非计划事件追踪" description="非计划转 ICU、非计划二次插管等事件监控">
+    <template #chips>
+      <a-tag color="orangered">事件 {{ eventCases.length }}</a-tag>
+    </template>
+    <a-card class="section-card" :bordered="false" title="非计划事件病例">
+      <a-table :data="eventCases" row-key="id" :pagination="{ pageSize: 8 }">
         <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
+          <a-table-column title="患者" data-index="patientName" :width="100" />
+          <a-table-column title="手术" data-index="surgeryName" />
+          <a-table-column title="事件类型">
+            <template #cell="{ record }">{{ eventLabel(record) }}</template>
+          </a-table-column>
+          <a-table-column title="计划转 ICU" :width="110">
+            <template #cell="{ record }">
+              <a-tag v-if="record.transferIcuPlanned" color="arcoblue">计划内</a-tag>
+              <span v-else class="muted">否</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="转出去向" :width="100">
+            <template #cell="{ record }">{{ record.transferTo ?? '—' }}</template>
+          </a-table-column>
+          <a-table-column title="状态" :width="100">
+            <template #cell="{ record }"><StatusTag :value="record.status" /></template>
+          </a-table-column>
+          <a-table-column title="操作" :width="120" fixed="right">
+            <template #cell="{ record }">
+              <a-button size="mini" type="primary" @click="goDetail(record.id)">详情</a-button>
+            </template>
           </a-table-column>
         </template>
       </a-table>
     </a-card>
-  </div>
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
+import StatusTag from '@/components/StatusTag.vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import type { SurgeryCase } from '@/types/anesthesia';
 
-interface RowItem { id: string; label: string; desc: string; link?: string }
+const UNPLANNED_TYPES = ['非计划转ICU', '非计划二次插管', '心脏骤停', '严重过敏'];
 
 const store = useAnesthesiaStore();
 const router = useRouter();
-const rows = computed(() => buildRows('cases'));
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
+const hasUnplannedEvent = (item: SurgeryCase) =>
+  item.events.some((e) => UNPLANNED_TYPES.includes(e.type) || (e.type.includes('非计划') && e.qualityIncluded));
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/detail/${record.link}`);
+const eventCases = computed(() =>
+  store.cases.filter((item) => item.transferIcuPlanned || hasUnplannedEvent(item) || item.transferTo === 'ICU'),
+);
+
+const eventLabel = (item: SurgeryCase) => {
+  const evt = item.events.find((e) => UNPLANNED_TYPES.includes(e.type) || e.type.includes('非计划'));
+  if (evt) return evt.type;
+  if (item.transferIcuPlanned) return '计划转 ICU';
+  if (item.transferTo === 'ICU') return '转出 ICU';
+  return '—';
 };
+
+const goDetail = (id: string) => router.push(`/surgery/detail/${id}`);
 </script>

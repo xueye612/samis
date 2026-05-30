@@ -1,51 +1,73 @@
 <template>
-  <div class="page-stack">
-    <a-card class="section-card" :bordered="false" title="麻醉计划">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
-        <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="150">
-            <template #cell="{ record }">
-              <a-button size="mini" type="primary" @click="go(record)">进入记录单</a-button>
-            </template>
-          </a-table-column>
-        </template>
-      </a-table>
+  <ModulePageShell title="麻醉计划" description="基于术前访视评估制定个体化麻醉方案">
+    <template #toolbar>
+      <a-select v-model="selectedId" style="width: 280px">
+        <a-option v-for="item in store.cases" :key="item.id" :value="item.id">
+          {{ item.room }} · {{ item.patientName }} · {{ item.surgeryName }}
+        </a-option>
+      </a-select>
+    </template>
+    <a-card v-if="current" class="section-card" :bordered="false">
+      <a-descriptions :column="4" bordered size="medium">
+        <a-descriptions-item label="患者">{{ current.patientName }}</a-descriptions-item>
+        <a-descriptions-item label="性别/年龄">{{ current.gender }} / {{ current.age }}岁</a-descriptions-item>
+        <a-descriptions-item label="科室">{{ current.department }}</a-descriptions-item>
+        <a-descriptions-item label="手术">{{ current.surgeryName }}</a-descriptions-item>
+      </a-descriptions>
+      <a-form :model="current.preVisit" layout="vertical" style="margin-top: 16px">
+        <a-row :gutter="14">
+          <a-col :span="6"><a-form-item label="身高(cm)"><a-input-number v-model="current.preVisit.height" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="体重(kg)"><a-input-number v-model="current.preVisit.weight" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="BMI"><a-input :model-value="bmi" readonly /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="ASA分级"><a-select v-model="current.preVisit.asa" :options="['I', 'II', 'III', 'IV', 'V']" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="过敏史"><a-textarea v-model="current.preVisit.allergy" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="既往麻醉史"><a-textarea v-model="current.preVisit.anesthesiaHistory" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="困难气道评估"><a-textarea v-model="current.preVisit.difficultAirway" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="术前禁食"><a-textarea v-model="current.preVisit.fasting" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="术前用药"><a-textarea v-model="current.preVisit.preMedication" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="术前特殊情况"><a-textarea v-model="current.preVisit.specialCondition" /></a-form-item></a-col>
+          <a-col :span="18"><a-form-item label="麻醉计划"><a-textarea v-model="current.preVisit.plan" :auto-size="{ minRows: 3 }" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="访视医师签名"><a-input v-model="current.preVisit.doctorSignature" /></a-form-item></a-col>
+          <a-col :span="24"><a-checkbox v-model="current.preVisit.completed">访视完成并提交</a-checkbox></a-col>
+        </a-row>
+      </a-form>
+      <div class="form-actions">
+        <a-space>
+          <a-button type="primary" @click="Message.success('麻醉计划已保存')">保存计划</a-button>
+          <a-button @click="router.push(buildRecordRoute(current.id, 'plan'))">进入记录单</a-button>
+        </a-space>
+      </div>
     </a-card>
-  </div>
+    <EmptyState v-else title="请选择患者" description="从上方下拉框选择需要制定麻醉计划的患者" icon="IconFile" />
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { Message } from '@arco-design/web-vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import EmptyState from '@/components/shared/EmptyState.vue';
 import { buildRecordRoute } from '@/services/recordNavigation';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
-interface RowItem { id: string; label: string; desc: string; link?: string }
-
 const store = useAnesthesiaStore();
 const router = useRouter();
-const rows = computed(() => buildRows('cases'));
+const selectedId = ref(store.cases[0]?.id ?? '');
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
+const current = computed(() => store.cases.find((item) => item.id === selectedId.value));
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(buildRecordRoute(record.link, 'plan'));
-};
+const bmi = computed(() => {
+  if (!current.value) return '';
+  const height = current.value.preVisit.height / 100;
+  return (current.value.preVisit.weight / (height * height)).toFixed(1);
+});
 </script>
+
+<style scoped>
+.form-actions {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+</style>

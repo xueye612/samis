@@ -3,11 +3,10 @@ import PaperFormField from '@/components/anesthesia/record/sheet/PaperFormField.
 import PaperPickerField from '@/components/anesthesia/record/sheet/PaperPickerField.vue';
 import AnesthesiaMethodPickerField from '@/components/anesthesia/record/sheet/AnesthesiaMethodPickerField.vue';
 import type { AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
-import type { AnesthesiaRecordSnapshot, TimeAxisPageConfig } from '@/types/anesthesiaRecord';
+import type { AnesthesiaRecordSnapshot } from '@/types/anesthesiaRecord';
 
 defineProps<{
   snapshot: AnesthesiaRecordSnapshot;
-  page: TimeAxisPageConfig;
   recordNo?: string;
   readOnly?: boolean;
   printMode?: boolean;
@@ -45,7 +44,6 @@ const emit = defineEmits<{
       <div class="doc-meta">
         <span class="meta-label">编号</span>
         <i>{{ recordNo ?? snapshot.recordNo }}</i>
-        <strong>第{{ page.pageNo }}/{{ page.pageCount }}页</strong>
       </div>
     </div>
 
@@ -232,11 +230,6 @@ const emit = defineEmits<{
   font-style: normal;
   min-width: 56px;
   border-bottom: 1px solid #555;
-}
-
-.record-header .doc-meta strong {
-  margin-left: 6px;
-  font-size: 13px;
 }
 
 .patient-grid,

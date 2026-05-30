@@ -3,15 +3,20 @@ import Login from '@/views/Login.vue';
 import WorkbenchOverview from '@/views/workbench/WorkbenchOverview.vue';
 import WorkbenchRooms from '@/views/workbench/WorkbenchRooms.vue';
 import WorkbenchTodos from '@/views/workbench/WorkbenchTodos.vue';
+import WorkbenchNoShift from '@/views/workbench/WorkbenchNoShift.vue';
+import WorkbenchEmergency from '@/views/workbench/WorkbenchEmergency.vue';
 import PreoperativeRequests from '@/views/preoperative/PreoperativeRequests.vue';
 import PreoperativeConsultation from '@/views/preoperative/PreoperativeConsultation.vue';
 import PreoperativeExamReview from '@/views/preoperative/PreoperativeExamReview.vue';
 import PreoperativeConsent from '@/views/preoperative/PreoperativeConsent.vue';
 import PreoperativeSafetyCheck from '@/views/preoperative/PreoperativeSafetyCheck.vue';
 import SurgerySchedule from '@/views/SurgerySchedule.vue';
+import ScheduleDuty from '@/views/surgery/ScheduleDuty.vue';
 import PatientAnesthesiaDetail from '@/views/PatientAnesthesiaDetail.vue';
 import PreVisit from '@/views/PreVisit.vue';
 import AnesthesiaPlan from '@/views/surgery/AnesthesiaPlan.vue';
+import AnesthesiaHandover from '@/views/surgery/AnesthesiaHandover.vue';
+import AnesthesiaSummary from '@/views/surgery/AnesthesiaSummary.vue';
 import AnesthesiaRecord from '@/views/AnesthesiaRecord.vue';
 import SurgeryMedications from '@/views/surgery/SurgeryMedications.vue';
 import SurgeryFluids from '@/views/surgery/SurgeryFluids.vue';
@@ -23,6 +28,8 @@ import PacuList from '@/views/PacuList.vue';
 import PacuRecord from '@/views/PacuRecord.vue';
 import PacuTransfer from '@/views/PacuTransfer.vue';
 import PacuAlerts from '@/views/pacu/PacuAlerts.vue';
+import PacuBooking from '@/views/pacu/PacuBooking.vue';
+import PacuReceive from '@/views/pacu/PacuReceive.vue';
 import PostoperativeAnalgesia from '@/views/postoperative/PostoperativeAnalgesia.vue';
 import PostoperativeFollowupPage from '@/views/postoperative/PostoperativeFollowupPage.vue';
 import PostoperativeComplications from '@/views/postoperative/PostoperativeComplications.vue';
@@ -64,6 +71,8 @@ const router = createRouter({
     { path: '/workbench/overview', name: 'workbenchOverview', component: WorkbenchOverview, meta: { menu: 'workbench', title: '今日麻醉工作台' } },
     { path: '/workbench/rooms', name: 'workbenchRooms', component: WorkbenchRooms, meta: { menu: 'workbench', title: '手术间状态总览' } },
     { path: '/workbench/todos', name: 'workbenchTodos', component: WorkbenchTodos, meta: { menu: 'workbench', title: '我的待办' } },
+    { path: '/workbench/no-shift', name: 'workbenchNoShift', component: WorkbenchNoShift, meta: { menu: 'workbench', title: '今日无排班' } },
+    { path: '/workbench/emergency', name: 'workbenchEmergency', component: WorkbenchEmergency, meta: { menu: 'workbench', title: '紧急呼叫' } },
     { path: '/preoperative/requests', name: 'preoperativeRequests', component: PreoperativeRequests, meta: { menu: 'preoperative', title: '手术申请接收' } },
     { path: '/preoperative/consultation', name: 'preoperativeConsultation', component: PreoperativeConsultation, meta: { menu: 'preoperative', title: '麻醉会诊' } },
     { path: '/preoperative/exam-review', name: 'preoperativeExamReview', component: PreoperativeExamReview, meta: { menu: 'preoperative', title: '术前检查审核' } },
@@ -71,9 +80,12 @@ const router = createRouter({
     { path: '/preoperative/safety-check', name: 'preoperativeSafetyCheck', component: PreoperativeSafetyCheck, meta: { menu: 'preoperative', title: '手术安全核查' } },
     { path: '/surgery', redirect: '/surgery/schedule' },
     { path: '/surgery/schedule', name: 'schedule', component: SurgerySchedule, meta: { menu: 'surgery', title: '手术排班' } },
+    { path: '/surgery/duty', name: 'scheduleDuty', component: ScheduleDuty, meta: { menu: 'surgery', title: '值班排班' } },
     { path: '/surgery/detail/:id?', name: 'patientAnesthesiaDetail', component: PatientAnesthesiaDetail, meta: { menu: 'surgery', title: '患者麻醉详情' } },
     { path: '/surgery/pre-visit', name: 'preVisit', component: PreVisit, meta: { menu: 'surgery', title: '术前访视/麻醉评估' } },
     { path: '/surgery/plan', name: 'anesthesiaPlan', component: AnesthesiaPlan, meta: { menu: 'surgery', title: '麻醉计划' } },
+    { path: '/surgery/handover', name: 'anesthesiaHandover', component: AnesthesiaHandover, meta: { menu: 'surgery', title: '麻醉交班' } },
+    { path: '/surgery/summary', name: 'anesthesiaSummary', component: AnesthesiaSummary, meta: { menu: 'surgery', title: '麻醉小结' } },
     { path: '/surgery/record/:id?', name: 'record', component: AnesthesiaRecord, meta: { menu: 'surgery', title: '麻醉记录单' } },
     { path: '/surgery/medications', name: 'surgeryMedications', component: SurgeryMedications, meta: { menu: 'surgery', title: '术中用药' } },
     { path: '/surgery/fluids', name: 'surgeryFluids', component: SurgeryFluids, meta: { menu: 'surgery', title: '输液输血' } },
@@ -86,6 +98,8 @@ const router = createRouter({
     { path: '/pacu/record/:id?', name: 'pacuRecord', component: PacuRecord, meta: { menu: 'pacu', title: 'PACU恢复记录' } },
     { path: '/pacu/transfer', name: 'pacuTransfer', component: PacuTransfer, meta: { menu: 'pacu', title: 'PACU转出管理' } },
     { path: '/pacu/alerts', name: 'pacuAlerts', component: PacuAlerts, meta: { menu: 'pacu', title: 'PACU质控预警' } },
+    { path: '/pacu/booking', name: 'pacuBooking', component: PacuBooking, meta: { menu: 'pacu', title: 'PACU预约' } },
+    { path: '/pacu/receive', name: 'pacuReceive', component: PacuReceive, meta: { menu: 'pacu', title: 'PACU接收' } },
     { path: '/postoperative', redirect: '/postoperative/analgesia' },
     { path: '/postoperative/analgesia', name: 'postoperativeAnalgesia', component: PostoperativeAnalgesia, meta: { menu: 'postoperative', title: '术后镇痛' } },
     { path: '/postoperative/followup', name: 'postoperativeFollowup', component: PostoperativeFollowupPage, meta: { menu: 'postoperative', title: '术后随访' } },

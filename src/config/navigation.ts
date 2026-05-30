@@ -32,6 +32,8 @@ export const secondaryMenus: Record<string, SecondaryMenuItem[]> = {
     { key: 'overview', label: '今日工作台', path: '/workbench/overview', icon: 'IconDashboard' },
     { key: 'rooms', label: '手术间总览', path: '/workbench/rooms', icon: 'IconHome' },
     { key: 'todos', label: '我的待办', path: '/workbench/todos', icon: 'IconList' },
+    { key: 'emergency', label: '紧急呼叫', path: '/workbench/emergency', icon: 'IconExclamationCircle' },
+    { key: 'noShift', label: '今日无排班', path: '/workbench/no-shift', icon: 'IconCalendar' },
   ],
   preoperative: [
     { key: 'requests', label: '手术申请接收', path: '/preoperative/requests', icon: 'IconFile' },
@@ -42,9 +44,12 @@ export const secondaryMenus: Record<string, SecondaryMenuItem[]> = {
   ],
   surgery: [
     { key: 'schedule', label: '手术排班', path: '/surgery/schedule', icon: 'IconCalendar' },
+    { key: 'duty', label: '值班排班', path: '/surgery/duty', icon: 'IconList' },
     { key: 'detail', label: '患者麻醉详情', path: '/surgery/detail', icon: 'IconList' },
     { key: 'preVisit', label: '术前访视', path: '/surgery/pre-visit', icon: 'IconFile' },
     { key: 'plan', label: '麻醉计划', path: '/surgery/plan', icon: 'IconFile' },
+    { key: 'handover', label: '麻醉交班', path: '/surgery/handover', icon: 'IconSwap' },
+    { key: 'summary', label: '麻醉小结', path: '/surgery/summary', icon: 'IconFile' },
     { key: 'record', label: '麻醉记录单', path: '/surgery/record', icon: 'IconExperiment' },
     { key: 'medications', label: '术中用药', path: '/surgery/medications', icon: 'IconExperiment' },
     { key: 'fluids', label: '输液输血', path: '/surgery/fluids', icon: 'IconSwap' },
@@ -58,6 +63,8 @@ export const secondaryMenus: Record<string, SecondaryMenuItem[]> = {
     { key: 'record', label: '恢复记录', path: '/pacu/record', icon: 'IconFile' },
     { key: 'transfer', label: '转出管理', path: '/pacu/transfer', icon: 'IconSwap' },
     { key: 'alerts', label: 'PACU质控预警', path: '/pacu/alerts', icon: 'IconExclamationCircle' },
+    { key: 'booking', label: 'PACU预约', path: '/pacu/booking', icon: 'IconCalendar' },
+    { key: 'receive', label: 'PACU接收', path: '/pacu/receive', icon: 'IconHeart' },
   ],
   postoperative: [
     { key: 'analgesia', label: '术后镇痛', path: '/postoperative/analgesia', icon: 'IconHeart' },

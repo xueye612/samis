@@ -399,6 +399,14 @@ export const anesthesiaCases: SurgeryCase[] = ([
       { id: 'f-or05-2', category: '胶体液', name: '羟乙基淀粉', startTime: t(12, 0), volume: 500, executor: '钱悦' },
     ],
     outputs: { urine: 300, bloodLoss: 900, drainage: 120 },
+    recordSummary: {
+      notes: {
+        inductionMeds: '1. 丙泊酚 120mg 静注\n2. 罗库溴铵 50mg 静注\n3. 舒芬太尼 30ug 静注',
+        specialMeds: '1. 12:30 去甲肾上腺素 泵注 3ml/h\n2. 甘露醇 125ml 静注',
+        keyOperations: '1. 11:18 气管插管\n2. 11:35 开颅探查\n3. 12:40 非计划转ICU',
+        postopAnalgesia: '未启用',
+      },
+    },
   },
   {
     id: 'case-or06',

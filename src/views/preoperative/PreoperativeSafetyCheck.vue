@@ -1,48 +1,80 @@
 <template>
-  <div class="page-stack">
-    <a-card class="section-card" :bordered="false" title="手术安全核查">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
-        <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
-          </a-table-column>
-        </template>
-      </a-table>
+  <ModulePageShell title="手术安全核查" description="WHO 三阶段安全核查：Sign In · Time Out · Sign Out">
+    <template #toolbar>
+      <a-select v-model="selectedCaseId" style="width: 280px" placeholder="选择患者">
+        <a-option v-for="item in store.safetyChecks" :key="item.id" :value="item.caseId">
+          {{ item.patientName }}
+        </a-option>
+      </a-select>
+    </template>
+    <a-card v-if="record" class="section-card" :bordered="false">
+      <template #title>
+        {{ record.patientName }} · 安全核查
+        <a-tag :color="record.status === '已完成' ? 'green' : 'orangered'" style="margin-left: 8px">{{ record.status }}</a-tag>
+      </template>
+      <a-descriptions :column="3" bordered size="small" style="margin-bottom: 16px">
+        <a-descriptions-item label="核查人">{{ record.checker }}</a-descriptions-item>
+        <a-descriptions-item label="核查日期">{{ record.checkDate }}</a-descriptions-item>
+        <a-descriptions-item label="完成进度">{{ completedPhases }}/3 阶段</a-descriptions-item>
+      </a-descriptions>
+      <a-form :model="form" layout="vertical">
+        <a-divider orientation="left">Sign In · 麻醉诱导前</a-divider>
+        <a-checkbox v-model="form.signInComplete">患者身份、手术部位、知情同意、设备检查已完成</a-checkbox>
+        <a-divider orientation="left">Time Out · 切皮前</a-divider>
+        <a-checkbox v-model="form.timeOutComplete">团队介绍、关键步骤、预计时长、备血/影像确认已完成</a-checkbox>
+        <a-divider orientation="left">Sign Out · 离室前</a-divider>
+        <a-checkbox v-model="form.signOutComplete">器械清点、标本标记、术后注意事项确认已完成</a-checkbox>
+      </a-form>
+      <div class="form-actions">
+        <a-button type="primary" @click="save">保存核查</a-button>
+      </div>
     </a-card>
-  </div>
+    <EmptyState v-else title="请选择患者" description="从上方下拉框选择需要核查的手术" icon="IconCheckCircle" />
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, reactive, ref, watch } from 'vue';
+import { Message } from '@arco-design/web-vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import EmptyState from '@/components/shared/EmptyState.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
-interface RowItem { id: string; label: string; desc: string; link?: string }
-
 const store = useAnesthesiaStore();
-const router = useRouter();
-const rows = computed(() => buildRows('cases'));
+const selectedCaseId = ref(store.safetyChecks[0]?.caseId ?? '');
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
+const record = computed(() => store.safetyChecks.find((item) => item.caseId === selectedCaseId.value));
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/record/${record.link}`);
+const form = reactive({
+  signInComplete: false,
+  timeOutComplete: false,
+  signOutComplete: false,
+});
+
+watch(record, (value) => {
+  if (!value) return;
+  form.signInComplete = value.signInComplete;
+  form.timeOutComplete = value.timeOutComplete;
+  form.signOutComplete = value.signOutComplete;
+}, { immediate: true });
+
+const completedPhases = computed(() => [form.signInComplete, form.timeOutComplete, form.signOutComplete].filter(Boolean).length);
+
+const save = () => {
+  if (!record.value) return;
+  const allComplete = form.signInComplete && form.timeOutComplete && form.signOutComplete;
+  Object.assign(record.value, {
+    ...form,
+    status: allComplete ? '已完成' : '未完成',
+  });
+  Message.success('安全核查已保存');
 };
 </script>
+
+<style scoped>
+.form-actions {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+</style>

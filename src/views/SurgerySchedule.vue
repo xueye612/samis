@@ -1,5 +1,13 @@
 <template>
   <div class="page-stack">
+    <section class="module-hero">
+      <div>
+        <h2 class="module-hero__title">手术排班</h2>
+        <p class="module-hero__desc">列表与周历视图协同，支持房间排班与急诊插单。</p>
+      </div>
+    </section>
+    <a-tabs v-model:active-key="scheduleTab" type="rounded" class="schedule-tabs">
+      <a-tab-pane key="list" title="列表视图">
     <div class="page-toolbar surgery-toolbar">
       <a-space wrap>
         <a-radio-group v-model="viewMode" type="button">
@@ -150,6 +158,29 @@
         </a-row>
       </a-form>
     </a-drawer>
+      </a-tab-pane>
+      <a-tab-pane key="calendar" title="日历视图">
+        <a-card class="section-card" :bordered="false" title="本周排班概览">
+          <div class="week-grid">
+            <div v-for="day in weekDays" :key="day.key" class="week-day">
+              <div class="week-day__head">
+                <strong>{{ day.label }}</strong>
+                <span class="muted">{{ day.date }}</span>
+                <a-tag size="small">{{ day.cases.length }}</a-tag>
+              </div>
+              <div v-if="day.cases.length" class="week-day__list">
+                <div v-for="item in day.cases" :key="item.id" class="week-case" @click="router.push(`/surgery/detail/${item.id}`)">
+                  <span class="week-case__time">{{ dayjs(item.scheduledStart ?? item.plannedStart).format('HH:mm') }}</span>
+                  <strong>{{ item.patientName }}</strong>
+                  <span class="muted">{{ item.room }} · {{ item.surgeryName }}</span>
+                </div>
+              </div>
+              <a-empty v-else description="无排班" />
+            </div>
+          </div>
+        </a-card>
+      </a-tab-pane>
+    </a-tabs>
   </div>
 </template>
 
@@ -163,8 +194,25 @@ import type { SurgeryCase } from '@/types/anesthesia';
 
 const router = useRouter();
 const store = useAnesthesiaStore();
+const scheduleTab = ref('list');
 const keyword = ref('');
 const viewMode = ref<'room' | 'mine' | 'list'>('room');
+
+const weekStart = computed(() => dayjs().startOf('week').add(1, 'day'));
+const weekDays = computed(() =>
+  Array.from({ length: 7 }, (_, i) => {
+    const date = weekStart.value.add(i, 'day');
+    const cases = store.sortedCases.filter((item) =>
+      dayjs(item.scheduledStart ?? item.plannedStart).isSame(date, 'day'),
+    );
+    return {
+      key: date.format('YYYY-MM-DD'),
+      label: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][i],
+      date: date.format('MM-DD'),
+      cases,
+    };
+  }),
+);
 const drawerVisible = ref(false);
 const editing = ref<SurgeryCase>();
 const statusOptions = ['待入室', '已入室', '麻醉诱导', '麻醉中', '手术中', '苏醒中', 'PACU', '已离室', '已取消'];
@@ -236,3 +284,59 @@ const saveCase = () => {
   else store.upsertCase(editing.value);
 };
 </script>
+
+<style scoped>
+.schedule-tabs {
+  margin-top: var(--space-3);
+}
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.week-day {
+  min-height: 160px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+.week-day__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.week-day__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.week-case {
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+}
+.week-case:hover {
+  background: rgb(219 234 254 / 40%);
+}
+.week-case__time {
+  display: block;
+  color: var(--color-brand-600);
+  font-weight: 600;
+}
+.week-case strong {
+  display: block;
+  font-size: var(--font-size-sm);
+}
+@media (max-width: 1200px) {
+  .week-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+</style>

@@ -1,48 +1,69 @@
 <template>
-  <div class="page-stack">
-    <a-card class="section-card" :bordered="false" title="实时告警">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
+  <ModulePageShell title="实时告警" description="术中生命体征与设备异常实时告警处置">
+    <template #chips>
+      <a-tag color="red">未处理 {{ unhandledCount }}</a-tag>
+      <a-tag color="green">已处理 {{ store.monitorAlerts.length - unhandledCount }}</a-tag>
+    </template>
+    <template #toolbar>
+      <a-checkbox v-model="showUnhandledOnly">仅未处理</a-checkbox>
+    </template>
+    <a-card class="section-card" :bordered="false" title="告警列表">
+      <a-table :data="filtered" :pagination="{ pageSize: 8 }" row-key="id">
         <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
+          <a-table-column title="手术间" data-index="room" :width="100" />
+          <a-table-column title="患者" data-index="patientName" />
+          <a-table-column title="告警类型" data-index="alertType" />
+          <a-table-column title="严重程度" :width="100">
+            <template #cell="{ record }">
+              <a-tag :color="severityColor(record.severity)">{{ record.severity }}</a-tag>
+            </template>
+          </a-table-column>
+          <a-table-column title="时间" data-index="time" :width="80" />
+          <a-table-column title="状态" :width="100">
+            <template #cell="{ record }">
+              <a-tag :color="record.handled ? 'green' : 'red'">{{ record.handled ? '已处理' : '未处理' }}</a-tag>
+            </template>
+          </a-table-column>
           <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
+            <template #cell="{ record }">
+              <a-button size="mini" type="primary" :disabled="record.handled" @click="handleAlert(record.id)">
+                处理
+              </a-button>
+            </template>
           </a-table-column>
         </template>
       </a-table>
     </a-card>
-  </div>
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref } from 'vue';
+import { Message } from '@arco-design/web-vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
-
-interface RowItem { id: string; label: string; desc: string; link?: string }
+import type { MonitorAlert } from '@/types/clinicalModules';
 
 const store = useAnesthesiaStore();
-const router = useRouter();
-const rows = computed(() => buildRows('qualityDefects'));
+const showUnhandledOnly = ref(false);
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
+const unhandledCount = computed(() => store.monitorAlerts.filter((item) => !item.handled).length);
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/record/${record.link}`);
+const severityColor = (severity: MonitorAlert['severity']) => ({
+  一般: 'arcoblue',
+  严重: 'orangered',
+  危急: 'red',
+}[severity] ?? 'gray');
+
+const filtered = computed(() => {
+  if (!showUnhandledOnly.value) return store.monitorAlerts;
+  return store.monitorAlerts.filter((item) => !item.handled);
+});
+
+const handleAlert = (id: string) => {
+  const alert = store.monitorAlerts.find((item) => item.id === id);
+  if (!alert || alert.handled) return;
+  alert.handled = true;
+  Message.success('告警已标记为已处理');
 };
 </script>

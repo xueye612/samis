@@ -18,6 +18,9 @@ import {
   isInfusionFluidCategory,
   runPrintPreflightChecks,
   chartYWithPadding,
+  buildTempScaleTicks,
+  resolveChartY,
+  shouldDrawChartPolyline,
   clampVitalValueByDict,
   createAnesthesiaPlaneDraft,
   createFluidLineDraft,
@@ -273,6 +276,15 @@ describe('anesthesiaRecordEngine printable chart layout', () => {
     expect(chartYWithPadding(200, { min: 40, max: 200, height: 300, padding: 18 })).toBe(18);
     expect(chartYWithPadding(40, { min: 40, max: 200, height: 300, padding: 18 })).toBe(282);
     expect(chartYWithPadding(120, { min: 40, max: 200, height: 300, padding: 18 })).toBe(150);
+  });
+
+  it('maps temperature values to the dedicated 33-39 scale', () => {
+    const ticks = buildTempScaleTicks();
+    expect(ticks.map((item) => item.value)).toEqual([39, 37, 35, 33]);
+    expect(ticks[0].top).toBeLessThan(ticks[ticks.length - 1].top);
+    expect(resolveChartY(39, 'TEMP')).toBeLessThan(resolveChartY(33, 'TEMP'));
+    expect(shouldDrawChartPolyline('TEMP')).toBe(false);
+    expect(shouldDrawChartPolyline('SBP')).toBe(true);
   });
 
   it('maps vital dictionaries to the reference anesthesia sheet marker system', () => {

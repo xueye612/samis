@@ -1,48 +1,70 @@
 <template>
-  <div class="page-stack">
-    <a-card class="section-card" :bordered="false" title="麻醉方式分析">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
+  <ModulePageShell title="麻醉方式分析" description="按麻醉方式统计手术量与占比">
+    <template #toolbar>
+      <a-button @click="store.refreshClinicalModules()">刷新统计</a-button>
+    </template>
+    <template #stats>
+      <MetricCard label="麻醉总数" :value="stats.totalAnesthesia" icon="IconExperiment" />
+      <MetricCard label="全麻" :value="methodValue('全麻')" icon="IconFile" />
+      <MetricCard label="椎管内" :value="methodValue('椎管内')" icon="IconHeart" />
+      <MetricCard label="神经阻滞" :value="methodValue('阻滞')" icon="IconSwap" />
+    </template>
+    <div class="chart-grid">
+      <a-card class="section-card" :bordered="false" title="麻醉方式分布">
+        <SimpleChart type="pie" :labels="stats.methodLabels" :values="stats.methodValues" />
+      </a-card>
+      <a-card class="section-card" :bordered="false" title="麻醉方式台数">
+        <SimpleChart type="bar" :labels="stats.methodLabels" :values="stats.methodValues" series-name="台数" />
+      </a-card>
+    </div>
+    <a-card class="section-card" :bordered="false" title="明细数据">
+      <a-table :data="methodRows" :pagination="false" row-key="name">
         <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
+          <a-table-column title="麻醉方式" data-index="name" />
+          <a-table-column title="台数" data-index="count" />
+          <a-table-column title="占比">
+            <template #cell="{ record }">{{ record.ratio }}%</template>
           </a-table-column>
         </template>
       </a-table>
     </a-card>
-  </div>
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useRouter } from 'vue-router';
+import MetricCard from '@/components/MetricCard.vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import SimpleChart from '@/components/shared/SimpleChart.vue';
+import { buildWorkloadStats } from '@/mock/clinicalModulesSeed';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
-interface RowItem { id: string; label: string; desc: string; link?: string }
-
 const store = useAnesthesiaStore();
-const router = useRouter();
-const rows = computed(() => buildRows('cases'));
+const stats = computed(() => store.workloadStats ?? buildWorkloadStats(store.cases));
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
-
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/record/${record.link}`);
+const methodValue = (keyword: string) => {
+  const idx = stats.value.methodLabels.findIndex((label) => label.includes(keyword));
+  return idx >= 0 ? stats.value.methodValues[idx] : 0;
 };
+
+const methodRows = computed(() => {
+  const total = stats.value.methodValues.reduce((sum, n) => sum + n, 0) || 1;
+  return stats.value.methodLabels.map((name, i) => ({
+    name,
+    count: stats.value.methodValues[i] ?? 0,
+    ratio: Math.round(((stats.value.methodValues[i] ?? 0) / total) * 100),
+  }));
+});
 </script>
+
+<style scoped>
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+@media (max-width: 960px) {
+  .chart-grid { grid-template-columns: 1fr; }
+}
+</style>

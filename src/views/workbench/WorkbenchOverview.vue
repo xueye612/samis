@@ -97,15 +97,19 @@
         <div
           v-for="group in roomSchedule"
           :key="group.roomId"
-          class="room-wall-card"
+          class="room-wall-card room-wall-card--clickable"
           :class="group.cases.length ? 'room-wall-card--busy' : 'room-wall-card--idle'"
+          role="button"
+          tabindex="0"
+          @click="openRoomModal(group)"
+          @keydown.enter="openRoomModal(group)"
         >
           <div class="room-wall-head">
             <strong>{{ group.roomName }}</strong>
             <a-tag :color="group.cases.length ? 'arcoblue' : 'gray'" size="small">{{ group.cases.length }} 台</a-tag>
           </div>
           <div v-if="group.cases.length" class="room-wall-list">
-            <button v-for="item in group.cases" :key="item.id" type="button" @click="router.push(`/surgery/detail/${item.id}`)">
+            <button v-for="item in group.cases" :key="item.id" type="button" @click.stop="router.push(`/surgery/detail/${item.id}`)">
               <span>{{ formatRange(item) }}</span>
               <strong>{{ item.patientName }}</strong>
               <StatusTag :value="item.status" />
@@ -115,17 +119,43 @@
         </div>
       </div>
     </a-card>
+
+    <a-modal v-model:visible="roomModalVisible" :title="selectedRoom?.roomName ?? '手术间详情'" :footer="false" width="520px">
+      <template v-if="selectedRoom">
+        <a-empty v-if="!selectedRoom.cases.length" description="当前手术间空闲" />
+        <template v-else>
+          <div v-for="item in selectedRoom.cases" :key="item.id" class="room-modal-case">
+            <div class="room-modal-case__head">
+              <strong>{{ item.patientName }}</strong>
+              <StatusTag :value="item.status" />
+            </div>
+            <a-descriptions :column="1" size="small" class="room-modal-desc">
+              <a-descriptions-item label="手术">{{ item.surgeryName }}</a-descriptions-item>
+              <a-descriptions-item label="主刀">{{ item.surgeon }}</a-descriptions-item>
+              <a-descriptions-item label="麻醉医师">{{ item.anesthesiologist }}</a-descriptions-item>
+              <a-descriptions-item label="时段">{{ formatRange(item) }}</a-descriptions-item>
+            </a-descriptions>
+            <a-space class="room-modal-actions">
+              <a-button type="primary" size="small" @click="router.push(`/surgery/detail/${item.id}`)">患者详情</a-button>
+              <a-button size="small" @click="router.push(buildRecordRoute(item.id, 'workbench'))">麻醉记录单</a-button>
+            </a-space>
+          </div>
+        </template>
+      </template>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import MetricCard from '@/components/MetricCard.vue';
 import StatusTag from '@/components/StatusTag.vue';
+import { buildRecordRoute } from '@/services/recordNavigation';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 import type { SurgeryCase } from '@/types/anesthesia';
+import type { RoomScheduleGroup } from '@/services/scheduleHelpers';
 
 const router = useRouter();
 const store = useAnesthesiaStore();
@@ -136,6 +166,13 @@ const nextCase = computed(() => store.nextDoctorCase);
 const emergencyCases = computed(() => myCases.value.filter((item) => item.emergencyInserted || item.urgency === '急诊'));
 const roomSchedule = computed(() => store.roomSchedule.filter((item) => item.roomId.startsWith('OR-')));
 const todayText = dayjs().format('M月D日');
+const roomModalVisible = ref(false);
+const selectedRoom = ref<RoomScheduleGroup | null>(null);
+
+const openRoomModal = (group: RoomScheduleGroup) => {
+  selectedRoom.value = group;
+  roomModalVisible.value = true;
+};
 
 const formatRange = (item: SurgeryCase) => {
   const start = item.scheduledStart ?? item.plannedStart;
@@ -163,5 +200,37 @@ const timelineColor = (item: SurgeryCase) => {
   font-size: 18px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.room-wall-card--clickable {
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.room-wall-card--clickable:hover {
+  box-shadow: var(--shadow-xs);
+  border-color: var(--primary);
+}
+
+.room-modal-case + .room-modal-case {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.room-modal-case__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.room-modal-desc {
+  margin-bottom: 12px;
+}
+
+.room-modal-actions {
+  margin-top: 8px;
 }
 </style>

@@ -1,6 +1,8 @@
 import dayjs from 'dayjs';
 import type { AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
 import { getQuickEventOption } from '@/services/anesthesiaRecordMethodEngine';
+import type { NumberedNoteLine } from '@/utils/numberedNotes';
+import { parseNumberedNoteLines } from '@/utils/numberedNotes';
 import type { SurgeryCase } from '@/types/anesthesia';
 
 export type TimelineSyncField = 'roomInTime' | 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'anesthesiaEnd' | 'leaveRoomTime';
@@ -48,6 +50,53 @@ export function resolveTimelineNodeTime(record: SurgeryCase, node: MethodTimelin
 
 export function formatTimelineClock(value?: string) {
   return value ? dayjs(value).format('HH:mm') : '';
+}
+
+export function buildRecordClockIso(
+  record: Pick<SurgeryCase, 'plannedStart' | 'anesthesiaStart'>,
+  clock: string,
+): string {
+  const base = record.plannedStart || record.anesthesiaStart || dayjs().toISOString();
+  const [hour, minute] = clock.split(':').map(Number);
+  return dayjs(base).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
+}
+
+export function buildRecordNowIso(record: Pick<SurgeryCase, 'plannedStart' | 'anesthesiaStart'>): string {
+  return buildRecordClockIso(record, dayjs().format('HH:mm'));
+}
+
+export function buildTimedKeyOperationNoteLines(
+  record: SurgeryCase,
+  methods: AnesthesiaMethodKey[],
+): NumberedNoteLine[] {
+  return buildTimelineNodeStates(record, methods)
+    .filter((node) => node.recorded && node.time)
+    .map((node, offset) => {
+      const clock = formatTimelineClock(node.time);
+      const content = `${clock} ${node.label}`;
+      return {
+        index: offset + 1,
+        content,
+        raw: `${offset + 1}. ${content}`,
+        clock,
+        displayContent: node.label,
+      };
+    });
+}
+
+export function resolveKeyOperationsDisplayText(
+  record: SurgeryCase,
+  methods: AnesthesiaMethodKey[],
+  stored?: string,
+  fallbackPlain = '无',
+): string {
+  const fromNotes = parseNumberedNoteLines(stored ?? '');
+  if (fromNotes.some((line) => line.clock)) return stored ?? '';
+  const fromTimeline = buildTimedKeyOperationNoteLines(record, methods);
+  if (fromTimeline.length) {
+    return fromTimeline.map((line) => `${line.index}. ${line.content}`).join('\n');
+  }
+  return stored ?? fallbackPlain;
 }
 
 export function buildTimelineNodeStates(record: SurgeryCase, methods: AnesthesiaMethodKey[]) {

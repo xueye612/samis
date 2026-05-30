@@ -15,30 +15,17 @@
     </a-tab-pane>
 
     <a-tab-pane key="anesthesia" title="麻醉信息">
-      <div class="tab-grid">
-        <a-card title="关键时间" :bordered="false">
-          <a-table :data="timelineRows" :pagination="false" size="small">
-            <template #columns>
-              <a-table-column title="节点" data-index="label" :width="120" />
-              <a-table-column title="时间" :width="160">
-                <template #cell="{ record: row }">
-                  <a-time-picker
-                    :model-value="row.pickerValue"
-                    format="HH:mm"
-                    value-format="HH:mm"
-                    size="small"
-                    :disabled="record.locked"
-                    @change="(value) => saveTimeline(row, value as string | undefined)"
-                  />
-                </template>
-              </a-table-column>
-              <a-table-column title="状态" :width="90">
-                <template #cell="{ record: row }"><a-tag :color="row.recorded ? 'arcoblue' : 'gray'">{{ row.recorded ? '已记录' : '待记录' }}</a-tag></template>
-              </a-table-column>
-            </template>
-          </a-table>
-        </a-card>
-      </div>
+      <a-descriptions :column="2" bordered size="small" class="anesthesia-summary">
+        <a-descriptions-item label="麻醉方式">{{ record.anesthesiaMethod }}</a-descriptions-item>
+        <a-descriptions-item label="记录状态">{{ record.recordStatus ?? '未开始' }}</a-descriptions-item>
+        <a-descriptions-item label="插管时间">{{ formatTime(record.airwayRecord?.intubationTime) || eventTime('插管') || '未记录' }}</a-descriptions-item>
+        <a-descriptions-item label="拔管时间">{{ formatTime(record.airwayRecord?.extubationTime) || eventTime('拔管') || '未记录' }}</a-descriptions-item>
+        <a-descriptions-item label="离室时间">{{ formatTime(record.leaveRoomTime) || '未记录' }}</a-descriptions-item>
+        <a-descriptions-item label="离室去向">{{ record.transferTo ?? record.recoveryRecord?.destination ?? '未记录' }}</a-descriptions-item>
+      </a-descriptions>
+      <a-alert type="info" show-icon class="timeline-edit-hint">
+        关键时间节点请在记录单右侧「关键时间」面板录入；此处仅展示摘要。
+      </a-alert>
     </a-tab-pane>
 
     <a-tab-pane key="vitals" title="生命体征">
@@ -158,7 +145,6 @@
 import dayjs from 'dayjs';
 import { computed, ref, watch } from 'vue';
 import { type AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
-import { buildTimelineNodeStates, type MethodTimelineNode } from '@/services/methodTimelineEngine';
 import type { FluidRecord, MedicationRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
 import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/types/system';
 import type { LiveRecordQualityCheck } from '@/services/anesthesiaRecordEngine';
@@ -179,7 +165,6 @@ const emit = defineEmits<{
   event: [type: string];
   drug: [name: string];
   fluid: [name: string];
-  'save-timeline': [node: MethodTimelineNode, isoTime: string];
 }>();
 
 const activeKey = ref(props.activeTab ?? 'patient');
@@ -189,18 +174,6 @@ watch(activeKey, (value) => emit('update:activeTab', value));
 const drugOptions = computed(() => props.drugItems.filter((item) => item.enabled).map((item) => ({ label: item.name, value: item.name })));
 const fluidOptions = computed(() => props.fluidItems.filter((item) => item.enabled).map((item) => ({ label: `${item.subCategory} / ${item.name}`, value: item.name })));
 const sortedEvents = computed(() => [...props.record.events].sort((a, b) => a.time.localeCompare(b.time)));
-const timelineRows = computed(() => buildTimelineNodeStates(props.record, props.methodKeys).map((node) => ({
-  ...node,
-  pickerValue: node.time ? dayjs(node.time).format('HH:mm') : undefined,
-})));
-
-const saveTimeline = (row: MethodTimelineNode, value?: string) => {
-  if (!value || props.record.locked) return;
-  const [hour, minute] = value.split(':').map(Number);
-  const base = props.record.plannedStart || props.record.anesthesiaStart || dayjs().toISOString();
-  const isoTime = dayjs(base).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
-  emit('save-timeline', row, isoTime);
-};
 
 const formatTime = (value?: string) => (value ? dayjs(value).format('HH:mm') : '');
 const medicationTime = (row: MedicationRecord) => {
@@ -235,6 +208,10 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.timeline-edit-hint {
+  margin-top: 12px;
 }
 
 @media (max-width: 1200px) {

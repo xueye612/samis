@@ -1,48 +1,98 @@
 <template>
-  <div class="page-stack">
-    <a-card class="section-card" :bordered="false" title="知情同意">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
-        <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
-          </a-table-column>
-        </template>
-      </a-table>
+  <ModulePageShell title="知情同意" description="麻醉风险告知、方案说明与签名确认">
+    <template #toolbar>
+      <a-select v-model="selectedCaseId" style="width: 280px" placeholder="选择患者">
+        <a-option v-for="item in store.cases" :key="item.id" :value="item.id">{{ item.patientName }} · {{ item.surgeryName }}</a-option>
+      </a-select>
+    </template>
+    <a-card v-if="record" class="section-card" :bordered="false">
+      <a-form :model="form" layout="vertical">
+        <a-row :gutter="16">
+          <a-col :span="8"><a-form-item label="患者"><a-input :model-value="record.patientName" disabled /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="手术"><a-input :model-value="record.surgeryName" disabled /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="拟行麻醉"><a-input :model-value="record.anesthesiaMethod" disabled /></a-form-item></a-col>
+        </a-row>
+        <a-divider>风险告知确认</a-divider>
+        <a-checkbox v-model="form.commonRisks">已告知常见风险</a-checkbox>
+        <a-checkbox v-model="form.severeRisks">已告知严重风险</a-checkbox>
+        <a-checkbox v-model="form.specialRisks">已告知特殊风险</a-checkbox>
+        <a-divider>方案与理解确认</a-divider>
+        <a-checkbox v-model="form.planAccepted">接受麻醉方案</a-checkbox>
+        <a-checkbox v-model="form.questionAnswered">疑问已解答</a-checkbox>
+        <a-divider>签名</a-divider>
+        <a-space>
+          <a-checkbox v-model="form.patientSigned">患者签名</a-checkbox>
+          <a-checkbox v-model="form.familySigned">家属签名</a-checkbox>
+          <a-checkbox v-model="form.doctorSigned">医生签名</a-checkbox>
+        </a-space>
+      </a-form>
+      <div class="form-actions">
+        <a-space>
+          <a-button @click="save('草稿')">保存草稿</a-button>
+          <a-button type="primary" @click="save('已提交')">提交</a-button>
+          <a-button @click="printPreview">打印</a-button>
+        </a-space>
+      </div>
     </a-card>
-  </div>
+    <EmptyState v-else title="请选择患者" description="从上方下拉框选择需要签署知情同意的患者" icon="IconFile" />
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useRouter } from 'vue-router';
+import dayjs from 'dayjs';
+import { computed, reactive, ref, watch } from 'vue';
+import { Message } from '@arco-design/web-vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import EmptyState from '@/components/shared/EmptyState.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
-interface RowItem { id: string; label: string; desc: string; link?: string }
-
 const store = useAnesthesiaStore();
-const router = useRouter();
-const rows = computed(() => buildRows('cases'));
+const selectedCaseId = ref(store.cases[0]?.id ?? '');
+const record = computed(() => store.consentRecords.find((item) => item.caseId === selectedCaseId.value));
+const form = reactive({
+  commonRisks: false,
+  severeRisks: false,
+  specialRisks: false,
+  planAccepted: false,
+  questionAnswered: false,
+  patientSigned: false,
+  familySigned: false,
+  doctorSigned: false,
+});
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
+watch(record, (value) => {
+  if (!value) return;
+  Object.assign(form, {
+    commonRisks: value.commonRisks,
+    severeRisks: value.severeRisks,
+    specialRisks: value.specialRisks,
+    planAccepted: value.planAccepted,
+    questionAnswered: value.questionAnswered,
+    patientSigned: value.patientSigned,
+    familySigned: value.familySigned,
+    doctorSigned: value.doctorSigned,
+  });
+}, { immediate: true });
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/record/${record.link}`);
+const save = (status: '草稿' | '已提交') => {
+  if (!record.value) return;
+  store.saveConsentRecord({
+    ...record.value,
+    ...form,
+    status,
+    signedAt: status === '已提交' ? dayjs().toISOString() : record.value.signedAt,
+    updatedAt: dayjs().toISOString(),
+  });
+  Message.success(status === '已提交' ? '知情同意已提交' : '草稿已保存');
 };
+
+const printPreview = () => Message.info('打印预览（Mock）');
 </script>
+
+<style scoped>
+.form-actions {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+</style>

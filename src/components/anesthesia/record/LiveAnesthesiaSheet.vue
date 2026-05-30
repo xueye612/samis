@@ -1,13 +1,22 @@
 <template>
   <section
     class="live-record-card print-area"
-    :class="{ 'is-rescue': record.rescue && !printMode }"
+    :class="{
+      'is-rescue': record.rescue && !printMode,
+      'is-print-mode': printMode,
+      'is-screen-mode': !printMode,
+      'is-locked': record.locked && !printMode,
+    }"
     @contextmenu.prevent="openMenu($event, 'grid')"
   >
+    <div v-if="record.locked && !printMode" class="sheet-lock-banner" role="status" aria-live="polite">
+      <span class="sheet-lock-icon" aria-hidden="true">🔒</span>
+      <strong>记录单已锁定</strong>
+      <span class="sheet-lock-desc">当前仅可查看，修改需在工作台解锁</span>
+    </div>
     <RecordHeader
-      v-if="displaySnapshot && currentPage"
+      v-if="displaySnapshot"
       :snapshot="displaySnapshot"
-      :page="currentPage"
       :record-no="record.recordDocument?.recordNo"
       :read-only="readOnly"
       :print-mode="printMode"
@@ -38,10 +47,9 @@
       <div class="doc-meta"><span>编号</span><i>{{ record.id }}</i></div>
     </div>
 
-    <div v-if="record.locked" class="sheet-locked-ribbon">已锁定，仅可查看</div>
     <div v-if="record.printedAt" class="sheet-print-watermark">已打印 {{ formatDate(record.printedAt) }}</div>
 
-    <RecordTimeAxis :time-scale="timeScale" :grid="bandGrid(1)" />
+    <RecordTimeAxis :time-scale="timeScale" :grid="bandGrid(1)" :page="currentPage" />
 
     <div v-if="!isPacuRecord" class="sheet-band medication-band" :style="{ '--rows': medicationRowCount }">
       <div class="band-side">麻醉用药</div>
@@ -239,159 +247,162 @@
       </div>
     </div>
 
-    <TimelineNodeRail
-      v-if="methodKeys.length"
-      embedded
-      :record="record"
-      :method-keys="methodKeys"
-      :method-labels="methodLabels"
-      :locked="readOnly"
-      :sheet-start="sheetStart"
-      :sheet-end="sheetEnd"
-      :active-key="activeTimelineKey"
-      @save="(node, isoTime) => emit('saveTimeline', node, isoTime)"
-      @focus="focusTimelineNode"
-    />
-
-    <div ref="statusRowRef" class="surgery-status-row">
-      <div class="status-title">手术状态</div>
-      <div class="status-track" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'balance')">
-        <GridLines :grid="bandGrid(1)" />
-        <span
-          v-for="event in statusEvents"
-          :key="`status-${event.id}`"
-          :ref="(el) => registerStatusSymbol(event.id, el as HTMLElement | null)"
-          class="surgery-status-symbol"
-          :class="[event.className, { 'is-active': isStatusEventActive(event) }]"
-          :style="{ left: leftFor(event.time) }"
-          :title="statusEventTitle(event)"
-          @click.stop="selectStatusEvent(event)"
-        >{{ event.symbol }}</span>
-      </div>
-    </div>
-
     <LabResultLayer
       :labs="labResults"
       :left-for="leftFor"
       :read-only="readOnly"
+      :print-mode="printMode"
       @select="openLabEditor"
     />
 
     <div class="vital-chart">
-      <div class="chart-legend">
-        <div class="event-legend">
-          <span v-for="item in eventLegend" :key="item.label"><b>{{ item.symbol }}</b>{{ item.label }}</span>
+      <div class="chart-layout">
+        <div class="chart-legend-panel">
+          <div class="event-legend-pairs">
+            <div v-for="(pair, index) in eventLegendPairs" :key="`pair-${index}`" class="legend-pair-row">
+              <span v-for="item in pair" :key="item.label"><b>{{ item.symbol }}</b>{{ item.label }}</span>
+            </div>
+          </div>
+          <div class="room-entry-legend">
+            <span><b>▷</b>入手术室</span>
+            <span><b>▶</b>出手术室</span>
+          </div>
+          <div class="vital-symbol-legend">
+            <span v-for="item in referenceLegendItems" :key="item.shortCode">
+              <b :style="{ color: item.chartColor }">{{ symbolText(item.chartSymbol) }}</b>{{ item.legendLabel }}
+            </span>
+          </div>
         </div>
-        <div class="vital-symbol-legend">
-          <span v-for="item in referenceLegendItems" :key="item.shortCode">
-            <b :style="{ color: item.chartColor }">{{ symbolText(item.chartSymbol) }}</b>{{ item.legendLabel }}
+        <div ref="chartAreaRef" class="chart-area" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'chart')">
+          <div class="temp-scale-column" aria-hidden="true">
+            <span
+              v-for="tick in tempScaleTicks"
+              :key="`temp-${tick.value}`"
+              class="temp-scale-tick"
+              :style="{ top: `${tick.top}%` }"
+            >{{ tick.value }}</span>
+            <em class="temp-scale-label">体温</em>
+          </div>
+          <div class="chart-status-overlay">
+            <button
+              v-for="event in statusEvents"
+              :key="`chart-status-${event.id}`"
+              :ref="(el) => registerStatusSymbol(event.id, el as HTMLElement | null)"
+              type="button"
+              class="chart-status-symbol"
+              :class="[event.className, { 'is-active': isStatusEventActive(event) }]"
+              :style="{ left: leftFor(event.time) }"
+              :title="statusEventTitle(event)"
+              @click.stop="selectStatusEvent(event)"
+            >{{ event.symbol }}</button>
+          </div>
+          <div class="chart-scale">
+            <span v-for="tick in chartTicks" :key="tick.value" :style="{ top: `${tick.top}%` }">{{ tick.value }}</span>
+            <em v-for="tick in respiratoryTicks" :key="`rr-${tick.value}`" :style="{ top: `${tick.top}%` }">{{ tick.value }}</em>
+            <small>mmHg</small>
+          </div>
+          <GridLines :grid="chartGrid" chart />
+          <svg viewBox="0 0 1000 300" preserveAspectRatio="none">
+            <polyline
+              v-for="item in chartLineVitals"
+              :key="`line-${item.shortCode}`"
+              :points="chartLine(item)"
+              :stroke="item.chartColor ?? '#2563eb'"
+            />
+            <g v-for="item in chartVitals" :key="`points-${item.shortCode}`">
+              <path
+                v-for="point in chartPoints(item)"
+                :key="point.key"
+                :d="markerPath(item, point.x, point.y)"
+                :fill="markerFill(item)"
+                :stroke="item.chartColor ?? '#2563eb'"
+                stroke-width="2"
+                vector-effect="non-scaling-stroke"
+                @pointerdown.stop="startVitalPointDrag($event, item, point.row)"
+                @contextmenu.prevent.stop="openMenu($event, 'vital', point.row)"
+                @dblclick="openMonitorDialog(point.row)"
+              />
+            </g>
+          </svg>
+          <span v-if="vitalDragState.active" class="drag-guide" :style="{ top: `${vitalDragState.y}px` }"></span>
+          <span v-if="vitalDragState.active" class="drag-tooltip" :style="{ left: `${vitalDragState.left}px`, top: `${vitalDragState.top}px` }">
+            {{ vitalDragState.item?.shortCode }} {{ vitalDragState.value }}{{ vitalDragState.item?.unit }}
           </span>
         </div>
-        <div class="temp-scale-mini">
-          <span>39</span><span>37</span><span>35</span><span>33</span>
-          <em>体温</em>
-        </div>
-      </div>
-      <div ref="chartAreaRef" class="chart-area" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'chart')">
-        <div class="chart-scale">
-          <span v-for="tick in chartTicks" :key="tick.value" :style="{ top: `${tick.top}%` }">{{ tick.value }}</span>
-          <em v-for="tick in respiratoryTicks" :key="`rr-${tick.value}`" :style="{ top: `${tick.top}%` }">{{ tick.value }}</em>
-          <small>mmHg</small>
-          <small class="kpa-label">kPa</small>
-        </div>
-        <GridLines :grid="chartGrid" chart />
-        <svg viewBox="0 0 1000 300" preserveAspectRatio="none">
-          <polyline v-for="item in chartVitals" :key="`line-${item.shortCode}`" :points="chartLine(item)" :stroke="item.chartColor ?? '#2563eb'" />
-          <g v-for="item in chartVitals" :key="`points-${item.shortCode}`">
-            <path
-              v-for="point in chartPoints(item)"
-              :key="point.key"
-              :d="markerPath(item, point.x, point.y)"
-              :fill="markerFill(item)"
-              :stroke="item.chartColor ?? '#2563eb'"
-              stroke-width="2"
-              vector-effect="non-scaling-stroke"
-              @pointerdown.stop="startVitalPointDrag($event, item, point.row)"
-              @contextmenu.prevent.stop="openMenu($event, 'vital', point.row)"
-              @dblclick="openMonitorDialog(point.row)"
-            />
-          </g>
-        </svg>
-        <span v-if="vitalDragState.active" class="drag-guide" :style="{ top: `${vitalDragState.y}px` }"></span>
-        <span v-if="vitalDragState.active" class="drag-tooltip" :style="{ left: `${vitalDragState.left}px`, top: `${vitalDragState.top}px` }">
-          {{ vitalDragState.item?.shortCode }} {{ vitalDragState.value }}{{ vitalDragState.item?.unit }}
-        </span>
       </div>
     </div>
 
-    <div class="sheet-band status-band" :style="{ '--rows': 5 }">
+    <div ref="ioBandRef" class="sheet-band status-band" :style="{ '--rows': 5 }">
       <div class="band-side">出入量</div>
       <div class="band-labels">
-        <span>尿量（ml）</span><span>出血量（ml）</span><span>其它（ml）</span><span>特殊用药序号</span><span>手术关键操作</span>
+        <span>尿量（ml）</span><span>出血量（ml）</span><span>引流量（ml）</span><span>特殊用药序号</span><span>手术关键操作</span>
       </div>
       <div class="band-track" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'balance')">
         <GridLines :grid="bandGrid(5)" />
         <span
           v-for="output in outputRows"
           :key="output.id"
-          class="output-point output-marker"
+          class="output-point"
+          :class="output.markerClass"
           :style="pointStyle(output.time, output.index, 5)"
           @contextmenu.prevent.stop="openMenu($event, 'output', output.source)"
           @dblclick="openOutputEditor(output.source)"
-        >{{ output.volume }}ml</span>
+        >{{ output.display }}</span>
+        <span
+          v-for="marker in sequenceMarkers"
+          :key="marker.id"
+          class="sequence-marker"
+          :class="[marker.tone, { 'is-active': isSequenceMarkerActive(marker) }]"
+          :style="pointStyle(marker.time, marker.rowIndex, 5)"
+          :title="`${marker.number}. ${marker.content}`"
+          @click="highlightSequenceMarker(marker)"
+        >{{ marker.number }}</span>
       </div>
     </div>
 
-    <div class="sheet-notes reference-notes">
-      <PaperFormField
+    <div ref="notesSectionRef" class="sheet-notes reference-notes">
+      <NumberedNoteColumn
         label="麻醉诱导用药"
         :model-value="summaryNotes.inductionMeds"
-        multiline
         :readonly="readOnly"
         :print-mode="printMode"
-        placeholder="诱导期用药"
+        placeholder="每行一条诱导用药"
         @update:model-value="updateSummaryNote('inductionMeds', $event)"
       />
-      <PaperFormField
-        label="诱导及维持摘要"
-        :model-value="summaryNotes.inductionSummary"
-        multiline
-        :readonly="readOnly"
-        :print-mode="printMode"
-        placeholder="维持期用药摘要"
-        @update:model-value="updateSummaryNote('inductionSummary', $event)"
-      />
-      <PaperFormField
+      <NumberedNoteColumn
         label="辅助及特殊用药"
         :model-value="summaryNotes.specialMeds"
-        multiline
         :readonly="readOnly"
         :print-mode="printMode"
-        placeholder="特殊用药说明"
+        :highlight-indexes="specialMedHighlightIndexes"
+        timeline-enabled
+        placeholder="每行一条；需上时间轴请写 HH:mm，如 09:15 昂丹司琼 8mg"
         @update:model-value="updateSummaryNote('specialMeds', $event)"
+        @select-line="focusSequenceMarker('specialMeds', $event)"
       />
-      <PaperFormField
+      <NumberedNoteColumn
         label="手术关键操作"
-        :model-value="summaryNotes.keyOperations"
-        multiline
+        :model-value="keyOperationsText"
         :readonly="readOnly"
         :print-mode="printMode"
-        placeholder="关键操作记录"
+        :highlight-indexes="keyOperationHighlightIndexes"
+        timeline-enabled
+        placeholder="每行一条；需上时间轴请写 HH:mm，如 10:20 动脉穿刺置管"
         @update:model-value="updateSummaryNote('keyOperations', $event)"
+        @select-line="focusSequenceMarker('keyOperations', $event)"
       />
-      <PaperFormField
+      <NumberedNoteColumn
         label="术后镇痛"
         :model-value="summaryNotes.postopAnalgesia"
-        multiline
         :readonly="readOnly"
         :print-mode="printMode"
-        placeholder="镇痛方案"
+        placeholder="镇痛方式、PCA 设置等"
         @update:model-value="updateSummaryNote('postopAnalgesia', $event)"
       />
     </div>
 
     <section
-      v-if="showProfessionalSummary && printMode"
+      v-if="showProfessionalSummary && printMode && includeProfessionalAppendix"
       class="sheet-professional-summary is-print"
       :class="{ 'has-impact': Boolean(templateImpact) }"
     >
@@ -433,6 +444,7 @@
     <RecordFooterSummary
       v-if="displaySnapshot && (!printMode || isLastPage)"
       :summary="displaySummary"
+      :autologous-total="balanceSummary.autologousInput"
       :signatures="record.signatures"
       :read-only="readOnly"
       :print-mode="printMode"
@@ -496,51 +508,22 @@
       :title="`${lineForm.kind === 'medication' ? '用药' : lineForm.category === '自体血回输' ? '自体血回输' : lineForm.kind === 'transfusion' ? '输血' : '输液'}数据`"
       @close="lineVisible = false"
     >
-        <div class="live-modal-body line-form-body">
-          <label class="field-wide">
-            名称
-            <select v-if="lineForm.kind === 'medication'" v-model="lineForm.name" @change="syncMedicationForm">
-              <option v-for="drug in drugs" :key="drug.id" :value="drug.name">{{ drug.name }}（{{ drug.specification }}）</option>
-            </select>
-            <select v-else v-model="lineForm.name" @change="syncFluidForm">
-              <option v-for="fluid in fluidCatalogForForm" :key="fluid.id" :value="fluid.name">{{ fluid.name }}</option>
-            </select>
-          </label>
-          <label v-if="lineForm.kind === 'medication'" class="field-wide field-mode">
-            类型
-            <span class="inline-options mode-options">
-              <label><input v-model="lineForm.mode" type="radio" value="单次用药" />单次</label>
-              <label><input v-model="lineForm.mode" type="radio" value="持续泵入" />持续</label>
-            </span>
-          </label>
-          <label>开始时间<input v-model="lineForm.time" type="time" step="60" /></label>
-          <label>
-            结束时间
-            <input v-model="lineForm.endTime" type="time" step="60" :disabled="lineForm.kind === 'medication' && lineForm.mode === '单次用药'" />
-          </label>
-          <label>剂量/容量<input v-model.number="lineForm.amount" type="number" min="0" /></label>
-          <label>单位<input v-model="lineForm.unit" /></label>
-          <label v-if="lineForm.kind === 'medication'">途径<input v-model="lineForm.route" /></label>
-          <label>执行人<input v-model="lineForm.executor" /></label>
-          <label v-if="lineForm.kind === 'medication'">核对人<input v-model="lineForm.checker" /></label>
-          <template v-if="lineForm.kind === 'transfusion'">
-            <label>血型<select v-model="lineForm.bloodType"><option value="">未填</option><option v-for="item in bloodTypes" :key="item">{{ item }}</option></select></label>
-            <label>Rh<select v-model="lineForm.rh"><option value="">未填</option><option v-for="item in rhTypes" :key="item">{{ item }}</option></select></label>
-            <label>血袋号<input v-model="lineForm.bagNo" /></label>
-            <label>反应<select v-model="lineForm.reaction"><option v-for="item in transfusionReactions" :key="item">{{ item }}</option></select></label>
-            <label>
-              双人核对
-              <span class="inline-options">
-                <label><input v-model="lineForm.anesthesiaConfirmed" type="checkbox" />麻醉医师</label>
-                <label><input v-model="lineForm.circulatingConfirmed" type="checkbox" />巡回护士</label>
-              </span>
-            </label>
-          </template>
-        </div>
-        <template #footer>
-          <button class="btn small" @click="lineVisible = false">关闭</button>
-          <button class="btn small primary" :disabled="readOnly" @click="saveLineForm">保存</button>
-        </template>
+      <MedicationLineForm
+        :form="lineForm"
+        :drugs="drugs"
+        :fluid-catalog="fluidCatalogForForm"
+        :blood-types="bloodTypes"
+        :rh-types="rhTypes"
+        :transfusion-reactions="transfusionReactions"
+        @update:form="patchLineForm"
+        @sync-medication="syncMedicationForm"
+        @sync-fluid="syncFluidForm"
+        @shift-time="shiftLineTime"
+      />
+      <template #footer>
+        <a-button @click="lineVisible = false">关闭</a-button>
+        <a-button type="primary" :disabled="readOnly" @click="saveLineForm">保存</a-button>
+      </template>
     </RecordModalShell>
 
     <RecordModalShell v-if="professionalEditor.visible" size="small" top-layer title="专业字段编辑" @close="professionalEditor.visible = false">
@@ -604,16 +587,15 @@
     </RecordModalShell>
 
     <RecordModalShell v-if="outputVisible" size="small" top-layer title="出入量设置" @close="outputVisible = false">
-        <div class="live-modal-body">
-          <label>时间<span class="time-stepper"><button type="button" @click="shiftOutputTime(-1)">-</button><input v-model="outputForm.time" type="time" step="60" /><button type="button" @click="shiftOutputTime(1)">+</button></span></label>
-          <label>类型<select v-model="outputForm.type"><option>尿量</option><option>出血量</option><option>引流量</option><option>其他</option></select></label>
-          <label>容量 ml<input v-model.number="outputForm.volume" type="number" min="0" /></label>
-          <label>备注<input v-model="outputForm.remark" /></label>
-        </div>
-        <template #footer>
-          <button class="btn small" @click="outputVisible = false">关闭</button>
-          <button class="btn small primary" :disabled="readOnly" @click="saveOutputForm">保存</button>
-        </template>
+      <OutputLineForm
+        :form="outputForm"
+        @update:form="patchOutputForm"
+        @shift-time="shiftOutputTime"
+      />
+      <template #footer>
+        <a-button @click="outputVisible = false">关闭</a-button>
+        <a-button type="primary" :disabled="readOnly" @click="saveOutputForm">保存</a-button>
+      </template>
     </RecordModalShell>
 
     <RecordModalShell v-if="labVisible" size="medium" top-layer title="血气/检验结果" @close="labVisible = false">
@@ -765,26 +747,33 @@
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import TimelineNodeRail from '@/components/anesthesia/record/TimelineNodeRail.vue';
 import RecordHeader from '@/components/anesthesia/record/sheet/RecordHeader.vue';
-import PaperFormField from '@/components/anesthesia/record/sheet/PaperFormField.vue';
 import RecordFooterSummary from '@/components/anesthesia/record/sheet/RecordFooterSummary.vue';
+import NumberedNoteColumn from '@/components/anesthesia/record/sheet/NumberedNoteColumn.vue';
 import RecordTimeAxis from '@/components/anesthesia/record/sheet/RecordTimeAxis.vue';
 import LabResultLayer from '@/components/anesthesia/record/sheet/LabResultLayer.vue';
 import type { AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
-import { getMethodTimelineNodes, type MethodTimelineNode } from '@/services/methodTimelineEngine';
+import {
+  getMethodTimelineNodes,
+  resolveKeyOperationsDisplayText,
+  type MethodTimelineNode,
+} from '@/services/methodTimelineEngine';
 import { computed, defineComponent, defineExpose, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import RecordModalShell from './RecordModalShell.vue';
+import MedicationLineForm from '@/components/anesthesia/record/sheet/MedicationLineForm.vue';
+import OutputLineForm from '@/components/anesthesia/record/sheet/OutputLineForm.vue';
 import type { AnesthesiaEvent, AnesthesiaPlaneRecord, FluidRecord, MedicationRecord, OutputDetailRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
 import type { DynamicModuleEntry, TemplateImpact, TemplateImpactEvent, TemplateImpactMedication } from '@/mock/anesthesiaRecordPrototype';
 import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/types/system';
 import type { LabResultRecord } from '@/types/anesthesiaRecord';
+import { buildSequenceMarkersFromNotes, parseNumberedNoteLines } from '@/utils/numberedNotes';
 import {
   buildMonitorCells,
   buildRecordBandGrid,
   buildBalanceSummary,
   buildRecordSnapshot,
   buildRecordSummaryFields,
+  buildTempScaleTicks,
   chartYWithPadding,
   clampVitalValueByDict,
   collectRecordTimes,
@@ -797,6 +786,9 @@ import {
   minutesToClock,
   moveMonitorItemOrder,
   percentToTime,
+  PRESSURE_CHART_SCALE,
+  resolveChartY,
+  shouldDrawChartPolyline,
   timeToPercent,
   clockToMinutes,
   vitalMarkerShape,
@@ -810,7 +802,7 @@ import {
 } from '@/services/anesthesiaRecordEngine';
 import { buildLiveTimeScale } from '@/services/anesthesiaRecordEngine';
 import { buildRecordPagination, clipSegmentToPage, isSegmentCrossingPage, isTimeOnPage } from '@/services/recordPaginationEngine';
-import { buildLabLayoutObjects, buildMonitorLayoutObjects, mergeLayoutWarnings, resolveLayoutCollisions } from '@/services/recordLayoutEngine';
+import { buildMonitorLayoutObjects, mergeLayoutWarnings, resolveLayoutCollisions } from '@/services/recordLayoutEngine';
 import { buildMilestoneStatusEvents } from '@/services/methodTimelineEngine';
 
 const GridLines = defineComponent({
@@ -853,6 +845,7 @@ const props = withDefaults(defineProps<{
   methodAuxiliary?: AnesthesiaMethodKey[];
   pageNo?: number;
   printMode?: boolean;
+  includeProfessionalAppendix?: boolean;
   headerPickerOptions?: {
     positions: string[];
     surgeries: string[];
@@ -879,6 +872,7 @@ const props = withDefaults(defineProps<{
   methodAuxiliary: () => [],
   pageNo: 1,
   printMode: false,
+  includeProfessionalAppendix: false,
   headerPickerOptions: () => ({
     positions: [],
     surgeries: [],
@@ -920,7 +914,7 @@ const emit = defineEmits<{
 
 const activeTimelineKey = ref('');
 const highlightedEventType = ref('');
-const statusRowRef = ref<HTMLElement | null>(null);
+const highlightedSequence = ref<{ noteKey: 'specialMeds' | 'keyOperations'; index: number } | null>(null);
 const statusSymbolRefs = new Map<string, HTMLElement>();
 
 type MenuType = 'grid' | 'planeGrid' | 'plane' | 'drugGrid' | 'medication' | 'inhaledGrid' | 'inhaled' | 'infusionGrid' | 'infusion' | 'autologousGrid' | 'autologous' | 'transfusionGrid' | 'transfusion' | 'monitor' | 'chart' | 'vital' | 'balance' | 'output';
@@ -949,6 +943,8 @@ const monitorEndTime = ref('');
 const monitorInterval = ref(5);
 const draggedMonitorCode = ref('');
 const chartAreaRef = ref<HTMLElement | null>(null);
+const ioBandRef = ref<HTMLElement | null>(null);
+const notesSectionRef = ref<HTMLElement | null>(null);
 const planeLevels = ['C8', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'L1', 'L2'];
 
 const lineForm = reactive({
@@ -1070,7 +1066,8 @@ const currentPage = computed(() => {
   const pages = props.record.recordDocument?.timeAxisPages?.length
     ? props.record.recordDocument.timeAxisPages
     : pagination.value.pages;
-  return pages.find((item) => item.pageNo === props.pageNo) ?? pages[0];
+  const fallback = pages[0] ?? pagination.value.pages[0];
+  return pages.find((item) => item.pageNo === props.pageNo) ?? fallback;
 });
 const isLastPage = computed(() => currentPage.value ? currentPage.value.pageNo === currentPage.value.pageCount : true);
 const displaySnapshot = computed(() => props.record.recordSnapshot ?? buildRecordSnapshot(props.record, props.record.recordDocument?.hospitalName));
@@ -1138,8 +1135,14 @@ const monitorRows = computed(() => {
     .slice(0, 10);
 });
 const monitorOrderCodes = computed(() => monitorRows.value.map((item) => item.shortCode));
-const chartVitals = computed(() => monitorRows.value.filter((item) => item.chartEnabled));
-const chartTicks = computed(() => [220, 200, 180, 160, 140, 120, 100, 80, 60, 40, 20].map((value) => ({ value, top: (chartYWithPadding(value, { min: 20, max: 220, height: 300, padding: 18 }) / 300) * 100 })));
+const MONITOR_BAND_ONLY = new Set(['SpO2', 'SPO2', 'EtCO2', 'ETCO2', 'BIS']);
+const chartVitals = computed(() => monitorRows.value.filter((item) => item.chartEnabled && !MONITOR_BAND_ONLY.has(item.shortCode)));
+const chartLineVitals = computed(() => chartVitals.value.filter((item) => shouldDrawChartPolyline(item.shortCode)));
+const tempScaleTicks = computed(() => buildTempScaleTicks());
+const chartTicks = computed(() => [220, 200, 180, 160, 140, 120, 100, 80, 60, 40, 20].map((value) => ({
+  value,
+  top: (chartYWithPadding(value, PRESSURE_CHART_SCALE) / 300) * 100,
+})));
 const respiratoryTicks = computed(() => [26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2].map((value) => ({ value, top: (chartYWithPadding(value, { min: 2, max: 26, height: 300, padding: 18 }) / 300) * 100 })));
 const infusionCatalog = computed(() => props.fluids.filter((item) => item.enabled && isInfusionFluidCategory(item.subCategory)));
 const autologousCatalog = computed(() => props.fluids.filter((item) => item.enabled && item.subCategory === '自体血回输'));
@@ -1187,23 +1190,17 @@ const referenceLegendItems = computed(() => chartVitals.value.map((item) => ({
           : item.shortCode === 'TEMP' ? '体温'
             : item.shortCode,
 })));
-const eventLegend = [
-  { symbol: 'X', label: '麻醉开始' },
-  { symbol: 'Θ', label: '麻醉拔管' },
-  { symbol: '*', label: '麻醉结束' },
-  { symbol: '◎', label: '手术开始' },
-  { symbol: 'Ⓞ', label: '手术结束' },
-  { symbol: 'Φ', label: '麻醉插管' },
+const eventLegendPairs = [
+  [{ symbol: 'X', label: '麻醉开始' }, { symbol: '*', label: '麻醉结束' }],
+  [{ symbol: '◎', label: '手术开始' }, { symbol: 'Ⓞ', label: '手术结束' }],
+  [{ symbol: 'Φ', label: '麻醉插管' }, { symbol: 'Θ', label: '麻醉拔管' }],
 ];
 const monitorCells = computed(() => {
   const raw = buildMonitorCells(visibleVitals.value, monitorRows.value, monitorOrderCodes.value, {
     start: sheetStart.value,
     end: sheetEnd.value,
   });
-  const { objects } = resolveLayoutCollisions([
-    ...buildMonitorLayoutObjects(raw),
-    ...buildLabLayoutObjects(labResults.value, (time) => timeToPercent(time, sheetStart.value, sheetEnd.value)),
-  ]);
+  const { objects } = resolveLayoutCollisions(buildMonitorLayoutObjects(raw));
   const map = new Map(objects.map((item) => [item.id, item]));
   return raw.map((cell) => {
     const placed = map.get(cell.key);
@@ -1215,10 +1212,7 @@ const layoutWarningPayload = computed(() => {
     start: sheetStart.value,
     end: sheetEnd.value,
   });
-  const { warnings } = resolveLayoutCollisions([
-    ...buildMonitorLayoutObjects(raw),
-    ...buildLabLayoutObjects(labResults.value, (time) => timeToPercent(time, sheetStart.value, sheetEnd.value)),
-  ]);
+  const { warnings } = resolveLayoutCollisions(buildMonitorLayoutObjects(raw));
   return mergeLayoutWarnings(warnings);
 });
 const hasLineTarget = computed(() => ['plane', 'medication', 'inhaled', 'infusion', 'autologous', 'transfusion', 'vital', 'output'].includes(menu.type) && Boolean(menu.target));
@@ -1333,8 +1327,21 @@ const outputRows = computed(() => {
       { id: 'summary-drainage', time: props.record.surgeryEnd ?? props.record.leaveRoomTime ?? props.record.plannedStart, type: '引流量' as const, volume: props.record.outputs.drainage },
     ];
   const indexByType: Record<OutputDetailRecord['type'], number> = { 尿量: 0, 出血量: 1, 引流量: 2, 其他: 3 };
-  return records.map((row) => ({ id: row.id, time: row.time, volume: row.volume, index: indexByType[row.type], source: row }));
+  return records.map((row) => ({
+    id: row.id,
+    time: row.time,
+    volume: row.volume,
+    index: indexByType[row.type],
+    source: row,
+    display: row.type === '出血量' ? `${row.volume}` : `${row.volume}ml`,
+    markerClass: row.type === '出血量' ? 'output-badge blood-loss' : 'output-marker',
+  }));
 });
+const clockToIsoTime = (clock: string) => {
+  const base = props.record.plannedStart || props.record.anesthesiaStart || dayjs().toISOString();
+  const [hour, minute] = clock.split(':').map(Number);
+  return dayjs(base).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
+};
 const symbolForEvent = (type: string) => (type.includes('入室') ? '>' : type.includes('麻醉开始') ? 'X' : type.includes('麻醉结束') ? '*' : type.includes('手术开始') ? '◎' : type.includes('手术结束') ? 'Ⓞ' : type.includes('插管') ? 'Φ' : type.includes('喉罩') ? '罩' : type.includes('穿刺') ? '针' : type.includes('平面') ? 'T' : type.includes('阻滞') ? 'B' : type.includes('拔管') ? 'Θ' : type.includes('离室') ? '▶' : '•');
 const timelineKeyForEventType = (type: string) => {
   const nodes = getMethodTimelineNodes(props.methodKeys);
@@ -1360,7 +1367,7 @@ const selectStatusEvent = (event: AnesthesiaEvent & { type: string }) => {
   emit('selectEvent', event);
   scrollStatusRowIntoView();
 };
-const scrollStatusRowIntoView = () => statusRowRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+const scrollStatusRowIntoView = () => chartAreaRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 const flashEventType = (type: string) => {
   highlightedEventType.value = type;
   activeTimelineKey.value = timelineKeyForEventType(type);
@@ -1437,6 +1444,56 @@ const summaryNotes = computed(() => ({
   keyOperations: props.record.recordSummary?.notes?.keyOperations ?? operationSummary.value,
   postopAnalgesia: props.record.recordSummary?.notes?.postopAnalgesia ?? postopAnalgesiaSummary.value,
 }));
+const keyOperationsText = computed(() => resolveKeyOperationsDisplayText(
+  props.record,
+  props.methodKeys,
+  props.record.recordSummary?.notes?.keyOperations,
+  operationSummary.value,
+));
+const keyOperationLines = computed(() => parseNumberedNoteLines(keyOperationsText.value));
+const sequenceMarkers = computed(() => {
+  const special = parseNumberedNoteLines(summaryNotes.value.specialMeds);
+  const operations = keyOperationLines.value;
+  return [
+    ...buildSequenceMarkersFromNotes(special, {
+      rowIndex: 3,
+      tone: 'orange',
+      idPrefix: 'special',
+      noteKey: 'specialMeds',
+      clockToIso: clockToIsoTime,
+    }),
+    ...buildSequenceMarkersFromNotes(operations, {
+      rowIndex: 4,
+      tone: 'pink',
+      idPrefix: 'op',
+      noteKey: 'keyOperations',
+      clockToIso: clockToIsoTime,
+    }),
+  ];
+});
+const specialMedHighlightIndexes = computed(() => (
+  highlightedSequence.value?.noteKey === 'specialMeds' ? [highlightedSequence.value.index] : []
+));
+const keyOperationHighlightIndexes = computed(() => (
+  highlightedSequence.value?.noteKey === 'keyOperations' ? [highlightedSequence.value.index] : []
+));
+const isSequenceMarkerActive = (marker: { noteKey: 'specialMeds' | 'keyOperations'; number: number }) => (
+  highlightedSequence.value?.noteKey === marker.noteKey && highlightedSequence.value.index === marker.number
+);
+const highlightSequenceMarker = (marker: { noteKey: 'specialMeds' | 'keyOperations'; number: number }) => {
+  focusSequenceMarker(marker.noteKey, marker.number);
+};
+const focusSequenceMarker = (noteKey: 'specialMeds' | 'keyOperations', index: number) => {
+  if (highlightedSequence.value?.noteKey === noteKey && highlightedSequence.value.index === index) {
+    highlightedSequence.value = null;
+    return;
+  }
+  highlightedSequence.value = { noteKey, index };
+  ioBandRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (noteKey === 'keyOperations' || noteKey === 'specialMeds') {
+    notesSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+};
 const updateSummaryNote = (key: keyof typeof summaryNotes.value, value: string) => {
   emit('saveSummaryNotes', { [key]: value });
 };
@@ -1503,18 +1560,14 @@ const isAbnormal = (row: VitalSign, item: VitalSignDictItem) => {
   if (typeof value !== 'number') return false;
   return (typeof item.lowerLimit === 'number' && value < item.lowerLimit) || (typeof item.upperLimit === 'number' && value > item.upperLimit);
 };
-const chartY = (value: number, item?: VitalSignDictItem) => {
-  if (item?.shortCode === 'RR') return chartYWithPadding(value, { min: 2, max: 26, height: 300, padding: 18 });
-  if (item?.shortCode === 'TEMP') return chartYWithPadding(value, { min: 33, max: 39, height: 300, padding: 18 });
-  return chartYWithPadding(value, { min: 20, max: 220, height: 300, padding: 18 });
-};
+const chartY = (value: number, item?: VitalSignDictItem) => resolveChartY(value, item?.shortCode);
 const chartPoints = (item: VitalSignDictItem) => visibleVitals.value
   .map((row) => ({ row, value: row[item.shortCode as keyof VitalSign] }))
   .filter((entry): entry is { row: VitalSign; value: number } => typeof entry.value === 'number')
   .map((entry) => ({
     key: `${entry.row.id ?? entry.row.time}-${item.shortCode}`,
     row: entry.row,
-    x: Math.min(988, Math.max(12, timeToPercent(entry.row.time, sheetStart.value, sheetEnd.value) * 10)),
+    x: Math.min(1000, Math.max(0, timeToPercent(entry.row.time, sheetStart.value, sheetEnd.value) * 10)),
     y: chartY(entry.value, item),
   }));
 const chartLine = (item: VitalSignDictItem) => chartPoints(item).map((point) => `${point.x},${point.y}`).join(' ');
@@ -1801,6 +1854,16 @@ const shiftMonitorTime = (field: 'time' | 'end', deltaSteps: number) => {
 };
 const shiftOutputTime = (deltaSteps: number) => { outputForm.time = shiftClockValue(outputForm.time, deltaSteps); };
 const shiftPlaneTime = (deltaSteps: number) => { planeForm.time = shiftClockValue(planeForm.time, deltaSteps); };
+const shiftLineTime = (field: 'time' | 'endTime', deltaSteps: number) => {
+  if (field === 'time') lineForm.time = shiftClockValue(lineForm.time, deltaSteps);
+  else lineForm.endTime = shiftClockValue(lineForm.endTime, deltaSteps);
+};
+const patchLineForm = (patch: Record<string, unknown>) => {
+  Object.assign(lineForm, patch);
+};
+const patchOutputForm = (patch: Record<string, unknown>) => {
+  Object.assign(outputForm, patch);
+};
 const openOutputEditor = (row?: OutputDetailRecord) => {
   closeMenu();
   outputVisible.value = true;
@@ -2039,6 +2102,8 @@ onBeforeUnmount(() => {
   --sheet-side-col: 28px;
   --sheet-label-col: 112px;
   --sheet-left-total: 140px;
+  --chart-status-row: 28px;
+  --chart-scale-gutter: 54px;
   position: relative;
   border: 2px solid #111827;
   background: #fff;
@@ -2055,17 +2120,38 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12), 0 18px 48px rgba(15, 23, 42, 0.12);
 }
 
-.sheet-locked-ribbon {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 3;
-  background: rgba(100, 116, 139, 0.12);
-  color: #475569;
-  border: 1px solid #cbd5e1;
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 11px;
+.live-record-card.is-locked {
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.18), 0 18px 48px rgba(15, 23, 42, 0.12);
+}
+
+.sheet-lock-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 2px solid #d97706;
+  background: linear-gradient(180deg, #fff7ed 0%, #fffbeb 100%);
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.sheet-lock-banner strong {
+  color: #b45309;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.sheet-lock-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.sheet-lock-desc {
+  color: #78350f;
 }
 
 .sheet-print-watermark {
@@ -2279,10 +2365,13 @@ onBeforeUnmount(() => {
 }
 
 .sheet-ruler,
-.sheet-band,
-.vital-chart {
+.sheet-band {
   display: grid;
   grid-template-columns: var(--sheet-left-total) 1fr;
+  border-bottom: 1px solid #111827;
+}
+
+.vital-chart {
   border-bottom: 1px solid #111827;
 }
 
@@ -2593,102 +2682,177 @@ onBeforeUnmount(() => {
 }
 
 .vital-chart {
+  min-height: 300px;
+}
+
+.chart-layout {
+  display: grid;
   grid-template-columns: var(--sheet-left-total) 1fr;
-  height: 300px;
+  min-height: 300px;
+}
+
+.chart-legend-panel,
+.chart-area {
+  min-height: 300px;
+}
+
+.chart-legend-panel {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 6px;
+  padding: 8px 6px;
+  border-right: 1px solid #111827;
+  background: #f8fafc;
+  font-size: 11px;
+}
+
+.event-legend-pairs {
+  display: grid;
+  gap: 4px;
+}
+
+.legend-pair-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+}
+
+.legend-pair-row span,
+.room-entry-legend span,
+.vital-symbol-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 20px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.legend-pair-row b,
+.room-entry-legend b,
+.vital-symbol-legend b {
+  min-width: 12px;
+  color: #111827;
+  font-weight: 700;
+}
+
+.room-entry-legend {
+  display: grid;
+  gap: 4px;
+  padding: 4px 0;
+  border-top: 1px solid #dbeafe;
+  border-bottom: 1px solid #dbeafe;
+}
+
+.vital-symbol-legend {
+  display: grid;
+  gap: 3px;
+  align-content: start;
+  padding-top: 2px;
+}
+
+.temp-scale-column {
+  position: absolute;
+  left: 0;
+  top: var(--chart-status-row);
+  bottom: 0;
+  width: 28px;
+  z-index: 4;
+  border-right: 1px solid #111827;
+  background: rgba(255, 255, 255, 0.92);
+  pointer-events: none;
+}
+
+.temp-scale-tick {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #166534;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.temp-scale-label {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  writing-mode: vertical-rl;
+  font-style: normal;
+  color: #166534;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .chart-area {
   position: relative;
-  padding-left: 54px;
+  min-height: 300px;
+  padding-top: var(--chart-status-row);
+}
+
+.chart-status-overlay {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  height: 22px;
+  pointer-events: none;
+}
+
+.chart-status-symbol {
+  position: absolute;
+  top: 0;
+  pointer-events: auto;
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  transform: translateX(-50%);
+  border: 1px solid #64748b;
+  border-radius: 50%;
+  background: #fff;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chart-status-symbol.is-active {
+  box-shadow: 0 0 0 2px #2563eb;
+  background: #eff6ff;
+}
+
+.chart-status-symbol.is-critical {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+.chart-status-symbol.is-template {
+  border-color: #165dff;
+  background: #e8f3ff;
+  color: #0f3a8c;
+  box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.12);
+}
+
+.chart-status-symbol.is-recent {
+  border-color: #00b42a;
+  background: #f0fff4;
+  color: #15803d;
+  box-shadow: 0 0 0 4px rgba(0, 180, 42, 0.14);
 }
 
 .chart-area .chart-scale {
   position: absolute;
   left: 0;
-  top: 0;
+  top: 28px;
   bottom: 0;
   width: 54px;
   border-right: 1px solid #111827;
   background: #f8fafc;
   z-index: 2;
   pointer-events: none;
-}
-
-.chart-legend,
-.chart-scale {
-  border-right: 1px solid #111827;
-  background: #f8fafc;
-}
-
-.chart-legend {
-  display: grid;
-  grid-template-columns: 76px 1fr 22px;
-  gap: 2px;
-  padding: 4px 2px;
-  font-size: 11px;
-}
-
-.chart-scale {
-  position: relative;
-}
-
-.event-legend,
-.vital-symbol-legend,
-.temp-scale-mini {
-  display: grid;
-  align-content: center;
-  gap: 1px;
-  min-height: 0;
-}
-
-.event-legend {
-  border-right: 1px solid #d5dde8;
-  text-align: left;
-  justify-items: start;
-  overflow: hidden;
-}
-
-.vital-symbol-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-  min-height: 15px;
-  line-height: 1.15;
-}
-
-.event-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-  width: 100%;
-  margin: 1px 0;
-  overflow: hidden;
-  min-height: 15px;
-  font-size: 11px;
-  line-height: 1.15;
-  white-space: nowrap;
-}
-
-.event-legend b {
-  color: #111827;
-  font-weight: 700;
-}
-
-.vital-symbol-legend {
-  padding-left: 1px;
-  font-size: 11px;
-}
-
-.temp-scale-mini {
-  justify-items: center;
-  border-left: 1px solid #cbd5e1;
-  font-size: 11px;
-  line-height: 1.1;
-}
-
-.temp-scale-mini em {
-  writing-mode: vertical-rl;
-  font-style: normal;
 }
 
 .chart-scale {
@@ -2726,7 +2890,7 @@ onBeforeUnmount(() => {
 
 .chart-area svg {
   position: absolute;
-  inset: 0;
+  inset: var(--chart-status-row) 0 0 0;
   z-index: 2;
   width: 100%;
   height: 100%;
@@ -2762,71 +2926,6 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.surgery-status-row {
-  display: grid;
-  grid-template-columns: var(--sheet-left-total) 1fr;
-  min-height: 32px;
-  border-bottom: 1px solid #111827;
-}
-
-.status-title {
-  display: grid;
-  place-items: center;
-  border-right: 1px solid #111827;
-  background: #f8fafc;
-  font-weight: 700;
-}
-
-.status-track {
-  position: relative;
-  background-image: linear-gradient(to right, rgba(100, 116, 139, 0.28) 1px, transparent 1px);
-  background-repeat: repeat;
-  background-size: calc(100% / var(--minor-count, 42)) 100%;
-}
-
-.surgery-status-symbol {
-  position: absolute;
-  z-index: 4;
-  top: 50%;
-  display: inline-grid;
-  place-items: center;
-  min-width: 22px;
-  height: 22px;
-  transform: translate(-50%, -50%);
-  border: 1px solid rgba(15, 23, 42, 0.45);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.96);
-  color: #111827;
-  font-size: 17px;
-  font-weight: 800;
-  line-height: 1;
-  text-shadow: 0 1px 0 #fff;
-}
-
-.surgery-status-symbol.is-active {
-  box-shadow: 0 0 0 2px #165dff;
-  background: #eff6ff;
-}
-
-.surgery-status-symbol.is-critical {
-  border-color: #dc2626;
-  color: #dc2626;
-}
-
-.surgery-status-symbol.is-template {
-  border-color: #165dff;
-  background: #e8f3ff;
-  color: #0f3a8c;
-  box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.12);
-}
-
-.surgery-status-symbol.is-recent {
-  border-color: #00b42a;
-  background: #f0fff4;
-  color: #15803d;
-  box-shadow: 0 0 0 4px rgba(0, 180, 42, 0.14);
-}
-
 .sheet-notes {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2845,43 +2944,53 @@ onBeforeUnmount(() => {
 
 .reference-notes {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0;
   border-bottom: 1px solid #111827;
 }
 
-.reference-notes :deep(.paper-field) {
-  display: block;
-  padding: 8px;
-  border-right: 1px solid #111827;
-  min-height: 76px;
+.sequence-marker {
+  position: absolute;
+  z-index: 4;
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border: 1.5px solid #111827;
+  border-radius: 4px;
+  background: #fff;
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
-.reference-notes :deep(.paper-field:last-child) {
-  border-right: 0;
+.sequence-marker.is-active {
+  box-shadow: 0 0 0 2px #2563eb;
 }
 
-.reference-notes :deep(.paper-field-label) {
-  display: block;
-  margin-bottom: 6px;
-  font-weight: 700;
-  color: #111827;
+.sequence-marker.orange {
+  border-color: #ea580c;
+  background: #ffedd5;
+  color: #9a3412;
 }
 
-.reference-notes :deep(.paper-field-input),
-.reference-notes :deep(.paper-field-value) {
-  min-height: 48px;
+.sequence-marker.pink {
+  border-color: #db2777;
+  background: #fce7f3;
+  color: #9d174d;
 }
 
-@media (max-width: 960px) {
-  .reference-notes {
-    grid-template-columns: 1fr;
-  }
-
-  .reference-notes :deep(.paper-field) {
-    border-right: 0;
-    border-bottom: 1px solid #111827;
-  }
+.output-badge.blood-loss {
+  min-width: 34px;
+  padding: 2px 6px;
+  border: 1.5px solid #db2777;
+  border-radius: 4px;
+  background: #fce7f3;
+  color: #9d174d;
+  font-weight: 800;
+  text-align: center;
 }
 
 .live-context-menu {
@@ -3258,12 +3367,27 @@ onBeforeUnmount(() => {
   .live-record-card {
     overflow: visible;
     border: 1px solid #111;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 
-  .sheet-locked-ribbon,
-  .sheet-print-watermark,
-  .live-context-menu {
+  .is-print-mode .sequence-marker {
+    pointer-events: none;
+    cursor: default;
+  }
+
+  .is-print-mode .segment-handle,
+  .is-print-mode .drag-guide,
+  .is-print-mode .drag-tooltip,
+  .is-print-mode .sheet-lock-banner,
+  .is-print-mode .sheet-print-watermark,
+  .is-print-mode .live-context-menu {
     display: none !important;
+  }
+
+  .is-print-mode .chart-status-symbol {
+    pointer-events: none;
+    cursor: default;
   }
 
   .print-grid-lines span {

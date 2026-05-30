@@ -1,57 +1,92 @@
 <template>
-  <div class="page-stack">
-    <section class="module-hero">
-      <div>
-        <h2 class="module-hero__title">PACU质控预警</h2>
-        <p class="module-hero__desc">聚焦恢复室高风险场景，快速定位至患者详情闭环处置。</p>
-      </div>
-      <div class="module-hero__chips">
-        <a-tag color="orangered">预警 {{ rows.length }}</a-tag>
-      </div>
-    </section>
-    <a-card class="section-card" :bordered="false" title="PACU质控预警">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
+  <ModulePageShell title="PACU 质控预警" description="停留超时与入室低体温预警">
+    <template #chips>
+      <a-tag color="orangered">预警 {{ alerts.length }}</a-tag>
+      <a-tag color="red">超时 {{ delayAlerts.length }}</a-tag>
+      <a-tag color="orange">低体温 {{ lowTempAlerts.length }}</a-tag>
+    </template>
+    <a-card class="section-card" :bordered="false" title="预警列表">
+      <a-table :data="alerts" row-key="id" :pagination="false">
         <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
+          <a-table-column title="患者" data-index="patientName" :width="100" />
+          <a-table-column title="来源手术间" data-index="room" :width="100" />
+          <a-table-column title="预警类型" data-index="alertType" :width="140" />
+          <a-table-column title="说明" data-index="detail" />
+          <a-table-column title="严重程度" :width="100">
+            <template #cell="{ record }">
+              <a-tag :color="record.severity === '严重' ? 'red' : 'orange'">{{ record.severity }}</a-tag>
+            </template>
+          </a-table-column>
+          <a-table-column title="操作" :width="120" fixed="right">
+            <template #cell="{ record }">
+              <a-button size="mini" type="primary" @click="goRecord(record.caseId)">恢复记录</a-button>
+            </template>
           </a-table-column>
         </template>
       </a-table>
+      <EmptyState v-if="!alerts.length" title="暂无 PACU 预警" description="当前在室患者指标正常" icon="IconCheckCircle" />
     </a-card>
-  </div>
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
+import dayjs from 'dayjs';
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
+import EmptyState from '@/components/shared/EmptyState.vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import type { PacuPatient } from '@/types/anesthesia';
 
-interface RowItem { id: string; label: string; desc: string; link?: string }
+interface PacuAlertRow {
+  id: string;
+  caseId: string;
+  patientName: string;
+  room: string;
+  alertType: string;
+  detail: string;
+  severity: '一般' | '严重';
+}
 
 const store = useAnesthesiaStore();
 const router = useRouter();
-const rows = computed(() => buildRows('pacuPatients'));
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
+const stayMinutes = (item: PacuPatient) => dayjs(item.outTime ?? new Date()).diff(dayjs(item.inTime), 'minute');
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/detail/${record.link}`);
-};
+const activePatients = computed(() => store.pacuPatients.filter((p) => p.status !== '已转出'));
+
+const delayAlerts = computed(() =>
+  activePatients.value
+    .filter((p) => stayMinutes(p) > 120)
+    .map((p) => ({
+      id: `delay-${p.id}`,
+      caseId: p.caseId,
+      patientName: p.patientName,
+      room: p.room,
+      alertType: 'PACU停留超时',
+      detail: `已停留 ${stayMinutes(p)} 分钟，超过 2 小时需说明转出延迟原因`,
+      severity: '严重' as const,
+    })),
+);
+
+const lowTempAlerts = computed(() =>
+  activePatients.value
+    .filter((p) => p.firstTemperature === undefined || (typeof p.firstTemperature === 'number' && p.firstTemperature < 36))
+    .map((p) => ({
+      id: `temp-${p.id}`,
+      caseId: p.caseId,
+      patientName: p.patientName,
+      room: p.room,
+      alertType: p.firstTemperature === undefined ? 'PACU首次体温缺失' : 'PACU入室低体温',
+      detail:
+        p.firstTemperature === undefined
+          ? '入室 30 分钟内未记录首次体温'
+          : `入室首次体温 ${p.firstTemperature}℃，低于 36℃`,
+      severity: (p.firstTemperature !== undefined && p.firstTemperature < 35.5 ? '严重' : '一般') as '一般' | '严重',
+    })),
+);
+
+const alerts = computed(() => [...delayAlerts.value, ...lowTempAlerts.value] satisfies PacuAlertRow[]);
+
+const goRecord = (caseId: string) => router.push(`/pacu/record/${caseId}`);
 </script>

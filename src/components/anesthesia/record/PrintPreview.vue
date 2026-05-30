@@ -198,6 +198,8 @@ const hasBlockingIssue = computed(() =>
 
   .print-preview-page {
     box-shadow: none;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 }
 </style>

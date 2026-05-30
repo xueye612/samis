@@ -85,8 +85,13 @@ defineEmits<{ close: [] }>();
 
 .record-modal footer {
   justify-content: flex-end;
+  gap: 8px;
   border-top: 1px solid #c8d7e8;
   border-bottom: 0;
+}
+
+.record-modal footer :deep(.arco-btn) {
+  min-width: 72px;
 }
 
 .record-modal header strong {

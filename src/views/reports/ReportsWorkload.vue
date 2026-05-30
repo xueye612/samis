@@ -1,48 +1,79 @@
 <template>
-  <div class="page-stack">
-    <a-card class="section-card" :bordered="false" title="工作量统计">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
-        <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
-          </a-table-column>
-        </template>
-      </a-table>
-    </a-card>
-  </div>
+  <ModulePageShell title="工作量统计" description="手术量、麻醉方式与类型分布分析">
+    <template #toolbar>
+      <a-space>
+        <a-radio-group v-model="timeRange" type="button">
+          <a-radio value="今日">今日</a-radio>
+          <a-radio value="本周">本周</a-radio>
+          <a-radio value="本月">本月</a-radio>
+        </a-radio-group>
+        <a-button type="primary" @click="store.exportWorkloadCsv()">
+          <template #icon><icon-download /></template>
+          导出 CSV
+        </a-button>
+      </a-space>
+    </template>
+    <template #stats>
+      <MetricCard label="手术总数" :value="stats.totalSurgeries" icon="IconCalendar" />
+      <MetricCard label="麻醉总数" :value="stats.totalAnesthesia" icon="IconExperiment" />
+      <MetricCard label="急诊" :value="stats.emergencyCount" tag="急诊" variant="danger" icon="IconExclamationCircle" />
+      <MetricCard label="择期" :value="stats.electiveCount" icon="IconFile" />
+      <MetricCard label="完成率" :value="`${stats.completionRate}%`" tag="统计" icon="IconCheckCircle" />
+    </template>
+    <div class="chart-grid">
+      <a-card class="section-card" :bordered="false" title="工作量趋势">
+        <SimpleChart type="line" :labels="stats.trendLabels" :values="stats.trendValues" series-name="手术量" />
+      </a-card>
+      <a-card class="section-card" :bordered="false" title="手术类型分布">
+        <SimpleChart type="bar" :labels="stats.typeLabels" :values="stats.typeValues" series-name="台数" />
+      </a-card>
+      <a-card class="section-card" :bordered="false" title="麻醉方式占比">
+        <SimpleChart type="pie" :labels="stats.methodLabels" :values="stats.methodValues" />
+      </a-card>
+    </div>
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useRouter } from 'vue-router';
+import dayjs from 'dayjs';
+import { computed, ref } from 'vue';
+import { IconDownload } from '@arco-design/web-vue/es/icon';
+import MetricCard from '@/components/MetricCard.vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import SimpleChart from '@/components/shared/SimpleChart.vue';
+import { buildWorkloadStats } from '@/mock/clinicalModulesSeed';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
-interface RowItem { id: string; label: string; desc: string; link?: string }
+type TimeRange = '今日' | '本周' | '本月';
 
 const store = useAnesthesiaStore();
-const router = useRouter();
-const rows = computed(() => buildRows('cases'));
+const timeRange = ref<TimeRange>('今日');
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
+const stats = computed(() => {
+  const now = dayjs();
+  const cases = store.cases.filter((item) => {
+    const start = dayjs(item.plannedStart ?? item.scheduledStart);
+    if (timeRange.value === '今日') return start.isSame(now, 'day');
+    if (timeRange.value === '本周') return start.isSame(now, 'week');
+    return start.isSame(now, 'month');
+  });
+  if (timeRange.value === '本月' && cases.length === store.cases.length) {
+    return store.workloadStats ?? buildWorkloadStats(cases);
+  }
+  return buildWorkloadStats(cases);
+});
+</script>
+
+<style scoped>
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/record/${record.link}`);
-};
-</script>
+@media (max-width: 1200px) {
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

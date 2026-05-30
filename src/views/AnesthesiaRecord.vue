@@ -15,7 +15,7 @@
 
         <div class="top-context">
           <span class="workflow-route">{{ returnTarget.contextLabel }} / 麻醉记录单</span>
-          <a-tag :color="current.locked ? 'gray' : current.rescue ? 'red' : 'green'">{{ current.locked ? '已锁定' : current.rescue ? '抢救中' : current.recordStatus ?? '记录中' }}</a-tag>
+          <a-tag :color="current.locked ? 'orangered' : current.rescue ? 'red' : 'green'">{{ current.locked ? '🔒 已锁定' : current.rescue ? '抢救中' : current.recordStatus ?? '记录中' }}</a-tag>
           <span>采集：{{ current.device?.collectStatus ?? current.collectStatus ?? '未连接' }}</span>
         </div>
 
@@ -91,15 +91,17 @@
       <main class="record-center">
         <div class="record-workspace">
           <section class="sheet-workbench">
-            <div v-if="livePageCount > 1" class="sheet-page-nav no-print">
+            <div class="sheet-page-nav no-print">
               <a-pagination
+                v-if="livePageCount > 1"
                 v-model:current="livePageNo"
                 :total="livePageCount"
                 :page-size="1"
                 simple
                 size="small"
               />
-              <span>第 {{ livePageNo }}/{{ livePageCount }} 页</span>
+              <span class="sheet-page-badge">第 {{ livePageNo }}/{{ livePageCount }} 页</span>
+              <span v-if="livePageRange" class="sheet-page-range">{{ livePageRange }}</span>
             </div>
             <LiveAnesthesiaSheet
               ref="liveSheetRef"
@@ -144,7 +146,26 @@
             />
           </section>
 
-          <aside class="record-toolbox">
+          <aside ref="toolboxRef" class="record-toolbox">
+            <a-card v-if="sheetMethodKeys.length" class="timeline-workbench-card" :bordered="false">
+              <template #title>关键时间</template>
+              <template #extra>
+                <span class="timeline-card-extra">{{ timelineProgressLabel }}</span>
+              </template>
+              <p v-if="timelinePendingLabels" class="timeline-card-hint">待录：{{ timelinePendingLabels }}</p>
+              <TimelineNodeRail
+                :embedded="false"
+                :show-header="false"
+                :record="current"
+                :method-keys="sheetMethodKeys"
+                :method-labels="sheetAppliedMethodLabels"
+                :locked="current.locked"
+                :active-key="activeTimelineKey"
+                @save="saveTimelineNode"
+                @focus="focusWorkbenchTimelineNode"
+              />
+            </a-card>
+
             <IntraopWorkflowPanel
               :stage="currentStage"
               :stage-options="scenarioContext.stageOptions"
@@ -178,18 +199,22 @@
 
             <RecordRecentEntries :entries="recentEntries" @locate="locateRecentEntry" />
 
-            <a-collapse :default-active-key="['modules']" :bordered="false">
-              <a-collapse-item key="detail" header="事件补录">
-                <EventDetailPanel
-                  :event-name="selectedEventName"
-                  :fields="confirmedLandingItems"
-                  :completion-gaps="completionGaps"
-                />
-              </a-collapse-item>
-              <a-collapse-item key="templates" header="方案初始化">
+            <EventDetailPanel
+              :event-name="selectedEventName"
+              :fields="confirmedLandingItems"
+              :completion-gaps="completionGaps"
+              :field-values="current.professionalFieldValues"
+              :locked="current.locked"
+              :quick-events="scenarioContext.quickEvents"
+              @save-field="saveProfessionalField"
+              @select-event="addEvent"
+            />
+
+            <a-collapse v-model:active-key="toolboxCollapseKeys" :bordered="false" class="toolbox-collapse">
+              <a-collapse-item key="templates" header="方案初始化" class="toolbox-collapse-item toolbox-collapse-templates">
                 <AnesthesiaTemplateSelector compact :selected-template-name="selectedTemplateName" @apply="applyTemplate" />
               </a-collapse-item>
-              <a-collapse-item key="methods" header="麻醉方式">
+              <a-collapse-item key="methods" header="麻醉方式" class="toolbox-collapse-item toolbox-collapse-methods">
                 <AnesthesiaTypeSelector
                   compact
                   :primary="primaryMethod"
@@ -198,7 +223,7 @@
                   @update:auxiliary="updateAuxiliaryMethods"
                 />
               </a-collapse-item>
-              <a-collapse-item key="modules" header="专业字段预览">
+              <a-collapse-item key="modules" header="专业字段预览" class="toolbox-collapse-item toolbox-collapse-modules">
                 <DynamicAnesthesiaModules
                   compact
                   :methods="selectedMethodKeys"
@@ -226,7 +251,6 @@
               @event="addEvent"
               @drug="addDrug"
               @fluid="addFluid"
-              @save-timeline="saveTimelineNode"
             />
           </a-collapse-item>
         </a-collapse>
@@ -307,7 +331,7 @@
 <script setup lang="ts">
 import { Message } from '@arco-design/web-vue';
 import dayjs from 'dayjs';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AnesthesiaTemplateApplyModal from '@/components/anesthesia/record/AnesthesiaTemplateApplyModal.vue';
 import AnesthesiaTemplateSelector from '@/components/anesthesia/record/AnesthesiaTemplateSelector.vue';
@@ -315,6 +339,7 @@ import AnesthesiaTypeSelector from '@/components/anesthesia/record/AnesthesiaTyp
 import DynamicAnesthesiaModules from '@/components/anesthesia/record/DynamicAnesthesiaModules.vue';
 import EventDetailPanel from '@/components/anesthesia/record/EventDetailPanel.vue';
 import IntraopWorkflowPanel from '@/components/anesthesia/record/IntraopWorkflowPanel.vue';
+import TimelineNodeRail from '@/components/anesthesia/record/TimelineNodeRail.vue';
 import LiveAnesthesiaSheet from '@/components/anesthesia/record/LiveAnesthesiaSheet.vue';
 import RecordDetailTabs from '@/components/anesthesia/record/RecordDetailTabs.vue';
 import RecordRecentEntries from '@/components/anesthesia/record/RecordRecentEntries.vue';
@@ -325,6 +350,7 @@ import PrintPreview from '@/components/anesthesia/record/PrintPreview.vue';
 import { buildSurgeryNameOptions, SURGICAL_POSITION_OPTIONS } from '@/config/recordHeaderOptions';
 import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog, resolveDefaultMonitorOrder, runPrintPreflightChecks } from '@/services/anesthesiaRecordEngine';
 import { buildRecordReturnTarget, buildRecordRoute, normalizeRecordEntrySource } from '@/services/recordNavigation';
+import { buildRecordPagination } from '@/services/recordPaginationEngine';
 import {
   buildCompletionGaps,
   buildConfirmedTemplateImpact,
@@ -352,7 +378,7 @@ import { useAnesthesiaStore } from '@/stores/anesthesia';
 import { anesthesiaMethodOptions } from '@/mock/anesthesiaRecordPrototype';
 import type { AnesthesiaMethodKey, TemplateLandingItem, TemplateQualityTip } from '@/mock/anesthesiaRecordPrototype';
 import type { MethodTimelineNode } from '@/services/methodTimelineEngine';
-import { getMethodTimelineNodes } from '@/services/methodTimelineEngine';
+import { buildTimelineNodeStates, getMethodTimelineNodes } from '@/services/methodTimelineEngine';
 import type { AbnormalVitalByDictionary } from '@/services/anesthesiaRecordEngine';
 import type { QualityDefect } from '@/types/quality';
 import type { RecordRecentEntry } from '@/types/recordRecent';
@@ -404,6 +430,7 @@ const pendingLandingItems = ref<TemplateLandingItem[]>([]);
 const confirmedLandingItems = ref<TemplateLandingItem[]>([]);
 const confirmedQualityTips = ref<TemplateQualityTip[]>([]);
 const recentEventLabel = ref('');
+const activeTimelineKey = ref('');
 const selectedEventName = ref('');
 const manualStage = ref<IntraopStage | ''>('');
 const selectedScenario = ref<SurgeryScenarioKey>('generalSurgery');
@@ -418,6 +445,38 @@ const abnormalTarget = ref<AbnormalVitalByDictionary | null>(null);
 const abnormalTreatment = ref('');
 const printPreviewVisible = ref(false);
 const livePageNo = ref(1);
+const toolboxRef = ref<HTMLElement | null>(null);
+const toolboxCollapseKeys = ref<Array<string | number>>(['templates']);
+
+const ensureElementVisibleInScrollRoot = (element: HTMLElement, scrollRoot: HTMLElement, padding = 12) => {
+  const rootRect = scrollRoot.getBoundingClientRect();
+  const elRect = element.getBoundingClientRect();
+  if (elRect.bottom > rootRect.bottom - padding) {
+    scrollRoot.scrollTop += elRect.bottom - rootRect.bottom + padding;
+  }
+  if (elRect.top < rootRect.top + padding) {
+    scrollRoot.scrollTop -= rootRect.top - elRect.top + padding;
+  }
+};
+
+const scrollToolboxCollapseItem = async (key: string) => {
+  await nextTick();
+  await new Promise((resolve) => window.setTimeout(resolve, 240));
+  const root = toolboxRef.value;
+  if (!root) return;
+  const item = root.querySelector(`.toolbox-collapse-${key}`) as HTMLElement | null;
+  const content = item?.querySelector('.arco-collapse-item-content') as HTMLElement | null;
+  const target = content ?? item;
+  if (!target) return;
+  ensureElementVisibleInScrollRoot(target, root);
+};
+
+watch(toolboxCollapseKeys, (keys, previous) => {
+  const prev = previous ?? [];
+  const opened = keys.filter((key) => !prev.includes(key));
+  if (!opened.length) return;
+  void scrollToolboxCollapseItem(String(opened[opened.length - 1]));
+}, { deep: true });
 
 const sortedCases = computed(() => sortCasesByClinicalPriority(store.cases));
 const recordEntrySource = computed(() => normalizeRecordEntrySource(route.query.from));
@@ -428,7 +487,23 @@ const filteredCases = computed(() => {
   return sortedCases.value.filter((item) => [item.patientName, item.room, item.surgeryName, item.department].some((value) => value.includes(text)));
 });
 const current = computed(() => store.cases.find((item) => item.id === selectedId.value));
-const livePageCount = computed(() => current.value?.recordDocument?.pageCount ?? 1);
+const livePagination = computed(() => (current.value ? buildRecordPagination(current.value) : null));
+const livePageCount = computed(() => {
+  const docCount = current.value?.recordDocument?.pageCount;
+  if (docCount && docCount > 0) return docCount;
+  return livePagination.value?.pages.length ?? 1;
+});
+const liveCurrentPageConfig = computed(() => {
+  const pages = current.value?.recordDocument?.timeAxisPages?.length
+    ? current.value!.recordDocument!.timeAxisPages
+    : livePagination.value?.pages ?? [];
+  return pages.find((item) => item.pageNo === livePageNo.value) ?? pages[0];
+});
+const livePageRange = computed(() => {
+  const page = liveCurrentPageConfig.value;
+  if (!page || livePageCount.value <= 1) return '';
+  return `${page.pageStartTime} — ${page.pageEndTime}`;
+});
 const drugCatalog = computed(() => buildDrugCatalog(store.configDrugs));
 const vitalCatalog = computed(() => buildVitalCatalog(store.configVitals));
 const fluidCatalog = computed(() => buildFluidCatalog(store.configFluids));
@@ -453,6 +528,17 @@ const sheetTemplateName = computed(() => confirmedLandingItems.value.length ? se
 const sheetAppliedMethodLabels = computed(() => getMethodLabels(sheetMethodKeys.value));
 const sheetAppliedModules = computed(() => getDynamicModuleEntries(sheetMethodKeys.value));
 const sheetShowAnesthesiaPlane = computed(() => hasAnesthesiaPlaneModule(sheetMethodKeys.value));
+const timelineNodeStates = computed(() => (
+  current.value ? buildTimelineNodeStates(current.value, sheetMethodKeys.value) : []
+));
+const timelineProgressLabel = computed(() => {
+  const total = timelineNodeStates.value.length;
+  const done = timelineNodeStates.value.filter((node) => node.recorded).length;
+  return total ? `${done}/${total} 已记录` : '';
+});
+const timelinePendingLabels = computed(() => (
+  timelineNodeStates.value.filter((node) => !node.recorded).map((node) => node.label).join('、')
+));
 const derivedStage = computed(() => current.value ? deriveCurrentStage(current.value) : '入室后');
 const currentStage = computed(() => manualStage.value || derivedStage.value);
 const confirmedTemplateImpact = computed(() => {
@@ -541,6 +627,9 @@ watch(selectedId, (id) => {
   livePageNo.value = 1;
   restoreWorkflowState(id);
   store.syncRecordDocument(id);
+});
+watch(livePageCount, (count) => {
+  if (livePageNo.value > count) livePageNo.value = Math.max(1, count);
 });
 watch(activeTab, () => saveDraft(false));
 watch([primaryMethod, auxiliaryMethods, selectedTemplateName, pendingLandingItems, confirmedLandingItems, manualStage, selectedScenario], () => saveDraft(false), { deep: true });
@@ -780,11 +869,16 @@ const saveSummaryField = (patch: Partial<import('@/types/anesthesiaRecord').Reco
 const saveSummaryNotes = (patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryNotes>) => store.updateRecordSummaryNotes(selectedId.value, patch);
 const saveTimelineNode = (node: MethodTimelineNode, isoTime: string) => {
   store.applyTimelineNode(selectedId.value, node, isoTime);
+  activeTimelineKey.value = node.key;
   recentEventLabel.value = `${node.label} ${dayjs(isoTime).format('HH:mm')}`;
   pushRecentEntry({ kind: 'timeline', label: node.label, time: isoTime, target: 'timeline', refId: node.key });
   activeTab.value = 'anesthesia';
   liveSheetRef.value?.flashEventType(node.eventType ?? node.label);
   Message.success(`已更新：${node.label}`);
+};
+const focusWorkbenchTimelineNode = (node: MethodTimelineNode) => {
+  activeTimelineKey.value = node.key;
+  liveSheetRef.value?.focusTimelineNode(node);
 };
 const stopPump = (medicationId: string) => {
   store.stopMedication(selectedId.value, medicationId);
@@ -1109,10 +1203,26 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 .sheet-page-nav {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 8px;
   font-size: 12px;
   color: #64748b;
+}
+
+.sheet-page-badge {
+  padding: 2px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sheet-page-range {
+  color: #475569;
+  font-size: 11px;
 }
 
 .record-side-stack {
@@ -1134,6 +1244,34 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   background: rgba(255, 255, 255, 0.98);
 }
 
+.timeline-workbench-card {
+  border: 1px solid #dbe6f3;
+  background: #fff;
+}
+
+.timeline-workbench-card :deep(.arco-card-header) {
+  min-height: 36px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.timeline-workbench-card :deep(.arco-card-body) {
+  padding: 8px 10px 10px;
+}
+
+.timeline-card-extra {
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.timeline-card-hint {
+  margin: 0 0 6px;
+  color: #92400e;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .toolbox-header {
   display: flex;
   gap: 8px;
@@ -1147,6 +1285,10 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 .record-toolbox :deep(.arco-collapse-item-content-box) {
   padding: 8px 0 12px;
+}
+
+.toolbox-collapse :deep(.arco-collapse-item) {
+  scroll-margin-bottom: 16px;
 }
 
 .record-side {

@@ -1,48 +1,55 @@
 <template>
-  <div class="page-stack">
-    <a-card class="section-card" :bordered="false" title="手术申请接收">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
+  <ModulePageShell title="手术申请接收" description="接收手术申请、核对基本信息并安排排班">
+    <template #chips>
+      <a-tag color="arcoblue">待接收 {{ statusCount('待接收') }}</a-tag>
+      <a-tag color="green">已排班 {{ statusCount('已排班') }}</a-tag>
+      <a-tag color="red">已取消 {{ statusCount('已取消') }}</a-tag>
+    </template>
+    <template #toolbar>
+      <a-input-search v-model="keyword" placeholder="搜索患者/手术/科室" allow-clear style="width: 280px" />
+    </template>
+    <a-card class="section-card" :bordered="false" title="手术申请列表">
+      <a-table :data="filtered" :pagination="{ pageSize: 8 }" row-key="id">
         <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
+          <a-table-column title="患者" data-index="patientName" />
+          <a-table-column title="科室" data-index="department" />
+          <a-table-column title="手术名称" data-index="surgeryName" />
+          <a-table-column title="急诊/择期" data-index="urgency" :width="90" />
+          <a-table-column title="申请日期" data-index="requestDate" :width="120" />
+          <a-table-column title="主刀" data-index="surgeon" :width="100" />
+          <a-table-column title="状态" :width="100">
+            <template #cell="{ record }">
+              <a-tag :color="requestStatusColor(record.status)">{{ record.status }}</a-tag>
+            </template>
           </a-table-column>
         </template>
       </a-table>
     </a-card>
-  </div>
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref } from 'vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
-
-interface RowItem { id: string; label: string; desc: string; link?: string }
+import type { SurgeryRequest } from '@/types/clinicalModules';
 
 const store = useAnesthesiaStore();
-const router = useRouter();
-const rows = computed(() => buildRows('cases'));
+const keyword = ref('');
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
+const requestStatusColor = (status: SurgeryRequest['status']) => ({
+  待接收: 'arcoblue',
+  已排班: 'green',
+  已取消: 'red',
+}[status] ?? 'gray');
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/record/${record.link}`);
-};
+const statusCount = (status: SurgeryRequest['status']) => store.surgeryRequests.filter((item) => item.status === status).length;
+
+const filtered = computed(() => {
+  const q = keyword.value.trim().toLowerCase();
+  if (!q) return store.surgeryRequests;
+  return store.surgeryRequests.filter((item) =>
+    [item.patientName, item.department, item.surgeryName, item.surgeon].some((field) => field.toLowerCase().includes(q)),
+  );
+});
 </script>

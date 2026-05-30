@@ -1,57 +1,41 @@
 <template>
-  <div class="page-stack">
-    <section class="module-hero">
-      <div>
-        <h2 class="module-hero__title">审计日志</h2>
-        <p class="module-hero__desc">追踪关键配置与业务操作，支持事件追溯与问责。</p>
-      </div>
-      <div class="module-hero__chips">
-        <a-tag color="arcoblue">日志 {{ rows.length }}</a-tag>
-      </div>
-    </section>
+  <ModulePageShell title="审计日志" description="关键操作留痕与追溯">
+    <template #toolbar>
+      <a-input-search v-model="keyword" placeholder="搜索用户、模块、操作" allow-clear style="width: 280px" />
+    </template>
     <a-card class="section-card" :bordered="false" title="操作日志">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
+      <a-table :data="filteredLogs" row-key="id" :pagination="{ pageSize: 12 }">
         <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
+          <a-table-column title="时间" :width="180">
+            <template #cell="{ record }">{{ formatTime(record.time) }}</template>
           </a-table-column>
+          <a-table-column title="用户" data-index="user" :width="120" />
+          <a-table-column title="模块" data-index="module" :width="120" />
+          <a-table-column title="操作" data-index="action" :width="100" />
+          <a-table-column title="对象" data-index="target" :width="140" />
+          <a-table-column title="详情" data-index="detail" />
         </template>
       </a-table>
     </a-card>
-  </div>
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useRouter } from 'vue-router';
+import dayjs from 'dayjs';
+import { computed, ref } from 'vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
-interface RowItem { id: string; label: string; desc: string; link?: string }
-
 const store = useAnesthesiaStore();
-const router = useRouter();
-const rows = computed(() => buildRows('auditLogs'));
+const keyword = ref('');
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
+const filteredLogs = computed(() => {
+  const word = keyword.value.trim();
+  if (!word) return store.auditLogs;
+  return store.auditLogs.filter((item) =>
+    `${item.user}${item.module}${item.action}${item.target}${item.detail}`.includes(word),
+  );
+});
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/detail/${record.link}`);
-};
+const formatTime = (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm:ss');
 </script>

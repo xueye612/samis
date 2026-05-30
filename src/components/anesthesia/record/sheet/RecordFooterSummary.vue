@@ -4,6 +4,7 @@ import type { RecordSummaryFields } from '@/types/anesthesiaRecord';
 
 const props = defineProps<{
   summary: RecordSummaryFields;
+  autologousTotal?: number;
   signatures?: {
     anesthesiologist?: string;
     nurse?: string;
@@ -27,6 +28,7 @@ const inputItems = computed(() => [
   { label: '晶体', value: props.summary.crystalTotal ?? 0 },
   { label: '胶体', value: props.summary.colloidTotal ?? 0 },
   { label: '血液', value: props.summary.bloodTotal ?? 0 },
+  { label: '自体血', value: props.autologousTotal ?? 0 },
   { label: '总', value: props.summary.inputTotal ?? 0, emphasis: true },
 ]);
 
@@ -53,7 +55,28 @@ const onFieldUpdate = (key: string, value: string) => {
 
 <template>
   <div class="record-footer-summary" :class="{ compact, 'is-print': printMode }">
-    <div class="footer-io-row">
+    <div v-if="printMode" class="footer-io-print-table">
+      <table>
+        <thead>
+          <tr>
+            <th colspan="5">入量 (ml)</th>
+            <th colspan="4">出量 (ml)</th>
+          </tr>
+          <tr>
+            <th v-for="item in inputItems" :key="`in-head-${item.label}`">{{ item.label }}</th>
+            <th v-for="item in outputItems" :key="`out-head-${item.label}`">{{ item.label }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td v-for="item in inputItems" :key="`in-val-${item.label}`" :class="{ emphasis: item.emphasis }">{{ item.value }}</td>
+            <td v-for="item in outputItems" :key="`out-val-${item.label}`" :class="{ emphasis: item.emphasis }">{{ item.value }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-else class="footer-io-row">
       <div class="footer-io-block">
         <strong class="footer-io-title">入量 (ml)</strong>
         <div class="footer-io-items">
@@ -181,7 +204,32 @@ const onFieldUpdate = (key: string, value: string) => {
 }
 
 .record-footer-summary.is-print {
+  gap: 6px;
+  margin-top: 0;
+  padding: 6px 0 0;
   background: #fff;
+}
+
+.footer-io-print-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.footer-io-print-table th,
+.footer-io-print-table td {
+  border: 1px solid #111827;
+  padding: 4px 6px;
+  text-align: center;
+}
+
+.footer-io-print-table th {
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.footer-io-print-table td.emphasis {
+  font-weight: 700;
 }
 
 .footer-io-row {
@@ -240,6 +288,11 @@ const onFieldUpdate = (key: string, value: string) => {
   gap: 8px 10px;
 }
 
+.record-footer-summary.is-print .footer-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
 .record-footer-summary.compact .footer-fields {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -252,6 +305,12 @@ const onFieldUpdate = (key: string, value: string) => {
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   background: #fff;
+}
+
+.record-footer-summary.is-print .footer-field {
+  border-radius: 0;
+  border-color: #94a3b8;
+  padding: 4px 6px;
 }
 
 .footer-field.readonly {
@@ -302,6 +361,12 @@ const onFieldUpdate = (key: string, value: string) => {
   background: #fff;
 }
 
+.record-footer-summary.is-print .footer-meta {
+  border-radius: 0;
+  border-color: #111827;
+  padding: 6px 8px;
+}
+
 .footer-signature {
   display: flex;
   flex-wrap: wrap;
@@ -324,6 +389,11 @@ const onFieldUpdate = (key: string, value: string) => {
   border: 1px dashed #94a3b8;
   border-radius: 4px;
   background: #f8fafc;
+}
+
+.record-footer-summary.is-print .sig-item {
+  border-style: solid;
+  border-radius: 0;
 }
 
 .sig-item em {

@@ -7,19 +7,13 @@
         <div><span>采集</span><strong>{{ record.device?.collectStatus ?? record.collectStatus ?? '未连接' }}</strong></div>
         <div><span>频率</span><strong>{{ record.vitalFrequency ?? '5分钟' }}</strong></div>
         <div><span>完整度</span><strong>{{ completeness }}%</strong></div>
+        <div class="status-span-2"><span>关键节点进度</span><strong>{{ milestoneProgress.done }}/{{ milestoneProgress.total }} 已记录</strong></div>
       </div>
     </a-card>
 
     <a-card v-if="record.rescue?.supplementReminder" :bordered="false" class="quality-card rescue">
       <template #title>抢救补记</template>
       <p>请补齐抢救经过、用药、参加人员和结束时间。</p>
-    </a-card>
-
-    <a-card :bordered="false" class="quality-card">
-      <template #title>关键节点</template>
-      <div class="checkpoint-list">
-        <span v-for="item in checkpoints" :key="item.label" :class="{ done: item.done }">{{ item.done ? '✓' : '○' }} {{ item.label }}</span>
-      </div>
     </a-card>
 
     <a-card v-if="qualityDefects.length" :bordered="false" class="quality-card defect-card">
@@ -82,6 +76,8 @@
 <script setup lang="ts">
 import dayjs from 'dayjs';
 import { computed } from 'vue';
+import { deriveMethodSelectionFromCase, mergeSelectedMethods } from '@/services/anesthesiaRecordMethodEngine';
+import { buildTimelineNodeStates } from '@/services/methodTimelineEngine';
 import type { SurgeryCase } from '@/types/anesthesia';
 import type { AbnormalVitalByDictionary, LiveRecordQualityCheck } from '@/services/anesthesiaRecordEngine';
 import type { QualityDefect } from '@/types/quality';
@@ -104,14 +100,15 @@ const passCount = computed(() => props.checks.filter((item) => item.status === '
 const warnCount = computed(() => props.checks.filter((item) => item.status === '警告').length);
 const failCount = computed(() => props.checks.filter((item) => item.status === '未通过').length);
 const completeness = computed(() => Math.round((passCount.value / Math.max(props.checks.length, 1)) * 100));
-const checkpoints = computed(() => [
-  { label: '入室', done: props.record.events.some((item) => item.type.includes('入室')) },
-  { label: '麻醉开始', done: Boolean(props.record.anesthesiaStart) },
-  { label: '手术开始', done: Boolean(props.record.surgeryStart) },
-  { label: '手术结束', done: Boolean(props.record.surgeryEnd) },
-  { label: '拔管/气道', done: props.record.events.some((item) => item.type.includes('拔管')) || !props.record.anesthesiaMethod.includes('全身') },
-  { label: '离室去向', done: Boolean(props.record.leaveRoomTime || props.record.transferTo) },
-]);
+const milestoneProgress = computed(() => {
+  const selection = deriveMethodSelectionFromCase(props.record);
+  const methodKeys = mergeSelectedMethods(selection.primary, selection.auxiliary);
+  const nodes = buildTimelineNodeStates(props.record, methodKeys);
+  return {
+    done: nodes.filter((node) => node.recorded).length,
+    total: nodes.length,
+  };
+});
 
 const formatTime = (value: string) => dayjs(value).format('HH:mm');
 const colorFor = (status: string) => status === '通过' ? 'green' : status === '警告' ? 'orange' : 'red';
@@ -146,22 +143,20 @@ const colorFor = (status: string) => status === '通过' ? 'green' : status === 
   background: #f8fafc;
 }
 
+.status-grid .status-span-2 {
+  grid-column: 1 / -1;
+}
+
 .status-grid span {
   display: block;
   color: #64748b;
   font-size: 12px;
 }
 
-.checkpoint-list,
 .abnormal-list,
 .log-list {
   display: grid;
   gap: 8px;
-}
-
-.checkpoint-list span.done {
-  color: #047857;
-  font-weight: 700;
 }
 
 .abnormal-list div {

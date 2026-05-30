@@ -400,6 +400,32 @@ export function chartYWithPadding(
   return Number((height - padding - normalized * (height - padding * 2)).toFixed(3));
 }
 
+export const CHART_VIEW_HEIGHT = 300;
+export const CHART_VIEW_PADDING = 18;
+
+export const PRESSURE_CHART_SCALE = { min: 20, max: 220, height: CHART_VIEW_HEIGHT, padding: CHART_VIEW_PADDING } as const;
+export const TEMP_CHART_SCALE = { min: 33, max: 39, height: CHART_VIEW_HEIGHT, padding: CHART_VIEW_PADDING } as const;
+export const RR_CHART_SCALE = { min: 2, max: 26, height: CHART_VIEW_HEIGHT, padding: CHART_VIEW_PADDING } as const;
+
+export function chartYPercent(value: number, scale: { min: number; max: number; height?: number; padding?: number }) {
+  const height = scale.height ?? CHART_VIEW_HEIGHT;
+  return Number(((chartYWithPadding(value, scale) / height) * 100).toFixed(4));
+}
+
+export function resolveChartY(value: number, shortCode?: string) {
+  if (shortCode === 'RR') return chartYWithPadding(value, RR_CHART_SCALE);
+  if (shortCode === 'TEMP') return chartYWithPadding(value, TEMP_CHART_SCALE);
+  return chartYWithPadding(value, PRESSURE_CHART_SCALE);
+}
+
+export function buildTempScaleTicks(values: number[] = [39, 37, 35, 33]) {
+  return values.map((value) => ({ value, top: chartYPercent(value, TEMP_CHART_SCALE) }));
+}
+
+export function shouldDrawChartPolyline(shortCode: string) {
+  return shortCode !== 'TEMP';
+}
+
 export function monitorCellTopPercent(index: number, total: number, insetRatio = 0.5) {
   const rows = Math.max(1, total);
   const safeIndex = Math.max(0, Math.min(rows - 1, index));

@@ -72,8 +72,11 @@ import {
   normalizeCaseSchedule,
   sortCasesByClinicalPriority,
 } from '@/services/scheduleHelpers';
-import { applyTimelineNodeTime } from '@/services/methodTimelineEngine';
-import type { MethodTimelineNode } from '@/services/methodTimelineEngine';
+import {
+  applyTimelineNodeTime,
+  type MethodTimelineNode,
+} from '@/services/methodTimelineEngine';
+import { upsertTimedKeyOperationLine } from '@/utils/numberedNotes';
 import {
   applyLandingSyncFields,
   applyProfessionalFieldLanding,
@@ -105,6 +108,49 @@ import type {
   TodoItem,
   VitalSignDictItem,
 } from '@/types/system';
+import type {
+  ComplicationRecord,
+  ConsentRecord,
+  ConsultationRecord,
+  DrugInventoryItem,
+  EmergencyCall,
+  ExamReviewRecord,
+  FavoriteItem,
+  HandoverRecord,
+  MonitorAlert,
+  MonitorDevice,
+  PacuBooking,
+  PacuReceiveRecord,
+  PacuRoom,
+  QualityCheckRecord,
+  SafetyCheckRecord,
+  ScheduleDutySlot,
+  SummaryRecord,
+  SurgeryRequest,
+  WorkflowMilestoneKey,
+  WorkloadStats,
+} from '@/types/clinicalModules';
+import {
+  buildComplications,
+  buildConsentRecords,
+  buildConsultations,
+  buildDrugInventory,
+  buildEmergencyCalls,
+  buildExamReviews,
+  buildFavorites,
+  buildHandoverRecords,
+  buildMonitorAlerts,
+  buildMonitorDevices,
+  buildPacuBookings,
+  buildPacuReceives,
+  buildPacuRooms,
+  buildQualityChecks,
+  buildSafetyChecks,
+  buildScheduleDuty,
+  buildSummaryRecords,
+  buildSurgeryRequests,
+  buildWorkloadStats,
+} from '@/mock/clinicalModulesSeed';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const browserStorage = () => (typeof localStorage === 'undefined' ? undefined : localStorage);
@@ -196,6 +242,27 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       pacuDelay: true,
       infusionStop: true,
     },
+    consentRecords: buildConsentRecords(initialClinical.cases) as ConsentRecord[],
+    handoverRecords: buildHandoverRecords(initialClinical.cases) as HandoverRecord[],
+    summaryRecords: buildSummaryRecords(initialClinical.cases) as SummaryRecord[],
+    pacuRooms: buildPacuRooms(initialClinical.cases) as PacuRoom[],
+    pacuReceives: buildPacuReceives(initialClinical.cases) as PacuReceiveRecord[],
+    pacuBookings: buildPacuBookings(initialClinical.cases) as PacuBooking[],
+    workloadStats: buildWorkloadStats(initialClinical.cases) as WorkloadStats,
+    surgeryRequests: buildSurgeryRequests(initialClinical.cases) as SurgeryRequest[],
+    consultations: buildConsultations(initialClinical.cases) as ConsultationRecord[],
+    examReviews: buildExamReviews(initialClinical.cases) as ExamReviewRecord[],
+    safetyChecks: buildSafetyChecks(initialClinical.cases) as SafetyCheckRecord[],
+    monitorDevices: buildMonitorDevices(initialClinical.cases) as MonitorDevice[],
+    monitorAlerts: buildMonitorAlerts(initialClinical.cases) as MonitorAlert[],
+    complications: buildComplications(initialClinical.cases) as ComplicationRecord[],
+    favorites: buildFavorites() as FavoriteItem[],
+    scheduleDuty: buildScheduleDuty() as ScheduleDutySlot[],
+    emergencyCalls: buildEmergencyCalls() as EmergencyCall[],
+    qualityChecks: buildQualityChecks() as QualityCheckRecord[],
+    drugInventory: buildDrugInventory() as DrugInventoryItem[],
+    todoOverrides: {} as Record<string, TodoItem['status']>,
+    hasShiftToday: true,
   }),
   getters: {
     qualityDataset(): QualityDataset {
@@ -303,20 +370,31 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const items: TodoItem[] = [];
       state.cases
         .filter((item) => item.urgency === '择期' && !item.preVisit.completed)
-        .forEach((item) => items.push({ id: `todo-pre-${item.id}`, title: `${item.patientName} 术前访视未完成`, category: '访视', caseId: item.id, priority: '高', status: '待处理' }));
+        .forEach((item) => items.push({ id: `todo-pre-${item.id}`, title: `${item.patientName} 术前访视未完成`, category: '访视', caseId: item.id, priority: '高', dueTime: dayjs(item.plannedStart).subtract(1, 'day').toISOString(), status: '待处理' }));
       this.qualityDefects
         .filter((item) => item.status === '待整改' || item.status === '待确认')
         .forEach((item) => items.push({ id: `todo-def-${item.defectId}`, title: item.defectType, category: '缺陷', caseId: item.caseId, priority: item.defectLevel === '严重' ? '高' : '中', status: '待处理' }));
       state.pacuPatients
         .filter((item) => item.status !== '已转出' && dayjs().diff(dayjs(item.inTime), 'minute') > 120)
-        .forEach((item) => items.push({ id: `todo-pacu-${item.id}`, title: `${item.patientName} PACU 转出延迟`, category: 'PACU', caseId: item.caseId, priority: '高', status: '待处理' }));
+        .forEach((item) => items.push({ id: `todo-pacu-${item.id}`, title: `${item.patientName} PACU 转出延迟`, category: 'PACU', caseId: item.caseId, priority: '高', dueTime: dayjs(item.inTime).add(120, 'minute').toISOString(), status: '待处理' }));
       state.cases
         .filter((item) => item.postoperativeAnalgesia && !state.followUps.some((fu) => fu.caseId === item.id))
         .forEach((item) => items.push({ id: `todo-fu-${item.id}`, title: `${item.patientName} 术后镇痛随访`, category: '随访', caseId: item.id, priority: '中', status: '待处理' }));
       getMutableDataset().events
         .filter((item) => item.isQualityEvent && item.reviewStatus === '待审核')
         .forEach((item) => items.push({ id: `todo-ae-${item.eventId}`, title: `${item.eventType} 待审核`, category: '不良事件', caseId: item.caseId, priority: '高', status: '待处理' }));
-      return items;
+      return items.map((item) => ({
+        ...item,
+        status: state.todoOverrides[item.id] ?? item.status,
+      }));
+    },
+    filteredPacuRooms: (state) => (roomId?: string) => (roomId ? state.pacuRooms.filter((r) => r.id === roomId) : state.pacuRooms),
+    pacuBedStats: (state) => {
+      const beds = state.pacuRooms.flatMap((r) => r.beds);
+      const total = beds.length;
+      const used = beds.filter((b) => b.status === '占用').length;
+      const free = beds.filter((b) => b.status === '空闲').length;
+      return { total, used, free, occupancy: total ? Math.round((used / total) * 100) : 0 };
     },
     auditLogs: () => getAuditLogs(),
     integrationEndpoints: () => getIntegrationEndpoints(),
@@ -640,6 +718,14 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const target = this.cases.find((entry) => entry.id === caseId);
       if (!target || target.locked) return;
       applyTimelineNodeTime(target, node, isoTime);
+      const clock = dayjs(isoTime).format('HH:mm');
+      if (!target.recordSummary) target.recordSummary = {};
+      if (!target.recordSummary.notes) target.recordSummary.notes = {};
+      target.recordSummary.notes.keyOperations = upsertTimedKeyOperationLine(
+        target.recordSummary.notes.keyOperations,
+        node.label,
+        clock,
+      );
       this.recordFieldChange(caseId, '关键时间', '', `${node.label} ${isoTime}`, '时间轴节点');
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
@@ -1083,6 +1169,107 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     triggerIntegrationSync(id: string) {
       updateIntegrationEndpoint(id, { lastSync: dayjs().toISOString(), status: 'simulated' });
       appendAuditLog({ user: '系统管理员', module: '接口集成', action: '同步', target: id, detail: '触发模拟同步' });
+    },
+    saveConsentRecord(record: ConsentRecord) {
+      const index = this.consentRecords.findIndex((item) => item.id === record.id);
+      if (index >= 0) this.consentRecords[index] = { ...record, updatedAt: dayjs().toISOString() };
+      else this.consentRecords.unshift(record);
+    },
+    saveHandoverRecord(record: HandoverRecord) {
+      const index = this.handoverRecords.findIndex((item) => item.id === record.id);
+      if (index >= 0) this.handoverRecords[index] = record;
+      else this.handoverRecords.unshift(record);
+    },
+    saveSummaryRecord(record: SummaryRecord) {
+      const index = this.summaryRecords.findIndex((item) => item.id === record.id);
+      if (index >= 0) this.summaryRecords[index] = record;
+      else this.summaryRecords.unshift(record);
+    },
+    confirmWorkflowMilestone(caseId: string, milestone: WorkflowMilestoneKey, checklist: Record<string, boolean>) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target || target.locked) return;
+      const now = dayjs().toISOString();
+      const fieldMap: Partial<Record<WorkflowMilestoneKey, keyof SurgeryCase>> = {
+        surgeryStart: 'surgeryStart',
+        roomIn: 'roomInTime',
+        anesthesiaStart: 'anesthesiaStart',
+        surgeryEnd: 'surgeryEnd',
+        anesthesiaEnd: 'anesthesiaEnd',
+        roomOut: 'leaveRoomTime',
+      };
+      const field = fieldMap[milestone];
+      if (field) (target as Record<string, unknown>)[field] = now;
+      if (milestone === 'pacuIn') target.status = 'PACU';
+      if (milestone === 'orOut') target.transferTo = target.transferTo ?? 'PACU';
+      target.operationLogs = [...(target.operationLogs ?? []), `${milestone} 确认 ${now} ${JSON.stringify(checklist)}`];
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    receivePacuPatient(payload: Omit<PacuReceiveRecord, 'id' | 'status' | 'receiveTime'>) {
+      const bed = this.pacuRooms.flatMap((r) => r.beds).find((b) => b.id === payload.bedId);
+      if (bed) {
+        bed.status = '占用';
+        bed.caseId = payload.caseId;
+        bed.patientName = payload.patientName;
+        bed.inTime = dayjs().toISOString();
+      }
+      const record: PacuReceiveRecord = {
+        ...payload,
+        id: `receive-${payload.caseId}-${Date.now()}`,
+        receiveTime: dayjs().toISOString(),
+        status: '已接收',
+      };
+      this.pacuReceives.unshift(record);
+      const target = this.cases.find((item) => item.id === payload.caseId);
+      if (target) {
+        target.status = 'PACU';
+        syncCaseToDataset(getMutableDataset(), target);
+        bumpDatasetVersion();
+        this.datasetVersion += 1;
+      }
+    },
+    updateTodoStatus(todoId: string, status: TodoItem['status']) {
+      this.todoOverrides[todoId] = status;
+    },
+    saveComplication(record: ComplicationRecord) {
+      const index = this.complications.findIndex((item) => item.id === record.id);
+      if (index >= 0) this.complications[index] = record;
+      else this.complications.unshift(record);
+    },
+    addFavorite(item: Omit<FavoriteItem, 'id' | 'createdAt'>) {
+      this.favorites.unshift({ ...item, id: `fav-${Date.now()}`, createdAt: dayjs().toISOString() });
+    },
+    removeFavorite(id: string) {
+      this.favorites = this.favorites.filter((item) => item.id !== id);
+    },
+    savePacuBooking(booking: PacuBooking) {
+      const index = this.pacuBookings.findIndex((item) => item.id === booking.id);
+      if (index >= 0) this.pacuBookings[index] = booking;
+      else this.pacuBookings.unshift(booking);
+    },
+    resolveEmergencyCall(id: string) {
+      const target = this.emergencyCalls.find((item) => item.id === id);
+      if (target) target.status = '已解决';
+    },
+    exportWorkloadCsv() {
+      const stats = this.workloadStats ?? buildWorkloadStats(this.cases);
+      const lines = [
+        '指标,数值',
+        `手术总数,${stats.totalSurgeries}`,
+        `麻醉总数,${stats.totalAnesthesia}`,
+        `急诊,${stats.emergencyCount}`,
+        `择期,${stats.electiveCount}`,
+        `完成率,${stats.completionRate}%`,
+      ];
+      downloadTextFile(`workload-${dayjs().format('YYYY-MM-DD')}.csv`, lines.join('\n'));
+    },
+    refreshClinicalModules() {
+      this.consentRecords = buildConsentRecords(this.cases);
+      this.pacuRooms = buildPacuRooms(this.cases);
+      this.workloadStats = buildWorkloadStats(this.cases);
+      this.monitorDevices = buildMonitorDevices(this.cases);
+      this.monitorAlerts = buildMonitorAlerts(this.cases);
     },
   },
 });
