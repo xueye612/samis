@@ -28,7 +28,15 @@
             <dl class="module-fields">
               <div v-for="item in section.items" :key="`${section.title}-${item.label}`" :class="{ emphasis: item.emphasis }">
                 <dt>{{ item.label }}</dt>
-                <dd>{{ item.value }}</dd>
+                <dd v-if="readOnly">{{ fieldValue(section.title, item.label, item.value) || '待记录' }}</dd>
+                <input
+                  v-else
+                  class="module-field-input"
+                  type="text"
+                  :value="fieldValue(section.title, item.label, item.value)"
+                  placeholder="待记录"
+                  @change="onSave(section.title, item.label, ($event.target as HTMLInputElement).value)"
+                />
               </div>
             </dl>
           </a-collapse-item>
@@ -47,12 +55,32 @@ const props = withDefaults(defineProps<{
   methods: AnesthesiaMethodKey[];
   focusModuleKeys?: AnesthesiaMethodKey[];
   compact?: boolean;
+  fieldValues?: Record<string, string>;
+  readOnly?: boolean;
 }>(), {
   focusModuleKeys: () => [],
   compact: false,
+  fieldValues: () => ({}),
+  readOnly: false,
 });
 
+const emit = defineEmits<{
+  'save-field': [group: string, label: string, value: string];
+}>();
+
 const modules = computed(() => getDynamicModuleEntries(props.methods));
+
+const fieldKey = (group: string, label: string) => `${group}::${label}`;
+
+const fieldValue = (group: string, label: string, fallback: string) => (
+  props.fieldValues[fieldKey(group, label)]
+  ?? Object.entries(props.fieldValues).find(([key]) => key.endsWith(`::${label}`))?.[1]
+  ?? fallback
+);
+
+const onSave = (group: string, label: string, value: string) => {
+  emit('save-field', group, label, value);
+};
 </script>
 
 <style scoped>
@@ -168,6 +196,15 @@ const modules = computed(() => getDynamicModuleEntries(props.methods));
   margin: 3px 0 0;
   font-weight: 650;
   color: #1d2939;
+}
+
+.module-field-input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 4px 6px;
+  border: 1px solid #dbe6f3;
+  border-radius: 4px;
+  font-size: 12px;
 }
 
 @media (max-width: 1180px) {

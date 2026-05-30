@@ -33,13 +33,22 @@ import {
   loadRecordLocalState,
   saveRecordLocalState,
   type RecordLocalState,
+  LIVE_DEFAULT_SEGMENT_MINUTES,
   normalizeFluidFromDict,
   normalizeMedicationFromDrug,
-  runLiveRecordQualityChecks,
+  runUnifiedRecordQualityChecks,
   detectDictionaryDrivenAbnormalVitals,
   findVitalUpsertIndex,
-  LIVE_DEFAULT_SEGMENT_MINUTES,
+  buildRecordSnapshot,
+  ensureRecordDocument,
+  syncTransfusionEventsFromFluids,
+  buildRecordSummaryFields,
+  runPrintPreflightChecks,
+  resolveDefaultMonitorOrder,
+  DEFAULT_HOSPITAL_NAME,
 } from '@/services/anesthesiaRecordEngine';
+import { buildRecordPagination } from '@/services/recordPaginationEngine';
+import type { LabResultRecord, LayoutWarning, RecordSummaryFields, RecordSummaryNotes } from '@/types/anesthesiaRecord';
 import {
   appendAuditLog,
   bumpDatasetVersion,
@@ -63,9 +72,19 @@ import {
   normalizeCaseSchedule,
   sortCasesByClinicalPriority,
 } from '@/services/scheduleHelpers';
+import { applyTimelineNodeTime } from '@/services/methodTimelineEngine';
+import type { MethodTimelineNode } from '@/services/methodTimelineEngine';
+import {
+  applyLandingSyncFields,
+  applyProfessionalFieldLanding,
+  buildLandingEvent,
+  buildLandingMedication,
+  mergeMonitorCodes,
+} from '@/services/templateLanding';
+import type { TemplateLandingItem } from '@/mock/anesthesiaRecordPrototype';
 import type {
-  AnesthesiaPlaneRecord,
   AnesthesiaEvent,
+  AnesthesiaPlaneRecord,
   FluidRecord,
   MedicationRecord,
   OutputDetailRecord,
@@ -266,8 +285,13 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     },
     liveRecordQualityChecks: (state) => (caseId: string) => {
       const target = state.cases.find((item) => item.id === caseId);
-      return target ? runLiveRecordQualityChecks(target, { drugs: state.configDrugs, vitals: state.configVitals, fluids: state.configFluids }) : [];
+      if (!target) return [];
+      const defects = applyDefectOverrides(detectQualityDefects(getMutableDataset()), state.defectOverrides)
+        .filter((item) => item.caseId === caseId);
+      return runUnifiedRecordQualityChecks(target, { drugs: state.configDrugs, vitals: state.configVitals, fluids: state.configFluids }, defects);
     },
+    caseQualityDefects: (state) => (caseId: string) => applyDefectOverrides(detectQualityDefects(getMutableDataset()), state.defectOverrides)
+      .filter((item) => item.caseId === caseId),
     dictionaryDrivenAbnormalVitals: (state) => (caseId: string) => {
       const target = state.cases.find((item) => item.id === caseId);
       return target ? detectDictionaryDrivenAbnormalVitals(target.vitals, state.configVitals) : [];
@@ -342,6 +366,12 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         logs: [{ time: now, content: '启动设备采集模拟' }],
       };
       target.operationLogs = ['启动麻醉记录并进入采集', ...(target.operationLogs ?? [])].slice(0, 8);
+      const draft = (this.recordDrafts[caseId] && typeof this.recordDrafts[caseId] === 'object')
+        ? this.recordDrafts[caseId] as Record<string, unknown>
+        : {};
+      if (!Array.isArray(draft.monitorOrder) || !(draft.monitorOrder as string[]).length) {
+        this.saveMonitorOrderDraft(caseId, resolveDefaultMonitorOrder(this.configVitals));
+      }
       this.appendVital(caseId, {
         id: `vital-${Date.now()}`,
         time: now,
@@ -567,7 +597,65 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const target = this.cases.find((item) => item.id === caseId);
       if (!target) return;
       target.locked = false;
+      target.recordStatus = '补记中';
+      if (target.signatures) target.signatures.status = '修改中';
       appendAuditLog({ user: '质控管理员', module: '麻醉记录单', action: '解锁', target: caseId, detail: reason });
+    },
+    applyTemplateLandingItem(caseId: string, item: TemplateLandingItem) {
+      const target = this.cases.find((entry) => entry.id === caseId);
+      if (!target || target.locked) return;
+      if (item.kind === 'event' && item.event) {
+        const event = buildLandingEvent(item, target);
+        target.events.push(event);
+        applyLandingSyncFields(target, event);
+      }
+      if (item.kind === 'medication' && item.medication) {
+        this.appendMedication(caseId, buildLandingMedication(item, target));
+      }
+      if (item.kind === 'monitor' && item.monitorCode) {
+        const draft = (this.recordDrafts[caseId] && typeof this.recordDrafts[caseId] === 'object')
+          ? this.recordDrafts[caseId] as Record<string, unknown>
+          : {};
+        const current = Array.isArray(draft.monitorOrder) ? draft.monitorOrder as string[] : [];
+        this.saveMonitorOrderDraft(caseId, mergeMonitorCodes(current, [item.monitorCode]));
+      }
+      if (item.kind === 'field') applyProfessionalFieldLanding(target, item);
+      target.operationLogs = [`确认落单：${item.label}`, ...(target.operationLogs ?? [])].slice(0, 8);
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    saveProfessionalField(caseId: string, group: string, label: string, value: string) {
+      const target = this.cases.find((entry) => entry.id === caseId);
+      if (!target || target.locked) return;
+      const key = `${group}::${label}`;
+      const before = target.professionalFieldValues?.[key] ?? '';
+      target.professionalFieldValues = { ...(target.professionalFieldValues ?? {}), [key]: value };
+      this.recordFieldChange(caseId, '专业字段', before, value, `${group}/${label}`);
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    applyTimelineNode(caseId: string, node: MethodTimelineNode, isoTime: string) {
+      const target = this.cases.find((entry) => entry.id === caseId);
+      if (!target || target.locked) return;
+      applyTimelineNodeTime(target, node, isoTime);
+      this.recordFieldChange(caseId, '关键时间', '', `${node.label} ${isoTime}`, '时间轴节点');
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    handleAbnormalVital(caseId: string, vitalKey: string, metric: string, treatment: string) {
+      const target = this.cases.find((entry) => entry.id === caseId);
+      if (!target || target.locked) return;
+      const row = target.vitals.find((item) => item.id === vitalKey)
+        ?? target.vitals.find((item) => item.time === vitalKey);
+      if (!row) return;
+      row.abnormalHandled = { ...(row.abnormalHandled ?? {}), [metric]: treatment };
+      row.remark = [row.remark, `${metric}处置：${treatment}`].filter(Boolean).join('；');
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
     },
     cancelCase(id: string) {
       const target = this.cases.find((item) => item.id === id);
@@ -753,6 +841,208 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const before = target.anesthesiaPlanes?.find((item) => item.id === planeId);
       target.anesthesiaPlanes = (target.anesthesiaPlanes ?? []).filter((item) => item.id !== planeId);
       this.recordFieldChange(caseId, '麻醉平面', before ? `${before.level}${before.direction}` : planeId, '已删除', '右键/列表删除');
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    syncRecordDocument(caseId: string) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target) return;
+      const doc = ensureRecordDocument(target);
+      const { pages } = buildRecordPagination(target, {
+        minorInterval: doc.minorInterval,
+        majorInterval: doc.majorInterval,
+      });
+      target.recordDocument = {
+        ...doc,
+        hospitalName: doc.hospitalName || DEFAULT_HOSPITAL_NAME,
+        pageCount: pages.length,
+        timeAxisPages: pages,
+      };
+      target.transfusionEvents = syncTransfusionEventsFromFluids(target);
+      target.recordSummary = buildRecordSummaryFields(target);
+    },
+    upsertLabResult(caseId: string, lab: LabResultRecord) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target || target.locked) return;
+      target.labResults = target.labResults ?? [];
+      const row = { ...lab, id: lab.id || `lab-${Date.now()}` };
+      const index = target.labResults.findIndex((item) => item.id === row.id);
+      const before = index >= 0 ? target.labResults[index].labType : '';
+      if (index >= 0) target.labResults[index] = row;
+      else target.labResults.push(row);
+      this.recordFieldChange(caseId, '血气/检验', before, `${row.labType} ${row.resultTime}`, '右键/趋势图维护');
+      this.syncRecordDocument(caseId);
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    voidEvent(caseId: string, eventId: string, reason = '事件作废') {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target || target.locked) return;
+      const event = target.events.find((item) => item.id === eventId);
+      if (!event) return;
+      event.status = 'voided';
+      event.voidReason = reason;
+      this.recordFieldChange(caseId, '事件作废', event.type, '已作废', reason);
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    setLayoutWarnings(caseId: string, warnings: LayoutWarning[]) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target) return;
+      target.layoutWarnings = warnings;
+    },
+    updateRecordSummary(caseId: string, patch: Partial<RecordSummaryFields>, reason = '汇总修正') {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target || target.locked) return;
+      const before = JSON.stringify(target.recordSummary ?? {});
+      target.recordSummary = { ...buildRecordSummaryFields(target), ...patch };
+      this.recordFieldChange(caseId, '底部汇总', before, JSON.stringify(target.recordSummary), reason);
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    updateRecordHeaderField(
+      caseId: string,
+      patch: {
+        actualSurgeryName?: string;
+        position?: string;
+        anesthesiologist?: string;
+        surgeon?: string;
+        anesthesiaNurse?: string;
+        circulatingNurses?: string;
+        scrubNurses?: string;
+        anesthesiaMethod?: string;
+      },
+      reason = '表头修正',
+    ) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target || target.locked) return;
+      if (patch.actualSurgeryName !== undefined) {
+        const before = target.actualSurgeryName ?? target.surgeryName;
+        target.actualSurgeryName = patch.actualSurgeryName;
+        this.recordFieldChange(caseId, '实施手术', before, patch.actualSurgeryName, reason);
+      }
+      if (patch.position !== undefined) {
+        const before = target.position ?? '';
+        target.position = patch.position;
+        this.recordFieldChange(caseId, '手术体位', before, patch.position, reason);
+      }
+      if (patch.anesthesiologist !== undefined) {
+        const before = target.anesthesiologist;
+        target.anesthesiologist = patch.anesthesiologist;
+        target.assignedAnesthesiologistIds = patch.anesthesiologist.split('、').map((item) => item.trim()).filter(Boolean);
+        this.recordFieldChange(caseId, '麻醉医师', before, patch.anesthesiologist, reason);
+      }
+      if (patch.surgeon !== undefined) {
+        const before = target.surgeon;
+        target.surgeon = patch.surgeon;
+        this.recordFieldChange(caseId, '手术医师', before, patch.surgeon, reason);
+      }
+      if (patch.circulatingNurses !== undefined) {
+        const before = target.circulatingNurses ?? target.anesthesiaNurse;
+        target.circulatingNurses = patch.circulatingNurses;
+        target.anesthesiaNurse = [patch.circulatingNurses, target.scrubNurses].filter(Boolean).join(' / ') || patch.circulatingNurses;
+        target.assignedNurseIds = [
+          ...patch.circulatingNurses.split('、').map((item) => item.trim()).filter(Boolean),
+          ...(target.scrubNurses?.split('、').map((item) => item.trim()).filter(Boolean) ?? []),
+        ];
+        this.recordFieldChange(caseId, '巡回护士', before, patch.circulatingNurses, reason);
+      }
+      if (patch.scrubNurses !== undefined) {
+        const before = target.scrubNurses ?? '';
+        target.scrubNurses = patch.scrubNurses;
+        target.anesthesiaNurse = [target.circulatingNurses, patch.scrubNurses].filter(Boolean).join(' / ') || target.anesthesiaNurse;
+        target.assignedNurseIds = [
+          ...(target.circulatingNurses?.split('、').map((item) => item.trim()).filter(Boolean) ?? []),
+          ...patch.scrubNurses.split('、').map((item) => item.trim()).filter(Boolean),
+        ];
+        this.recordFieldChange(caseId, '洗手护士', before, patch.scrubNurses, reason);
+      }
+      if (patch.anesthesiaNurse !== undefined) {
+        const before = target.anesthesiaNurse;
+        target.anesthesiaNurse = patch.anesthesiaNurse;
+        target.circulatingNurses = patch.anesthesiaNurse;
+        target.assignedNurseIds = patch.anesthesiaNurse.split('、').map((item) => item.trim()).filter(Boolean);
+        this.recordFieldChange(caseId, '巡回/洗手', before, patch.anesthesiaNurse, reason);
+      }
+      if (patch.anesthesiaMethod !== undefined) {
+        const before = target.anesthesiaMethod;
+        target.anesthesiaMethod = patch.anesthesiaMethod;
+        this.recordFieldChange(caseId, '麻醉方法', before, patch.anesthesiaMethod, reason);
+      }
+      target.recordSnapshot = buildRecordSnapshot(target, target.recordDocument?.hospitalName);
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    updateRecordSummaryNotes(caseId: string, patch: Partial<RecordSummaryNotes>, reason = '纸面摘要修正') {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target || target.locked) return;
+      const base = buildRecordSummaryFields(target);
+      target.recordSummary = {
+        ...base,
+        notes: { ...(base.notes ?? {}), ...(target.recordSummary?.notes ?? {}), ...patch },
+      };
+      this.recordFieldChange(caseId, '纸面摘要', JSON.stringify(target.recordSummary?.notes ?? {}), JSON.stringify(patch), reason);
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    printAndLockRecord(caseId: string, reason = '打印确认') {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target) return false;
+      this.syncRecordDocument(caseId);
+      target.recordSnapshot = buildRecordSnapshot(target, target.recordDocument?.hospitalName);
+      const printedAt = dayjs().toISOString();
+      target.printedAt = printedAt;
+      target.recordDocument = {
+        ...(target.recordDocument ?? ensureRecordDocument(target)),
+        printedAt,
+        lockedAt: printedAt,
+        printVersion: (target.recordDocument?.printVersion ?? 0) + 1,
+      };
+      target.recordSummary = {
+        ...buildRecordSummaryFields(target),
+        completedAt: printedAt,
+      };
+      target.locked = true;
+      target.recordStatus = '已锁定';
+      this.recordFieldChange(caseId, '打印锁定', '未锁定', '已打印锁定', reason);
+      appendAuditLog({ user: this.currentDoctorName, module: '麻醉记录单', action: '打印锁定', target: caseId, detail: reason });
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+      return true;
+    },
+    importDeviceVitalsLayered(caseId: string) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target || target.locked) return;
+      const last = target.vitals[target.vitals.length - 1];
+      if (!last) return;
+      const now = dayjs().toISOString();
+      const original: Record<string, number | string> = {};
+      (['HR', 'SBP', 'DBP', 'SpO2', 'EtCO2', 'TEMP'] as const).forEach((key) => {
+        const value = last[key];
+        if (value !== undefined) original[key] = value;
+      });
+      target.vitals.push({
+        ...last,
+        id: `vital-${Date.now()}`,
+        time: now,
+        source: '设备采集',
+        originalValue: original,
+        displayValue: { ...original },
+        remark: '设备采集模拟',
+      });
+      if (target.device) {
+        target.device.lastCollectTime = now;
+        target.device.collectStatus = '采集中';
+        target.device.logs.unshift({ time: now, content: '监护仪数据已写入记录单' });
+      }
+      this.syncRecordDocument(caseId);
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;

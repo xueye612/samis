@@ -1,89 +1,49 @@
 <template>
-  <section class="live-record-card print-area" @contextmenu.prevent="openMenu($event, 'grid')">
-    <div class="print-heading">
+  <section
+    class="live-record-card print-area"
+    :class="{ 'is-rescue': record.rescue && !printMode }"
+    @contextmenu.prevent="openMenu($event, 'grid')"
+  >
+    <RecordHeader
+      v-if="displaySnapshot && currentPage"
+      :snapshot="displaySnapshot"
+      :page="currentPage"
+      :record-no="record.recordDocument?.recordNo"
+      :read-only="readOnly"
+      :print-mode="printMode"
+      :actual-surgery-name="record.actualSurgeryName"
+      :surgical-position="record.position"
+      :anesthesiologist="record.anesthesiologist"
+      :surgeon="record.surgeon"
+      :circulating-nurses="record.circulatingNurses"
+      :scrub-nurses="record.scrubNurses"
+      :method-primary="methodPrimary"
+      :method-auxiliary="methodAuxiliary"
+      :position-options="headerPickerOptions?.positions"
+      :surgery-options="headerPickerOptions?.surgeries"
+      :anesthesiologist-options="headerPickerOptions?.anesthesiologists"
+      :surgeon-options="headerPickerOptions?.surgeons"
+      :nurse-options="headerPickerOptions?.nurses"
+      @update:actual-surgery-name="emit('saveHeaderField', { actualSurgeryName: $event })"
+      @update:surgical-position="emit('saveHeaderField', { position: $event })"
+      @update:anesthesiologist="emit('saveHeaderField', { anesthesiologist: $event })"
+      @update:surgeon="emit('saveHeaderField', { surgeon: $event })"
+      @update:circulating-nurses="emit('saveHeaderField', { circulatingNurses: $event })"
+      @update:scrub-nurses="emit('saveHeaderField', { scrubNurses: $event })"
+      @apply-method-selection="emit('saveMethodSelection', $event)"
+    />
+    <div v-else class="print-heading">
       <div></div>
-      <h2>XXX医院麻醉记录单</h2>
-      <div class="doc-meta"><span>编号</span><i>{{ record.patientId }}</i><strong>E</strong></div>
+      <h2>麻醉记录单</h2>
+      <div class="doc-meta"><span>编号</span><i>{{ record.id }}</i></div>
     </div>
+
     <div v-if="record.locked" class="sheet-locked-ribbon">已锁定，仅可查看</div>
+    <div v-if="record.printedAt" class="sheet-print-watermark">已打印 {{ formatDate(record.printedAt) }}</div>
 
-    <div class="patient-lines">
-      <div>
-        <span>科别 {{ record.department }}</span>
-        <span>床号 {{ record.sequence }}台</span>
-        <span>住院号 {{ record.patientId ?? record.id }}</span>
-        <span>手术日期 {{ formatDate(record.plannedStart) }}</span>
-        <span>页号 1</span>
-        <span>付费方式 未记录</span>
-      </div>
-      <div>
-        <span>姓名 {{ record.patientName }}</span>
-        <span>性别 {{ record.gender }}</span>
-        <span>年龄 {{ record.age }}岁</span>
-        <span>体重 {{ record.preVisit.weight }}kg</span>
-        <span>血型 {{ bloodLabel }}</span>
-        <span>ASA {{ record.asa }}</span>
-      </div>
-      <div>
-        <span>术前诊断 {{ record.diagnosis }}</span>
-        <span>术前用药 {{ record.preVisit.preMedication || '未记录' }}</span>
-        <span>术前禁食 {{ record.preVisit.fasting || '未记录' }}</span>
-      </div>
-      <div>
-        <span>拟施手术 {{ record.surgeryName }}</span>
-        <span>手术体位 {{ record.recoveryRecord?.handoverNote || '未记录' }}</span>
-        <span>身份证号 未记录</span>
-      </div>
-    </div>
+    <RecordTimeAxis :time-scale="timeScale" :grid="bandGrid(1)" />
 
-    <section class="sheet-professional-summary" :class="{ 'has-impact': Boolean(templateImpact) }">
-      <div class="professional-summary-head">
-        <strong>专业麻醉记录</strong>
-        <span v-if="appliedTemplateName">模板：{{ appliedTemplateName }}</span>
-        <span>麻醉方法：{{ sheetAnesthesiaMethod }}</span>
-        <span v-if="recentEventLabel" class="recent-event-pill">最近记录：{{ recentEventLabel }}</span>
-      </div>
-      <div class="professional-paper-grid">
-        <section v-for="group in professionalFieldGroups" :key="group.title" class="professional-paper-group">
-          <b>{{ group.title }}</b>
-          <dl>
-            <div
-              v-for="item in group.items"
-              :key="`${group.title}-${item.label}`"
-              class="professional-editable-field"
-              :class="{ disabled: readOnly }"
-              title="双击编辑"
-              @dblclick.stop="openProfessionalFieldEditor(group.title, item.label, item.value)"
-            >
-              <dt>{{ item.label }}</dt>
-              <dd>{{ item.value || '待记录' }}</dd>
-            </div>
-          </dl>
-        </section>
-        <section class="professional-paper-group template-events" v-if="templateEventRows.length">
-          <b>模板事件落单</b>
-          <p>
-            <span v-for="event in templateEventRows" :key="event.id">{{ event.time }} {{ event.type }}</span>
-          </p>
-        </section>
-        <section class="professional-paper-group quality-tips" v-if="templateQualityTips.length">
-          <b>质控提醒</b>
-          <p>
-            <span v-for="tip in templateQualityTips" :key="tip.text" :class="`tip-${tip.level}`">{{ tip.level }}：{{ tip.text }}</span>
-          </p>
-        </section>
-      </div>
-    </section>
-
-    <div class="sheet-ruler">
-      <div class="ruler-label">项目</div>
-      <div class="ruler-track">
-        <span v-for="tick in timeScale.majorTicks" :key="tick.time" :style="{ left: `${tick.percent}%` }">{{ tick.label }}</span>
-        <i v-for="line in bandGrid(1).verticalLines" :key="`ruler-${line.id}`" :class="{ major: line.isMajor }" :style="{ left: `${line.percent}%` }"></i>
-      </div>
-    </div>
-
-    <div class="sheet-band medication-band" :style="{ '--rows': medicationRowCount }">
+    <div v-if="!isPacuRecord" class="sheet-band medication-band" :style="{ '--rows': medicationRowCount }">
       <div class="band-side">麻醉用药</div>
       <div class="band-labels">
         <span v-if="showAnesthesiaPlane">麻醉平面</span>
@@ -131,7 +91,46 @@
       </div>
     </div>
 
-    <div class="sheet-band" :style="{ '--rows': infusionRowCount }">
+    <div v-if="showInhaledBand" class="sheet-band inhaled-band" :style="{ '--rows': inhaledRowCount }">
+      <div class="band-side">吸入麻醉</div>
+      <div class="band-labels">
+        <span v-for="row in inhaledMedicationRows" :key="row.key">{{ row.label }}</span>
+        <span v-for="index in Math.max(0, inhaledRowCount - inhaledMedicationRows.length)" :key="`inh-empty-${index}`"></span>
+      </div>
+      <div class="band-track" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'inhaledGrid')">
+        <GridLines :grid="bandGrid(inhaledRowCount)" />
+        <template v-for="row in inhaledMedicationRows" :key="row.key">
+          <span
+            v-if="!row.end"
+            class="drug-point inhaled-point"
+            :class="{ 'is-template': row.template }"
+            :style="pointStyle(row.time, row.index, inhaledRowCount)"
+            @contextmenu.prevent.stop="openMenu($event, 'inhaled', row.source)"
+            @dblclick="openMedicationEditor(row.source)"
+          >{{ row.amount }}</span>
+          <span
+            v-else
+            class="line-segment drug-line inhaled-line"
+            :class="{ 'is-template': row.template }"
+            :style="segmentStyle(row.time, row.end, row.index, inhaledRowCount)"
+            @contextmenu.prevent.stop="openMenu($event, 'inhaled', row.source)"
+            @dblclick="openMedicationEditor(row.source)"
+            @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'move', row.index, inhaledRowCount)"
+          >
+            <i class="segment-handle segment-handle-start" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'start', row.index, inhaledRowCount)"></i>
+            <span class="segment-label">{{ row.amount }}</span>
+            <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'end', row.index, inhaledRowCount)"></i>
+          </span>
+        </template>
+        <span
+          v-if="segmentDragPreview.active && segmentDragPreview.band === 'inhaled'"
+          class="line-segment drag-preview drug-line inhaled-line"
+          :style="segmentDragPreview.style"
+        ><span class="segment-label">{{ segmentDragPreview.label }}</span></span>
+      </div>
+    </div>
+
+    <div v-if="!isPacuRecord" class="sheet-band" :style="{ '--rows': infusionRowCount }">
       <div class="band-side">输液</div>
       <div class="band-labels">
         <span v-for="row in infusionRows" :key="row.key">{{ row.label }}</span>
@@ -160,7 +159,36 @@
       </div>
     </div>
 
-    <div class="sheet-band" :style="{ '--rows': transfusionRowCount }">
+    <div v-if="showAutologousBand" class="sheet-band autologous-band" :style="{ '--rows': autologousRowCount }">
+      <div class="band-side">自体血回输</div>
+      <div class="band-labels">
+        <span v-for="row in autologousRows" :key="row.key">{{ row.label }}</span>
+        <span v-for="index in Math.max(0, autologousRowCount - autologousRows.length)" :key="`auto-empty-${index}`"></span>
+      </div>
+      <div class="band-track" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'autologousGrid')">
+        <GridLines :grid="bandGrid(autologousRowCount)" />
+        <span
+          v-for="row in autologousRows"
+          :key="row.key"
+          class="line-segment autologous-line"
+          :style="segmentStyle(row.time, row.end, row.index, autologousRowCount)"
+          @contextmenu.prevent.stop="openMenu($event, 'autologous', row.source)"
+          @dblclick="openFluidEditor(row.source)"
+          @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'move', row.index, autologousRowCount)"
+        >
+          <i class="segment-handle segment-handle-start" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'start', row.index, autologousRowCount)"></i>
+          <span class="segment-label">{{ row.amount }}</span>
+          <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'end', row.index, autologousRowCount)"></i>
+        </span>
+        <span
+          v-if="segmentDragPreview.active && segmentDragPreview.band === 'autologous'"
+          class="line-segment drag-preview autologous-line"
+          :style="segmentDragPreview.style"
+        ><span class="segment-label">{{ segmentDragPreview.label }}</span></span>
+      </div>
+    </div>
+
+    <div v-if="!isPacuRecord" class="sheet-band" :style="{ '--rows': transfusionRowCount }">
       <div class="band-side">输血</div>
       <div class="band-labels">
         <span v-for="row in transfusionRows" :key="row.key">{{ row.label }}</span>
@@ -211,21 +239,43 @@
       </div>
     </div>
 
-    <div class="surgery-status-row">
+    <TimelineNodeRail
+      v-if="methodKeys.length"
+      embedded
+      :record="record"
+      :method-keys="methodKeys"
+      :method-labels="methodLabels"
+      :locked="readOnly"
+      :sheet-start="sheetStart"
+      :sheet-end="sheetEnd"
+      :active-key="activeTimelineKey"
+      @save="(node, isoTime) => emit('saveTimeline', node, isoTime)"
+      @focus="focusTimelineNode"
+    />
+
+    <div ref="statusRowRef" class="surgery-status-row">
       <div class="status-title">手术状态</div>
       <div class="status-track" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'balance')">
         <GridLines :grid="bandGrid(1)" />
         <span
           v-for="event in statusEvents"
           :key="`status-${event.id}`"
+          :ref="(el) => registerStatusSymbol(event.id, el as HTMLElement | null)"
           class="surgery-status-symbol"
-          :class="event.className"
+          :class="[event.className, { 'is-active': isStatusEventActive(event) }]"
           :style="{ left: leftFor(event.time) }"
-          :title="event.type"
-          @click.stop="emit('selectEvent', event)"
+          :title="statusEventTitle(event)"
+          @click.stop="selectStatusEvent(event)"
         >{{ event.symbol }}</span>
       </div>
     </div>
+
+    <LabResultLayer
+      :labs="labResults"
+      :left-for="leftFor"
+      :read-only="readOnly"
+      @select="openLabEditor"
+    />
 
     <div class="vital-chart">
       <div class="chart-legend">
@@ -242,13 +292,13 @@
           <em>体温</em>
         </div>
       </div>
-      <div class="chart-scale">
-        <span v-for="tick in chartTicks" :key="tick.value" :style="{ top: `${tick.top}%` }">{{ tick.value }}</span>
-        <em v-for="tick in respiratoryTicks" :key="`rr-${tick.value}`" :style="{ top: `${tick.top}%` }">{{ tick.value }}</em>
-        <small>mmHg</small>
-        <small class="kpa-label">kPa</small>
-      </div>
       <div ref="chartAreaRef" class="chart-area" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'chart')">
+        <div class="chart-scale">
+          <span v-for="tick in chartTicks" :key="tick.value" :style="{ top: `${tick.top}%` }">{{ tick.value }}</span>
+          <em v-for="tick in respiratoryTicks" :key="`rr-${tick.value}`" :style="{ top: `${tick.top}%` }">{{ tick.value }}</em>
+          <small>mmHg</small>
+          <small class="kpa-label">kPa</small>
+        </div>
         <GridLines :grid="chartGrid" chart />
         <svg viewBox="0 0 1000 300" preserveAspectRatio="none">
           <polyline v-for="item in chartVitals" :key="`line-${item.shortCode}`" :points="chartLine(item)" :stroke="item.chartColor ?? '#2563eb'" />
@@ -289,42 +339,130 @@
           @contextmenu.prevent.stop="openMenu($event, 'output', output.source)"
           @dblclick="openOutputEditor(output.source)"
         >{{ output.volume }}ml</span>
-        <span v-for="event in statusEvents" :key="event.id" class="event-symbol" :style="pointStyle(event.time, 4, 5)">{{ event.symbol }}</span>
       </div>
     </div>
 
     <div class="sheet-notes reference-notes">
-      <div class="note-vertical"><strong>麻醉诱导用药</strong></div>
-      <div><strong>诱导及维持摘要</strong><p>{{ medSummary }}</p></div>
-      <div><strong>辅助及特殊用药</strong><p>{{ eventSummary }}</p></div>
-      <div><strong>手术关键操作</strong><p>{{ operationSummary }}</p></div>
-      <div><strong>术后镇痛</strong><p>{{ postopAnalgesiaSummary }}</p></div>
+      <PaperFormField
+        label="麻醉诱导用药"
+        :model-value="summaryNotes.inductionMeds"
+        multiline
+        :readonly="readOnly"
+        :print-mode="printMode"
+        placeholder="诱导期用药"
+        @update:model-value="updateSummaryNote('inductionMeds', $event)"
+      />
+      <PaperFormField
+        label="诱导及维持摘要"
+        :model-value="summaryNotes.inductionSummary"
+        multiline
+        :readonly="readOnly"
+        :print-mode="printMode"
+        placeholder="维持期用药摘要"
+        @update:model-value="updateSummaryNote('inductionSummary', $event)"
+      />
+      <PaperFormField
+        label="辅助及特殊用药"
+        :model-value="summaryNotes.specialMeds"
+        multiline
+        :readonly="readOnly"
+        :print-mode="printMode"
+        placeholder="特殊用药说明"
+        @update:model-value="updateSummaryNote('specialMeds', $event)"
+      />
+      <PaperFormField
+        label="手术关键操作"
+        :model-value="summaryNotes.keyOperations"
+        multiline
+        :readonly="readOnly"
+        :print-mode="printMode"
+        placeholder="关键操作记录"
+        @update:model-value="updateSummaryNote('keyOperations', $event)"
+      />
+      <PaperFormField
+        label="术后镇痛"
+        :model-value="summaryNotes.postopAnalgesia"
+        multiline
+        :readonly="readOnly"
+        :print-mode="printMode"
+        placeholder="镇痛方案"
+        @update:model-value="updateSummaryNote('postopAnalgesia', $event)"
+      />
     </div>
 
-    <div class="sheet-footer-summary">
-      <div><strong>术后诊断</strong><span>{{ record.diagnosis }}</span></div>
-      <div><strong>实施手术</strong><span>{{ record.surgeryName }}</span></div>
-      <div><strong>麻醉方法</strong><span>{{ sheetAnesthesiaMethod }}</span></div>
-      <div><strong>手术医师</strong><span>{{ record.surgeon }}</span></div>
-      <div><strong>麻醉医师</strong><span>{{ record.signatures?.anesthesiologist || record.anesthesiologist }}</span></div>
-      <div><strong>洗手护士</strong><span>{{ record.anesthesiaNurse }}</span></div>
-      <div><strong>巡回护士</strong><span>{{ record.signatures?.nurse || record.anesthesiaNurse }}</span></div>
-      <div><strong>入量(ml)</strong><span>晶体液 {{ balanceSummary.crystalInput }}　胶体液 {{ balanceSummary.colloidInput }}　血液 {{ balanceSummary.bloodInput }}</span></div>
-      <div><strong>出量(ml)</strong><span>尿量 {{ balanceSummary.urine }}　出血量 {{ balanceSummary.bloodLoss }}　其它 {{ balanceSummary.otherOutput }}</span></div>
-      <div><strong>总进出量(ml)</strong><span>总入量 {{ balanceSummary.totalInput }}　总出量 {{ balanceSummary.totalOutput }}</span></div>
-    </div>
+    <section
+      v-if="showProfessionalSummary && printMode"
+      class="sheet-professional-summary is-print"
+      :class="{ 'has-impact': Boolean(templateImpact) }"
+    >
+      <div class="professional-summary-head">
+        <strong>专业麻醉记录</strong>
+        <span v-if="appliedTemplateName">模板：{{ appliedTemplateName }}</span>
+        <span>麻醉方法：{{ sheetAnesthesiaMethod }}</span>
+      </div>
+      <div class="professional-paper-grid">
+        <section v-for="group in professionalFieldGroups" :key="group.title" class="professional-paper-group">
+          <b>{{ group.title }}</b>
+          <dl>
+            <div
+              v-for="item in group.items"
+              :key="`${group.title}-${item.label}`"
+              class="professional-editable-field"
+              :class="{ disabled: readOnly }"
+            >
+              <dt>{{ item.label }}</dt>
+              <dd>{{ item.value || '待记录' }}</dd>
+            </div>
+          </dl>
+        </section>
+        <section v-if="templateEventRows.length" class="professional-paper-group template-events">
+          <b>模板事件落单</b>
+          <p>
+            <span v-for="event in templateEventRows" :key="event.id">{{ event.time }} {{ event.type }}</span>
+          </p>
+        </section>
+        <section v-if="templateQualityTips.length" class="professional-paper-group quality-tips">
+          <b>质控提醒</b>
+          <p>
+            <span v-for="tip in templateQualityTips" :key="tip.text" :class="`tip-${tip.level}`">{{ tip.level }}：{{ tip.text }}</span>
+          </p>
+        </section>
+      </div>
+    </section>
+
+    <RecordFooterSummary
+      v-if="displaySnapshot && (!printMode || isLastPage)"
+      :summary="displaySummary"
+      :signatures="record.signatures"
+      :read-only="readOnly"
+      :print-mode="printMode"
+      :compact="!printMode"
+      @update:anesthesia-effect="emit('saveSummaryField', { anesthesiaEffect: $event as '优' | '良' | '差' })"
+      @update:destination="emit('saveSummaryField', { destination: $event })"
+      @update:analgesia-method="emit('saveSummaryField', { analgesiaMethod: $event })"
+      @update:handover-note="emit('saveSummaryField', { handoverNote: $event })"
+    />
 
     <div v-if="menu.visible" class="live-context-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" @click.stop>
       <div v-if="hasLineTarget" class="menu-section">
         <button :disabled="readOnly" @click="openTargetEditor">编辑数据</button>
-        <button v-if="menu.type === 'medication' || menu.type === 'infusion'" :disabled="readOnly" @click="continueTarget">继续用药/输液</button>
+        <button v-if="menu.type === 'medication' || menu.type === 'inhaled' || menu.type === 'infusion' || menu.type === 'autologous'" :disabled="readOnly" @click="continueTarget">继续用药/输液</button>
+        <button v-if="(menu.type === 'medication' || menu.type === 'inhaled') && medicationTarget?.mode === '持续泵入' && !medicationTarget?.stopTime" :disabled="readOnly" @click="stopMedicationPump">停止泵注</button>
+        <button v-if="(menu.type === 'medication' || menu.type === 'inhaled') && medicationTarget?.mode === '持续泵入'" :disabled="readOnly" @click="pauseMedication">暂停泵注</button>
+        <button v-if="(menu.type === 'medication' || menu.type === 'inhaled') && medicationTarget?.status === 'paused'" :disabled="readOnly" @click="resumeMedication">恢复泵注</button>
+        <button v-if="menu.type === 'medication' || menu.type === 'inhaled'" :disabled="readOnly" @click="voidMedication">作废用药</button>
         <button class="danger-menu" :disabled="readOnly" @click="deleteTarget">删除当前项</button>
       </div>
 
       <div v-if="showDrugMenus" class="menu-section">
         <strong>新增用药</strong>
-        <button v-for="drug in commonDrugs" :key="drug.id" :disabled="readOnly" @click="openMedicationEditor(drug)">{{ drug.name }} {{ drug.specification }}</button>
-        <button v-for="drug in otherDrugs.slice(0, 6)" :key="drug.id" :disabled="readOnly" @click="openMedicationEditor(drug)">{{ drug.name }}</button>
+        <button v-for="drug in ivCommonDrugs" :key="drug.id" :disabled="readOnly" @click="openMedicationEditor(drug)">{{ drug.name }} {{ drug.specification }}</button>
+        <button v-for="drug in ivOtherDrugs.slice(0, 6)" :key="drug.id" :disabled="readOnly" @click="openMedicationEditor(drug)">{{ drug.name }}</button>
+      </div>
+
+      <div v-if="showInhaledMenus" class="menu-section">
+        <strong>新增吸入麻醉</strong>
+        <button v-for="drug in inhaledDrugCatalog" :key="drug.id" :disabled="readOnly" @click="openMedicationEditor(drug)">{{ drug.name }} {{ drug.specification }}</button>
       </div>
 
       <div v-if="showPlaneMenus" class="menu-section">
@@ -335,6 +473,8 @@
       <div v-if="showFluidMenus" class="menu-section">
         <strong>新增输液</strong>
         <button v-for="fluid in infusionCatalog.slice(0, 8)" :key="fluid.id" :disabled="readOnly" @click="openFluidEditor(fluid)">{{ fluid.name }} {{ fluid.defaultVolume ?? '' }}{{ fluid.defaultUnit ?? '' }}</button>
+        <strong v-if="showAutologousMenus">新增自体血</strong>
+        <button v-for="fluid in autologousCatalog" :key="fluid.id" :disabled="readOnly" @click="openFluidEditor(fluid)">{{ fluid.name }} {{ fluid.defaultVolume ?? '' }}{{ fluid.defaultUnit ?? '' }}</button>
         <strong>新增输血</strong>
         <button v-for="fluid in bloodCatalog" :key="fluid.id" :disabled="readOnly" @click="openFluidEditor(fluid)">{{ fluid.name }} {{ fluid.defaultVolume ?? '' }}{{ fluid.defaultUnit ?? '' }}</button>
       </div>
@@ -342,6 +482,7 @@
       <div class="menu-section">
         <button v-if="showVitalMenus" :disabled="readOnly" @click="openMonitorDialog()">添加生命体征</button>
         <button v-if="showVitalMenus" :disabled="readOnly" @click="openBatchMonitorDialog">批量添加生命体征</button>
+        <button v-if="showVitalMenus" :disabled="readOnly" @click="openLabEditor()">添加血气/检验</button>
         <button v-if="showVitalMenus" :disabled="readOnly" @click="observeVisible = true; menu.visible = false">监测项目设置</button>
         <button v-if="showOutputMenus" :disabled="readOnly" @click="openOutputEditor()">添加出入量</button>
         <button @click="openDataList(defaultDataList)">已录入数据维护</button>
@@ -352,7 +493,7 @@
       v-if="lineVisible"
       size="small"
       top-layer
-      :title="`${lineForm.kind === 'medication' ? '用药' : lineForm.kind === 'transfusion' ? '输血' : '输液'}数据`"
+      :title="`${lineForm.kind === 'medication' ? '用药' : lineForm.category === '自体血回输' ? '自体血回输' : lineForm.kind === 'transfusion' ? '输血' : '输液'}数据`"
       @close="lineVisible = false"
     >
         <div class="live-modal-body line-form-body">
@@ -362,7 +503,7 @@
               <option v-for="drug in drugs" :key="drug.id" :value="drug.name">{{ drug.name }}（{{ drug.specification }}）</option>
             </select>
             <select v-else v-model="lineForm.name" @change="syncFluidForm">
-              <option v-for="fluid in lineForm.kind === 'transfusion' ? bloodCatalog : infusionCatalog" :key="fluid.id" :value="fluid.name">{{ fluid.name }}</option>
+              <option v-for="fluid in fluidCatalogForForm" :key="fluid.id" :value="fluid.name">{{ fluid.name }}</option>
             </select>
           </label>
           <label v-if="lineForm.kind === 'medication'" class="field-wide field-mode">
@@ -475,6 +616,23 @@
         </template>
     </RecordModalShell>
 
+    <RecordModalShell v-if="labVisible" size="medium" top-layer title="血气/检验结果" @close="labVisible = false">
+      <div class="line-form-grid">
+        <label>时间<input v-model="labForm.resultTime" type="time" step="60" /></label>
+        <label>类型<input v-model="labForm.labType" placeholder="动脉血气" /></label>
+        <label>显示<select v-model="labForm.displayMode"><option value="number">编号</option><option value="brief">简略</option><option value="full">完整</option></select></label>
+        <label>pH<input v-model="labForm.ph" /></label>
+        <label>pCO2<input v-model="labForm.pco2" /></label>
+        <label>pO2<input v-model="labForm.po2" /></label>
+        <label>BE<input v-model="labForm.be" /></label>
+        <label>Lac<input v-model="labForm.lac" /></label>
+      </div>
+      <template #footer>
+        <button class="btn small" @click="labVisible = false">关闭</button>
+        <button class="btn small primary" :disabled="readOnly" @click="saveLabForm">保存</button>
+      </template>
+    </RecordModalShell>
+
     <RecordModalShell v-if="observeVisible" size="large" top-layer title="监测项目设置" @close="observeVisible = false">
         <div class="observe-body">
           <section class="observe-panel">
@@ -538,9 +696,19 @@
           <table v-else-if="activeDataList === 'medications'" class="live-data-table">
             <thead><tr><th>类型</th><th>时间</th><th>名称</th><th>剂量/泵速</th><th>途径</th><th>核对</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.medications" :key="row.id" @dblclick="openMedicationEditor(row)">
+              <tr v-for="row in ivMedicationRecords" :key="row.id" @dblclick="openMedicationEditor(row)">
                 <td><span class="table-pill" :class="{ continuous: row.mode === '持续泵入' }">{{ row.mode === '持续泵入' ? '持续' : '单次' }}</span></td>
                 <td>{{ medicationTimeText(row) }}</td><td>{{ row.drug }}</td><td>{{ medicationDoseText(row) }}</td><td>{{ row.route || '-' }}</td><td>{{ row.checker || '-' }}</td>
+                <td><button @click="openMedicationEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'medication', row.id)">删除</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <table v-else-if="activeDataList === 'inhaled'" class="live-data-table">
+            <thead><tr><th>类型</th><th>时间</th><th>名称</th><th>浓度/剂量</th><th>途径</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="row in inhaledMedicationRecords" :key="row.id" @dblclick="openMedicationEditor(row)">
+                <td><span class="table-pill" :class="{ continuous: row.mode === '持续泵入' }">{{ row.mode === '持续泵入' ? '持续' : '单次' }}</span></td>
+                <td>{{ medicationTimeText(row) }}</td><td>{{ row.drug }}</td><td>{{ medicationDoseText(row) }}</td><td>{{ row.route || '吸入' }}</td>
                 <td><button @click="openMedicationEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'medication', row.id)">删除</button></td>
               </tr>
             </tbody>
@@ -548,8 +716,17 @@
           <table v-else-if="activeDataList === 'infusions'" class="live-data-table">
             <thead><tr><th>类别</th><th>时间</th><th>名称</th><th>容量</th><th>执行人</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.fluids.filter((item) => item.category !== '血液制品')" :key="row.id" @dblclick="openFluidEditor(row)">
+              <tr v-for="row in record.fluids.filter((item) => isInfusionFluidCategory(item.category))" :key="row.id" @dblclick="openFluidEditor(row)">
                 <td><span class="table-pill fluid">{{ row.category }}</span></td><td>{{ fluidTimeText(row) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit ?? 'ml' }}</td><td>{{ row.executor || '-' }}</td>
+                <td><button @click="openFluidEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'fluid', row.id)">删除</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <table v-else-if="activeDataList === 'autologous'" class="live-data-table">
+            <thead><tr><th>时间</th><th>名称</th><th>容量</th><th>执行人</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="row in record.fluids.filter((item) => isAutologousFluidCategory(item.category))" :key="row.id" @dblclick="openFluidEditor(row)">
+                <td>{{ fluidTimeText(row) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit ?? 'ml' }}</td><td>{{ row.executor || '-' }}</td>
                 <td><button @click="openFluidEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'fluid', row.id)">删除</button></td>
               </tr>
             </tbody>
@@ -588,18 +765,28 @@
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import { computed, defineComponent, h, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import TimelineNodeRail from '@/components/anesthesia/record/TimelineNodeRail.vue';
+import RecordHeader from '@/components/anesthesia/record/sheet/RecordHeader.vue';
+import PaperFormField from '@/components/anesthesia/record/sheet/PaperFormField.vue';
+import RecordFooterSummary from '@/components/anesthesia/record/sheet/RecordFooterSummary.vue';
+import RecordTimeAxis from '@/components/anesthesia/record/sheet/RecordTimeAxis.vue';
+import LabResultLayer from '@/components/anesthesia/record/sheet/LabResultLayer.vue';
+import type { AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
+import { getMethodTimelineNodes, type MethodTimelineNode } from '@/services/methodTimelineEngine';
+import { computed, defineComponent, defineExpose, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import RecordModalShell from './RecordModalShell.vue';
 import type { AnesthesiaEvent, AnesthesiaPlaneRecord, FluidRecord, MedicationRecord, OutputDetailRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
 import type { DynamicModuleEntry, TemplateImpact, TemplateImpactEvent, TemplateImpactMedication } from '@/mock/anesthesiaRecordPrototype';
 import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/types/system';
+import type { LabResultRecord } from '@/types/anesthesiaRecord';
 import {
   buildMonitorCells,
   buildRecordBandGrid,
   buildBalanceSummary,
+  buildRecordSnapshot,
+  buildRecordSummaryFields,
   chartYWithPadding,
   clampVitalValueByDict,
-  calculateLiveSheetEnd,
   collectRecordTimes,
   createAnesthesiaPlaneDraft,
   createFluidLineDraft,
@@ -613,9 +800,18 @@ import {
   timeToPercent,
   clockToMinutes,
   vitalMarkerShape,
+  resolveTimeAxisIntervals,
+  resolveDefaultMonitorOrder,
+  isInhaledMedication,
+  isAutologousFluidCategory,
+  isBloodProductCategory,
+  isInfusionFluidCategory,
   type RecordBandGrid,
 } from '@/services/anesthesiaRecordEngine';
 import { buildLiveTimeScale } from '@/services/anesthesiaRecordEngine';
+import { buildRecordPagination, clipSegmentToPage, isSegmentCrossingPage, isTimeOnPage } from '@/services/recordPaginationEngine';
+import { buildLabLayoutObjects, buildMonitorLayoutObjects, mergeLayoutWarnings, resolveLayoutCollisions } from '@/services/recordLayoutEngine';
+import { buildMilestoneStatusEvents } from '@/services/methodTimelineEngine';
 
 const GridLines = defineComponent({
   name: 'GridLines',
@@ -651,6 +847,20 @@ const props = withDefaults(defineProps<{
   appliedModules?: DynamicModuleEntry[];
   templateImpact?: TemplateImpact;
   recentEventLabel?: string;
+  methodKeys?: AnesthesiaMethodKey[];
+  methodLabels?: string[];
+  methodPrimary?: AnesthesiaMethodKey;
+  methodAuxiliary?: AnesthesiaMethodKey[];
+  pageNo?: number;
+  printMode?: boolean;
+  headerPickerOptions?: {
+    positions: string[];
+    surgeries: string[];
+    anesthesiaMethods: string[];
+    anesthesiologists: string[];
+    surgeons: string[];
+    nurses: string[];
+  };
 }>(), {
   bloodTypes: () => [],
   rhTypes: () => [],
@@ -663,6 +873,20 @@ const props = withDefaults(defineProps<{
   appliedModules: () => [],
   templateImpact: undefined,
   recentEventLabel: '',
+  methodKeys: () => [],
+  methodLabels: () => [],
+  methodPrimary: 'general',
+  methodAuxiliary: () => [],
+  pageNo: 1,
+  printMode: false,
+  headerPickerOptions: () => ({
+    positions: [],
+    surgeries: [],
+    anesthesiaMethods: [],
+    anesthesiologists: [],
+    surgeons: [],
+    nurses: [],
+  }),
 });
 
 const emit = defineEmits<{
@@ -674,9 +898,32 @@ const emit = defineEmits<{
   saveMonitorOrder: [codes: string[]];
   deleteRecord: [kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane', id: string];
   selectEvent: [event: AnesthesiaEvent];
+  saveProfessionalField: [group: string, label: string, value: string];
+  saveTimeline: [node: MethodTimelineNode, isoTime: string];
+  saveLab: [record: LabResultRecord];
+  layoutWarnings: [warnings: import('@/types/anesthesiaRecord').LayoutWarning[]];
+  saveHeaderField: [patch: {
+    actualSurgeryName?: string;
+    position?: string;
+    anesthesiologist?: string;
+    surgeon?: string;
+    anesthesiaNurse?: string;
+    circulatingNurses?: string;
+    scrubNurses?: string;
+    anesthesiaMethod?: string;
+  }];
+  saveMethodSelection: [payload: { primary: AnesthesiaMethodKey; auxiliary: AnesthesiaMethodKey[] }];
+  saveSummaryField: [patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryFields>];
+  saveSummaryNotes: [patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryNotes>];
+  stopMedicationPump: [medicationId: string];
 }>();
 
-type MenuType = 'grid' | 'planeGrid' | 'plane' | 'drugGrid' | 'medication' | 'infusionGrid' | 'infusion' | 'transfusionGrid' | 'transfusion' | 'monitor' | 'chart' | 'vital' | 'balance' | 'output';
+const activeTimelineKey = ref('');
+const highlightedEventType = ref('');
+const statusRowRef = ref<HTMLElement | null>(null);
+const statusSymbolRefs = new Map<string, HTMLElement>();
+
+type MenuType = 'grid' | 'planeGrid' | 'plane' | 'drugGrid' | 'medication' | 'inhaledGrid' | 'inhaled' | 'infusionGrid' | 'infusion' | 'autologousGrid' | 'autologous' | 'transfusionGrid' | 'transfusion' | 'monitor' | 'chart' | 'vital' | 'balance' | 'output';
 
 const menu = reactive<{ visible: boolean; x: number; y: number; type: MenuType; target: unknown; at: string }>({
   visible: false,
@@ -692,9 +939,10 @@ const monitorVisible = ref(false);
 const monitorBatch = ref(false);
 const outputVisible = ref(false);
 const planeVisible = ref(false);
+const labVisible = ref(false);
 const observeVisible = ref(false);
 const dataVisible = ref(false);
-const activeDataList = ref<'planes' | 'medications' | 'infusions' | 'transfusions' | 'vitals' | 'outputs'>('medications');
+const activeDataList = ref<'planes' | 'medications' | 'inhaled' | 'infusions' | 'autologous' | 'transfusions' | 'vitals' | 'outputs'>('medications');
 const selectedMonitorCodes = ref<string[]>([]);
 const monitorValues = reactive<Record<string, string>>({});
 const monitorEndTime = ref('');
@@ -725,6 +973,10 @@ const lineForm = reactive({
   circulatingConfirmed: false,
 });
 const professionalFieldEdits = reactive<Record<string, string>>({});
+watch(() => props.record.professionalFieldValues, (values) => {
+  Object.keys(professionalFieldEdits).forEach((key) => delete professionalFieldEdits[key]);
+  Object.assign(professionalFieldEdits, values ?? {});
+}, { immediate: true, deep: true });
 const professionalEditor = reactive({
   visible: false,
   group: '',
@@ -733,6 +985,17 @@ const professionalEditor = reactive({
 });
 const monitorForm = reactive({ id: '', time: '', source: '手工录入', remark: '' });
 const outputForm = reactive({ id: '', time: '', type: '尿量' as OutputDetailRecord['type'], volume: 0, remark: '' });
+const labForm = reactive({
+  id: '',
+  resultTime: '',
+  labType: '动脉血气',
+  displayMode: 'number' as LabResultRecord['displayMode'],
+  ph: '',
+  pco2: '',
+  po2: '',
+  be: '',
+  lac: '',
+});
 const planeForm = reactive({
   id: '',
   time: '',
@@ -743,7 +1006,7 @@ const planeForm = reactive({
 const dragState = reactive<{
   active: boolean;
   kind: 'medication' | 'fluid';
-  band: 'medication' | 'infusion' | 'transfusion';
+  band: 'medication' | 'inhaled' | 'infusion' | 'autologous' | 'transfusion';
   mode: 'move' | 'start' | 'end';
   source: MedicationRecord | FluidRecord | null;
   startX: number;
@@ -765,7 +1028,7 @@ const dragState = reactive<{
 });
 const segmentDragPreview = reactive<{
   active: boolean;
-  band: 'medication' | 'infusion' | 'transfusion';
+  band: 'medication' | 'inhaled' | 'infusion' | 'autologous' | 'transfusion';
   style: Record<string, string>;
   label: string;
 }>({
@@ -794,18 +1057,44 @@ const vitalDragState = reactive<{
   top: 0,
 });
 
-const sheetStart = computed(() => isoOrClockToClock(props.record.anesthesiaStart ?? props.record.actualStart ?? props.record.plannedStart) || '08:00');
-const sheetEnd = computed(() => calculateLiveSheetEnd(sheetStart.value, collectRecordTimes(props.record)));
-const timeScale = computed(() => buildLiveTimeScale(sheetStart.value, sheetEnd.value));
+const sheetStart = computed(() => currentPage.value?.pageStartTime ?? pagination.value.axisStart);
+const sheetEnd = computed(() => currentPage.value?.pageEndTime ?? pagination.value.axisEnd);
+const pagination = computed(() => {
+  const intervals = resolveTimeAxisIntervals(props.record);
+  return buildRecordPagination(props.record, {
+    minorInterval: intervals.minorInterval,
+    majorInterval: intervals.majorInterval,
+  });
+});
+const currentPage = computed(() => {
+  const pages = props.record.recordDocument?.timeAxisPages?.length
+    ? props.record.recordDocument.timeAxisPages
+    : pagination.value.pages;
+  return pages.find((item) => item.pageNo === props.pageNo) ?? pages[0];
+});
+const isLastPage = computed(() => currentPage.value ? currentPage.value.pageNo === currentPage.value.pageCount : true);
+const displaySnapshot = computed(() => props.record.recordSnapshot ?? buildRecordSnapshot(props.record, props.record.recordDocument?.hospitalName));
+const displaySummary = computed(() => buildRecordSummaryFields(props.record));
+const labResults = computed(() => (props.record.labResults ?? []).filter(
+  (row) => !currentPage.value || isTimeOnPage(row.resultTime, currentPage.value),
+));
+const timeScale = computed(() => {
+  const intervals = resolveTimeAxisIntervals(props.record);
+  return buildLiveTimeScale(sheetStart.value, sheetEnd.value, intervals.minorInterval, intervals.majorInterval);
+});
+const isPacuRecord = computed(() => props.record.recordDocument?.recordType === 'pacu');
 const sheetAnesthesiaMethod = computed(() => props.appliedMethodLabels.length ? props.appliedMethodLabels.join(' + ') : props.record.anesthesiaMethod);
 const gridBackgroundStyle = computed(() => ({ '--minor-count': Math.max(1, timeScale.value.minorTicks.length - 1) }));
 const bandGrid = (rows: number) => buildRecordBandGrid(timeScale.value, rows);
 const chartGrid = computed(() => buildRecordBandGrid(timeScale.value, 8));
 const professionalFieldKey = (group: string, label: string) => `${group}::${label}`;
 const professionalFieldGroups = computed(() => {
+  const modules = props.methodKeys.length
+    ? props.appliedModules.filter((module) => props.methodKeys.includes(module.key))
+    : props.appliedModules;
   const fields = props.templateImpact?.professionalFields.length
     ? props.templateImpact.professionalFields
-    : props.appliedModules.flatMap((module) => module.sections.flatMap((section) => section.items.map((item) => ({
+    : modules.flatMap((module) => module.sections.flatMap((section) => section.items.map((item) => ({
       group: section.title,
       label: item.label,
       value: item.value,
@@ -814,7 +1103,12 @@ const professionalFieldGroups = computed(() => {
   const grouped = new Map<string, Array<{ label: string; value: string }>>();
   fields.forEach((field) => {
     if (!grouped.has(field.group)) grouped.set(field.group, []);
-    grouped.get(field.group)?.push({ label: field.label, value: professionalFieldEdits[professionalFieldKey(field.group, field.label)] ?? field.value });
+    grouped.get(field.group)?.push({
+      label: field.label,
+      value: professionalFieldEdits[professionalFieldKey(field.group, field.label)]
+        ?? props.record.professionalFieldValues?.[professionalFieldKey(field.group, field.label)]
+        ?? field.value,
+    });
   });
   return Array.from(grouped.entries()).map(([title, items]) => ({ title, items }));
 });
@@ -825,7 +1119,11 @@ const templateEventRows = computed(() => (props.templateImpact?.events ?? []).ma
   time: event.time,
   source: event,
 })));
-const visibleVitals = computed(() => [...props.record.vitals].sort((a, b) => isoOrClockToClock(a.time).localeCompare(isoOrClockToClock(b.time))));
+const professionalFieldCount = computed(() => professionalFieldGroups.value.reduce((sum, group) => sum + group.items.length, 0));
+const showProfessionalSummary = computed(() => professionalFieldGroups.value.length > 0 || templateEventRows.value.length > 0 || templateQualityTips.value.length > 0);
+const visibleVitals = computed(() => [...props.record.vitals]
+  .filter((row) => !currentPage.value || isTimeOnPage(row.time, currentPage.value))
+  .sort((a, b) => isoOrClockToClock(a.time).localeCompare(isoOrClockToClock(b.time))));
 const enabledVitalItems = computed(() => props.vitals.filter((item) => item.enabled));
 const selectedMonitorItems = computed(() => selectedMonitorCodes.value
   .map((code) => enabledVitalItems.value.find((item) => item.shortCode === code))
@@ -843,11 +1141,29 @@ const monitorOrderCodes = computed(() => monitorRows.value.map((item) => item.sh
 const chartVitals = computed(() => monitorRows.value.filter((item) => item.chartEnabled));
 const chartTicks = computed(() => [220, 200, 180, 160, 140, 120, 100, 80, 60, 40, 20].map((value) => ({ value, top: (chartYWithPadding(value, { min: 20, max: 220, height: 300, padding: 18 }) / 300) * 100 })));
 const respiratoryTicks = computed(() => [26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2].map((value) => ({ value, top: (chartYWithPadding(value, { min: 2, max: 26, height: 300, padding: 18 }) / 300) * 100 })));
-const infusionCatalog = computed(() => props.fluids.filter((item) => item.enabled && item.subCategory !== '血液制品'));
+const infusionCatalog = computed(() => props.fluids.filter((item) => item.enabled && isInfusionFluidCategory(item.subCategory)));
+const autologousCatalog = computed(() => props.fluids.filter((item) => item.enabled && item.subCategory === '自体血回输'));
 const bloodCatalog = computed(() => props.fluids.filter((item) => item.enabled && item.subCategory === '血液制品'));
-const commonDrugs = computed(() => props.drugs.filter((item) => item.enabled && item.common).slice(0, 8));
-const otherDrugs = computed(() => props.drugs.filter((item) => item.enabled && !item.common));
-const bloodLabel = computed(() => props.record.fluids.find((item) => item.category === '血液制品' && item.bloodType)?.bloodType ?? '-');
+const inhaledDrugCatalog = computed(() => props.drugs.filter((item) => item.enabled && item.defaultRoute?.includes('吸入')));
+const ivCommonDrugs = computed(() => props.drugs.filter((item) => item.enabled && item.common && !item.defaultRoute?.includes('吸入')).slice(0, 8));
+const ivOtherDrugs = computed(() => props.drugs.filter((item) => item.enabled && !item.common && !item.defaultRoute?.includes('吸入')));
+const commonDrugs = ivCommonDrugs;
+const otherDrugs = ivOtherDrugs;
+const fluidCatalogForForm = computed(() => {
+  if (lineForm.kind === 'transfusion') return bloodCatalog.value;
+  if (lineForm.category === '自体血回输') return autologousCatalog.value;
+  return infusionCatalog.value;
+});
+const showInhaledBand = computed(() => !isPacuRecord.value && (
+  inhaledDrugCatalog.value.length > 0
+  || inhaledMedicationRows.value.length > 0
+  || props.methodKeys.includes('general')
+));
+const showAutologousBand = computed(() => !isPacuRecord.value && (
+  props.record.autologousBlood
+  || autologousCatalog.value.length > 0
+  || autologousRows.value.length > 0
+));
 const planeRowOffset = computed(() => props.showAnesthesiaPlane ? 1 : 0);
 const planeRows = computed(() => (props.showAnesthesiaPlane ? (props.record.anesthesiaPlanes ?? []) : []).map((item) => ({
   key: item.id,
@@ -856,7 +1172,9 @@ const planeRows = computed(() => (props.showAnesthesiaPlane ? (props.record.anes
   source: item,
 })));
 const medicationRowCount = computed(() => Math.max(5, medicationRows.value.length + planeRowOffset.value));
+const inhaledRowCount = computed(() => Math.max(2, inhaledMedicationRows.value.length));
 const infusionRowCount = computed(() => Math.max(3, infusionRows.value.length));
+const autologousRowCount = computed(() => Math.max(1, autologousRows.value.length));
 const transfusionRowCount = computed(() => Math.max(2, transfusionRows.value.length));
 const monitorRowCount = computed(() => Math.max(4, monitorRows.value.length));
 const balanceSummary = computed(() => buildBalanceSummary(props.record));
@@ -877,21 +1195,47 @@ const eventLegend = [
   { symbol: 'Ⓞ', label: '手术结束' },
   { symbol: 'Φ', label: '麻醉插管' },
 ];
-const monitorCells = computed(() => buildMonitorCells(visibleVitals.value, monitorRows.value, monitorOrderCodes.value, {
-  start: sheetStart.value,
-  end: sheetEnd.value,
-  cellOffsetPercent: Math.min(1.2, Math.max(0.35, 45 / Math.max(180, timeScale.value.totalMinutes))),
-}));
-const hasLineTarget = computed(() => ['plane', 'medication', 'infusion', 'transfusion', 'vital', 'output'].includes(menu.type) && Boolean(menu.target));
+const monitorCells = computed(() => {
+  const raw = buildMonitorCells(visibleVitals.value, monitorRows.value, monitorOrderCodes.value, {
+    start: sheetStart.value,
+    end: sheetEnd.value,
+  });
+  const { objects } = resolveLayoutCollisions([
+    ...buildMonitorLayoutObjects(raw),
+    ...buildLabLayoutObjects(labResults.value, (time) => timeToPercent(time, sheetStart.value, sheetEnd.value)),
+  ]);
+  const map = new Map(objects.map((item) => [item.id, item]));
+  return raw.map((cell) => {
+    const placed = map.get(cell.key);
+    return placed ? { ...cell, leftPercent: placed.x, topPercent: placed.y } : cell;
+  });
+});
+const layoutWarningPayload = computed(() => {
+  const raw = buildMonitorCells(visibleVitals.value, monitorRows.value, monitorOrderCodes.value, {
+    start: sheetStart.value,
+    end: sheetEnd.value,
+  });
+  const { warnings } = resolveLayoutCollisions([
+    ...buildMonitorLayoutObjects(raw),
+    ...buildLabLayoutObjects(labResults.value, (time) => timeToPercent(time, sheetStart.value, sheetEnd.value)),
+  ]);
+  return mergeLayoutWarnings(warnings);
+});
+const hasLineTarget = computed(() => ['plane', 'medication', 'inhaled', 'infusion', 'autologous', 'transfusion', 'vital', 'output'].includes(menu.type) && Boolean(menu.target));
+const medicationTarget = computed(() => (menu.type === 'medication' || menu.type === 'inhaled' ? menu.target as MedicationRecord | null : null));
 const showPlaneMenus = computed(() => props.showAnesthesiaPlane && ['grid', 'planeGrid', 'plane', 'drugGrid'].includes(menu.type));
 const showDrugMenus = computed(() => ['grid', 'drugGrid', 'medication'].includes(menu.type));
-const showFluidMenus = computed(() => ['grid', 'infusionGrid', 'transfusionGrid', 'infusion', 'transfusion'].includes(menu.type));
+const showInhaledMenus = computed(() => ['grid', 'inhaledGrid', 'inhaled'].includes(menu.type));
+const showFluidMenus = computed(() => ['grid', 'infusionGrid', 'autologousGrid', 'transfusionGrid', 'infusion', 'autologous', 'transfusion'].includes(menu.type));
+const showAutologousMenus = computed(() => showAutologousBand.value && ['grid', 'infusionGrid', 'autologousGrid', 'autologous'].includes(menu.type));
 const showVitalMenus = computed(() => ['grid', 'monitor', 'chart', 'vital'].includes(menu.type));
 const showOutputMenus = computed(() => ['grid', 'balance', 'output'].includes(menu.type));
 const defaultDataList = computed(() => {
   if (['medication', 'drugGrid'].includes(menu.type)) return 'medications';
+  if (['inhaled', 'inhaledGrid'].includes(menu.type)) return 'inhaled';
   if (['plane', 'planeGrid'].includes(menu.type)) return 'planes';
   if (['infusion', 'infusionGrid'].includes(menu.type)) return 'infusions';
+  if (['autologous', 'autologousGrid'].includes(menu.type)) return 'autologous';
   if (['transfusion', 'transfusionGrid'].includes(menu.type)) return 'transfusions';
   if (['monitor', 'chart', 'vital'].includes(menu.type)) return 'vitals';
   return 'outputs';
@@ -899,16 +1243,23 @@ const defaultDataList = computed(() => {
 const dataTabs = computed(() => ([
   { key: 'planes', label: '麻醉平面' },
   { key: 'medications', label: '用药' },
+  { key: 'inhaled', label: '吸入麻醉' },
   { key: 'infusions', label: '输液' },
+  { key: 'autologous', label: '自体血' },
   { key: 'transfusions', label: '输血' },
   { key: 'vitals', label: '生命体征' },
   { key: 'outputs', label: '出入量' },
-] as const).filter((item) => props.showAnesthesiaPlane || item.key !== 'planes'));
+] as const).filter((item) => {
+  if (!props.showAnesthesiaPlane && item.key === 'planes') return false;
+  if (item.key === 'inhaled' && !showInhaledBand.value) return false;
+  if (item.key === 'autologous' && !showAutologousBand.value) return false;
+  return true;
+}));
 
 watch([enabledVitalItems, () => props.monitorOrder], ([items, order]) => {
   const enabledCodes = items.map((item) => item.shortCode);
   const saved = (order as string[]).filter((code) => enabledCodes.includes(code));
-  const fallback = items.slice(0, 8).map((item) => item.shortCode);
+  const fallback = resolveDefaultMonitorOrder(items);
   if (!selectedMonitorCodes.value.length || saved.length) selectedMonitorCodes.value = saved.length ? saved : fallback;
 }, { immediate: true });
 
@@ -928,17 +1279,22 @@ const templateMedicationSources = computed<MedicationRecord[]>(() => (props.temp
   pumpRate: item.pumpRate,
   reason: props.appliedTemplateName ? `模板落单：${props.appliedTemplateName}` : '模板落单',
 })));
-const medicationRows = computed(() => [...props.record.medications, ...templateMedicationSources.value].map((item, index) => ({
+const mapMedicationRow = (item: MedicationRecord, index: number, planeOffset: number) => ({
   key: item.id,
   label: item.drug,
   amount: item.mode === '持续泵入' ? (item.pumpRate || `${item.dose ?? ''}${item.unit ?? ''}`) : `${item.dose ?? ''}${item.unit ?? ''}`,
   time: item.time ?? item.startTime ?? props.record.plannedStart,
   end: item.stopTime ?? item.endTime,
-  index: index + planeRowOffset.value,
+  index: index + planeOffset,
   source: item,
   template: item.id.startsWith('template-med-'),
-})));
-const infusionRows = computed(() => props.record.fluids.filter((item) => item.category !== '血液制品').map((item, index) => ({
+});
+const activeMedicationRecords = computed(() => [...props.record.medications, ...templateMedicationSources.value].filter((item) => item.status !== 'voided'));
+const ivMedicationRecords = computed(() => activeMedicationRecords.value.filter((item) => !isInhaledMedication(item, props.drugs)));
+const inhaledMedicationRecords = computed(() => activeMedicationRecords.value.filter((item) => isInhaledMedication(item, props.drugs)));
+const medicationRows = computed(() => ivMedicationRecords.value.map((item, index) => mapMedicationRow(item, index, planeRowOffset.value)));
+const inhaledMedicationRows = computed(() => inhaledMedicationRecords.value.map((item, index) => mapMedicationRow(item, index, 0)));
+const infusionRows = computed(() => props.record.fluids.filter((item) => isInfusionFluidCategory(item.category)).map((item, index) => ({
   key: item.id,
   label: item.name,
   amount: `${item.volume}${item.unit ?? 'ml'}`,
@@ -947,7 +1303,16 @@ const infusionRows = computed(() => props.record.fluids.filter((item) => item.ca
   index,
   source: item,
 })));
-const transfusionRows = computed(() => props.record.fluids.filter((item) => item.category === '血液制品').map((item, index) => {
+const autologousRows = computed(() => props.record.fluids.filter((item) => isAutologousFluidCategory(item.category)).map((item, index) => ({
+  key: item.id,
+  label: item.name,
+  amount: `${item.volume}${item.unit ?? 'ml'}`,
+  time: item.startTime ?? item.time ?? props.record.plannedStart,
+  end: item.endTime,
+  index,
+  source: item,
+})));
+const transfusionRows = computed(() => props.record.fluids.filter((item) => isBloodProductCategory(item.category)).map((item, index) => {
   const dict = props.fluids.find((fluid) => fluid.name === item.name);
   return {
     key: item.id,
@@ -971,6 +1336,39 @@ const outputRows = computed(() => {
   return records.map((row) => ({ id: row.id, time: row.time, volume: row.volume, index: indexByType[row.type], source: row }));
 });
 const symbolForEvent = (type: string) => (type.includes('入室') ? '>' : type.includes('麻醉开始') ? 'X' : type.includes('麻醉结束') ? '*' : type.includes('手术开始') ? '◎' : type.includes('手术结束') ? 'Ⓞ' : type.includes('插管') ? 'Φ' : type.includes('喉罩') ? '罩' : type.includes('穿刺') ? '针' : type.includes('平面') ? 'T' : type.includes('阻滞') ? 'B' : type.includes('拔管') ? 'Θ' : type.includes('离室') ? '▶' : '•');
+const timelineKeyForEventType = (type: string) => {
+  const nodes = getMethodTimelineNodes(props.methodKeys);
+  const node = nodes.find((item) => item.eventType === type || type.includes(item.eventType ?? '') || (item.eventType && item.eventType.includes(type)));
+  return node?.key ?? '';
+};
+const statusEventTitle = (event: { type: string; time?: string }) => `${event.type} ${isoOrClockToClock(event.time) || '待记录'}`;
+const registerStatusSymbol = (eventId: string, element: HTMLElement | null) => {
+  if (element) statusSymbolRefs.set(eventId, element);
+  else statusSymbolRefs.delete(eventId);
+};
+const isStatusEventActive = (event: { type: string; id: string }) => highlightedEventType.value === event.type || Boolean(highlightedEventType.value && event.type.includes(highlightedEventType.value));
+const focusTimelineNode = (node: MethodTimelineNode) => {
+  activeTimelineKey.value = node.key;
+  highlightedEventType.value = node.eventType ?? node.label;
+  scrollStatusRowIntoView();
+  const match = [...statusSymbolRefs.entries()].find(([id]) => id.includes(node.key) || props.record.events.some((event) => event.id === id && (event.type === node.eventType || event.type.includes(node.eventType ?? ''))));
+  match?.[1]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+};
+const selectStatusEvent = (event: AnesthesiaEvent & { type: string }) => {
+  highlightedEventType.value = event.type;
+  activeTimelineKey.value = timelineKeyForEventType(event.type);
+  emit('selectEvent', event);
+  scrollStatusRowIntoView();
+};
+const scrollStatusRowIntoView = () => statusRowRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+const flashEventType = (type: string) => {
+  highlightedEventType.value = type;
+  activeTimelineKey.value = timelineKeyForEventType(type);
+  scrollStatusRowIntoView();
+  window.setTimeout(() => {
+    if (highlightedEventType.value === type) highlightedEventType.value = '';
+  }, 2000);
+};
 const templateStatusEvents = computed(() => (props.templateImpact?.events ?? []).map((event: TemplateImpactEvent, index) => ({
   id: `template-status-${index}-${event.name}`,
   type: event.name,
@@ -984,18 +1382,64 @@ const templateStatusEvents = computed(() => (props.templateImpact?.events ?? [])
   symbol: symbolForEvent(event.name),
   className: event.severity === '危急' || event.severity === '重度' ? 'is-critical is-template' : 'is-template',
 })));
-const statusEvents = computed(() => [
-  ...props.record.events.map((event) => ({
+const statusEvents = computed(() => {
+  const eventRows = props.record.events
+    .filter((event) => event.status !== 'voided')
+    .map((event) => ({
     ...event,
     symbol: symbolForEvent(event.type),
     className: `${event.severity === '危急' || event.severity === '重度' ? 'is-critical' : ''}${props.recentEventLabel.startsWith(event.type) ? ' is-recent' : ''}`.trim(),
-  })),
-  ...templateStatusEvents.value,
-]);
-const medSummary = computed(() => medicationRows.value.slice(0, 4).map((item) => `${item.label}${item.amount}`).join('、') || '待记录');
-const eventSummary = computed(() => statusEvents.value.filter((item) => item.severity === '重度' || item.severity === '危急').map((item) => item.type).join('、') || '无特殊事件');
-const operationSummary = computed(() => statusEvents.value.filter((item) => ['手术开始', '手术结束', '插管', '拔管', '喉罩', '穿刺', '阻滞'].some((key) => item.type.includes(key))).map((item) => item.type).join('、') || eventSummary.value);
-const postopAnalgesiaSummary = computed(() => (props.record.postoperativeAnalgesia ? `镇痛方式：${props.record.recoveryRecord?.conclusion ?? '待记录'}` : '未启用'));
+  }));
+  const eventTypes = new Set(eventRows.map((item) => item.type));
+  const milestones = buildMilestoneStatusEvents(props.record)
+    .filter((item) => !eventTypes.has(item.type) && !eventRows.some((row) => row.type.includes(item.type) || item.type.includes(row.type)))
+    .map((item) => ({
+      ...item,
+      symbol: symbolForEvent(item.type),
+      className: 'is-milestone',
+    }));
+  return [...eventRows, ...milestones, ...templateStatusEvents.value]
+    .filter((item) => !currentPage.value || isTimeOnPage(item.time, currentPage.value));
+});
+const inductionMedSummary = computed(() => {
+  const inductionMeds = [...props.record.medications, ...templateMedicationSources.value]
+    .filter((item) => item.status !== 'voided')
+    .filter((item) => !item.endTime && !item.stopTime)
+    .slice(0, 6);
+  if (inductionMeds.length) {
+    return inductionMeds.map((item) => `${item.drug}${item.dose ?? ''}${item.unit ?? ''}`).join('、');
+  }
+  return medicationRows.value.slice(0, 4).map((item) => `${item.label}${item.amount}`).join('、') || '';
+});
+const medSummary = computed(() => medicationRows.value.slice(0, 6).map((item) => `${item.label}${item.amount}`).join('、') || '');
+const eventSummary = computed(() => {
+  const specialMeds = props.record.medications
+    .filter((item) => item.status !== 'voided' && item.highAlert)
+    .map((item) => item.drug)
+    .join('、');
+  return specialMeds || '无';
+});
+const operationSummary = computed(() => {
+  const ops = statusEvents.value
+    .filter((item) => ['手术开始', '手术结束', '插管', '拔管', '喉罩', '穿刺', '阻滞', '切皮'].some((key) => item.type.includes(key)))
+    .map((item) => item.type);
+  return ops.length ? ops.join('、') : '无';
+});
+const postopAnalgesiaSummary = computed(() => (
+  props.record.postoperativeAnalgesia
+    ? (props.record.recordSummary?.analgesiaMethod ?? props.record.recoveryRecord?.conclusion ?? '已启用')
+    : '未启用'
+));
+const summaryNotes = computed(() => ({
+  inductionMeds: props.record.recordSummary?.notes?.inductionMeds ?? inductionMedSummary.value,
+  inductionSummary: props.record.recordSummary?.notes?.inductionSummary ?? medSummary.value,
+  specialMeds: props.record.recordSummary?.notes?.specialMeds ?? eventSummary.value,
+  keyOperations: props.record.recordSummary?.notes?.keyOperations ?? operationSummary.value,
+  postopAnalgesia: props.record.recordSummary?.notes?.postopAnalgesia ?? postopAnalgesiaSummary.value,
+}));
+const updateSummaryNote = (key: keyof typeof summaryNotes.value, value: string) => {
+  emit('saveSummaryNotes', { [key]: value });
+};
 
 const formatDate = (value?: string) => (value ? dayjs(value).format('YYYY-MM-DD') : '-');
 const medicationTimeText = (row: MedicationRecord) => {
@@ -1013,10 +1457,18 @@ const planeDirectionText = (direction?: AnesthesiaPlaneRecord['direction']) => d
 const topFor = (index: number, total: number) => `${((index + 0.5) / Math.max(total, 1)) * 100}%`;
 const leftFor = (time?: string) => `${timeToPercent(time, sheetStart.value, sheetEnd.value)}%`;
 const pointStyle = (time: string | undefined, index: number, total: number) => ({ left: leftFor(time), top: topFor(index, total) });
-const segmentStyle = (start: string | undefined, end: string | undefined, index: number, total: number) => {
-  const left = timeToPercent(start, sheetStart.value, sheetEnd.value);
-  const right = end ? timeToPercent(end, sheetStart.value, sheetEnd.value) : Math.min(100, left + 10);
-  return { left: `${left}%`, top: topFor(index, total), width: `${Math.max(4, right - left)}%` };
+const segmentStyle = (start: string | undefined, end: string | undefined, index: number, total: number): Record<string, string> => {
+  if (!start || !currentPage.value) return { display: 'none' };
+  const clipped = clipSegmentToPage(start, end, currentPage.value);
+  if (!clipped) return { display: 'none' };
+  const left = timeToPercent(clipped.start, sheetStart.value, sheetEnd.value);
+  const right = timeToPercent(clipped.end, sheetStart.value, sheetEnd.value);
+  return {
+    left: `${left}%`,
+    top: topFor(index, total),
+    width: `${Math.max(4, right - left)}%`,
+    opacity: String(clipped.continuesFromPrev || clipped.continuesToNext ? 0.92 : 1),
+  };
 };
 const previewSegmentTimes = (event: PointerEvent) => {
   if (!dragState.active || !dragState.source) return null;
@@ -1150,7 +1602,7 @@ const openFluidEditor = (source?: FluidBloodDictItem | FluidRecord) => {
   closeMenu();
   if (source && 'startTime' in source) {
     applyLineDraft({
-      kind: source.category === '血液制品' ? 'transfusion' : 'infusion',
+      kind: isBloodProductCategory(source.category) ? 'transfusion' : 'infusion',
       id: source.id,
       name: source.name,
       category: source.category,
@@ -1177,7 +1629,11 @@ const openFluidEditor = (source?: FluidBloodDictItem | FluidRecord) => {
       rh: props.rhTypes[0],
     }));
   } else {
-    const fallback = menu.type === 'transfusionGrid' ? bloodCatalog.value[0] : infusionCatalog.value[0];
+    const fallback = menu.type === 'transfusionGrid'
+      ? bloodCatalog.value[0]
+      : menu.type === 'autologousGrid'
+        ? autologousCatalog.value[0]
+        : infusionCatalog.value[0];
     if (fallback) applyLineDraft(createFluidLineDraft(fallback, { at: menu.at || sheetStart.value, executor: props.record.anesthesiaNurse }));
   }
   lineVisible.value = true;
@@ -1267,21 +1723,22 @@ const openProfessionalFieldEditor = (group: string, label: string, value: string
 };
 const saveProfessionalFieldEdit = () => {
   professionalFieldEdits[professionalFieldKey(professionalEditor.group, professionalEditor.label)] = professionalEditor.value;
+  emit('saveProfessionalField', professionalEditor.group, professionalEditor.label, professionalEditor.value);
   professionalEditor.visible = false;
 };
 const openTargetEditor = () => {
   if (menu.type === 'plane') openPlaneEditor(menu.target as AnesthesiaPlaneRecord);
-  if (menu.type === 'medication') openMedicationEditor(menu.target as MedicationRecord);
-  if (menu.type === 'infusion' || menu.type === 'transfusion') openFluidEditor(menu.target as FluidRecord);
+  if (menu.type === 'medication' || menu.type === 'inhaled') openMedicationEditor(menu.target as MedicationRecord);
+  if (menu.type === 'infusion' || menu.type === 'autologous' || menu.type === 'transfusion') openFluidEditor(menu.target as FluidRecord);
   if (menu.type === 'vital') openMonitorDialog(menu.target as VitalSign);
   if (menu.type === 'output') openOutputEditor(menu.target as OutputDetailRecord);
 };
 const continueTarget = () => {
-  if (menu.type === 'medication') {
+  if (menu.type === 'medication' || menu.type === 'inhaled') {
     const source = menu.target as MedicationRecord;
     openMedicationEditor({ ...source, id: '', time: isoOrClockToClock(source.stopTime ?? source.endTime) || menu.at });
   }
-  if (menu.type === 'infusion') {
+  if (menu.type === 'infusion' || menu.type === 'autologous') {
     const source = menu.target as FluidRecord;
     openFluidEditor({ ...source, id: '', startTime: isoOrClockToClock(source.endTime) || menu.at });
   }
@@ -1290,9 +1747,9 @@ const deleteTarget = () => {
   if (!hasLineTarget.value) return;
   const target = menu.target as { id?: string };
   if (!target.id) return;
-  if (menu.type === 'medication') emit('deleteRecord', 'medication', target.id);
+  if (menu.type === 'medication' || menu.type === 'inhaled') emit('deleteRecord', 'medication', target.id);
   if (menu.type === 'plane') emit('deleteRecord', 'plane', target.id);
-  if (menu.type === 'infusion' || menu.type === 'transfusion') emit('deleteRecord', 'fluid', target.id);
+  if (menu.type === 'infusion' || menu.type === 'autologous' || menu.type === 'transfusion') emit('deleteRecord', 'fluid', target.id);
   if (menu.type === 'vital') emit('deleteRecord', 'vital', target.id);
   if (menu.type === 'output') emit('deleteRecord', 'output', target.id);
   closeMenu();
@@ -1357,6 +1814,64 @@ const saveOutputForm = () => {
   emit('saveOutput', { id: outputForm.id, time: outputForm.time, type: outputForm.type, volume: Number(outputForm.volume) || 0, remark: outputForm.remark });
   outputVisible.value = false;
 };
+const openLabEditor = (row?: LabResultRecord) => {
+  closeMenu();
+  labVisible.value = true;
+  labForm.id = row?.id ?? '';
+  labForm.resultTime = isoOrClockToClock(row?.resultTime) || menu.at || sheetStart.value;
+  labForm.labType = row?.labType ?? '动脉血气';
+  labForm.displayMode = row?.displayMode ?? 'number';
+  const findValue = (code: string) => row?.items.find((item) => item.code === code)?.value ?? '';
+  labForm.ph = findValue('pH');
+  labForm.pco2 = findValue('pCO2');
+  labForm.po2 = findValue('pO2');
+  labForm.be = findValue('BE');
+  labForm.lac = findValue('Lac');
+};
+const saveLabForm = () => {
+  const items = [
+    { code: 'pH', name: 'pH', value: labForm.ph, unit: '', abnormal: Number(labForm.ph) > 0 && (Number(labForm.ph) < 7.35 || Number(labForm.ph) > 7.45) },
+    { code: 'pCO2', name: 'pCO2', value: labForm.pco2, unit: 'mmHg' },
+    { code: 'pO2', name: 'pO2', value: labForm.po2, unit: 'mmHg' },
+    { code: 'BE', name: 'BE', value: labForm.be, unit: 'mmol/L' },
+    { code: 'Lac', name: 'Lac', value: labForm.lac, unit: 'mmol/L', abnormal: Number(labForm.lac) > 2 },
+  ].filter((item) => item.value);
+  emit('saveLab', {
+    id: labForm.id || `lab-${Date.now()}`,
+    resultTime: labForm.resultTime,
+    labType: labForm.labType,
+    items,
+    displayMode: labForm.displayMode,
+    displayNumber: (props.record.labResults?.filter((item) => item.status === 'active').length ?? 0) + 1,
+    source: 'manual',
+    status: 'active',
+  });
+  labVisible.value = false;
+};
+const pauseMedication = () => {
+  const target = medicationTarget.value;
+  if (!target || props.readOnly) return;
+  emit('saveMedication', { ...target, status: 'paused', pauseTime: new Date().toISOString() });
+  closeMenu();
+};
+const stopMedicationPump = () => {
+  const target = medicationTarget.value;
+  if (!target || props.readOnly) return;
+  emit('stopMedicationPump', target.id);
+  closeMenu();
+};
+const resumeMedication = () => {
+  const target = medicationTarget.value;
+  if (!target || props.readOnly) return;
+  emit('saveMedication', { ...target, status: 'active', resumeTime: new Date().toISOString() });
+  closeMenu();
+};
+const voidMedication = () => {
+  const target = medicationTarget.value;
+  if (!target || props.readOnly) return;
+  emit('saveMedication', { ...target, status: 'voided', voidReason: '右键作废' });
+  closeMenu();
+};
 const openDataList = (key: typeof activeDataList.value) => {
   closeMenu();
   activeDataList.value = key;
@@ -1388,7 +1903,16 @@ const startSegmentDrag = (event: PointerEvent, kind: 'medication' | 'fluid', sou
   const rect = track.getBoundingClientRect();
   dragState.active = true;
   dragState.kind = kind;
-  dragState.band = kind === 'medication' ? 'medication' : (source as FluidRecord).category === '血液制品' ? 'transfusion' : 'infusion';
+  if (kind === 'medication') {
+    dragState.band = isInhaledMedication(source as MedicationRecord, props.drugs) ? 'inhaled' : 'medication';
+  } else {
+    const category = (source as FluidRecord).category;
+    dragState.band = isBloodProductCategory(category)
+      ? 'transfusion'
+      : isAutologousFluidCategory(category)
+        ? 'autologous'
+        : 'infusion';
+  }
   dragState.mode = mode;
   dragState.source = source;
   dragState.startX = event.clientX;
@@ -1480,7 +2004,29 @@ const finishSegmentDrag = (event: PointerEvent) => {
   segmentDragPreview.active = false;
   window.removeEventListener('pointermove', updateSegmentDragPreview);
 };
+watch(layoutWarningPayload, (warnings) => {
+  emit('layoutWarnings', warnings);
+}, { immediate: true });
+
+const dismissMenuOnOutside = (event: MouseEvent) => {
+  if (!menu.visible) return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('.live-context-menu')) return;
+  closeMenu();
+};
+
+const dismissMenuOnEscape = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') closeMenu();
+};
+
+defineExpose({ openDataList, flashEventType, focusTimelineNode, scrollStatusRowIntoView });
+onMounted(() => {
+  document.addEventListener('click', dismissMenuOnOutside);
+  document.addEventListener('keydown', dismissMenuOnEscape);
+});
 onBeforeUnmount(() => {
+  document.removeEventListener('click', dismissMenuOnOutside);
+  document.removeEventListener('keydown', dismissMenuOnEscape);
   window.removeEventListener('pointerup', finishSegmentDrag);
   window.removeEventListener('pointermove', updateSegmentDragPreview);
   window.removeEventListener('pointermove', updateVitalDragPreview);
@@ -1490,28 +2036,48 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .live-record-card {
+  --sheet-side-col: 28px;
+  --sheet-label-col: 112px;
+  --sheet-left-total: 140px;
   position: relative;
   border: 2px solid #111827;
   background: #fff;
   color: #111827;
   font-family: "SimSun", "Microsoft YaHei", serif;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: visible;
+  min-width: 0;
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+}
+
+.live-record-card.is-rescue {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12), 0 18px 48px rgba(15, 23, 42, 0.12);
 }
 
 .sheet-locked-ribbon {
   position: absolute;
-  top: 44px;
-  right: 18px;
-  z-index: 8;
-  padding: 3px 10px;
-  border: 1px solid #c2410c;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+  border: 1px solid #cbd5e1;
   border-radius: 999px;
-  background: #fff7ed;
-  color: #9a3412;
-  font-family: "Microsoft YaHei", sans-serif;
-  font-size: 12px;
-  font-weight: 700;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.sheet-print-watermark {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  color: rgba(148, 163, 184, 0.85);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  pointer-events: none;
 }
 
 .print-heading {
@@ -1545,59 +2111,143 @@ onBeforeUnmount(() => {
   line-height: 1;
 }
 
-.patient-lines {
-  border-top: 1px solid #111827;
-  border-bottom: 1px solid #111827;
-  padding: 4px 10px;
-  font-size: 12px;
-}
-
-.patient-lines div {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
-  min-height: 24px;
-  align-items: end;
-}
-
-.patient-lines div:nth-child(2) {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-
-.patient-lines span {
-  border-bottom: 1px solid #999;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .sheet-professional-summary {
   display: grid;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 6px 10px;
+  margin-top: 4px;
+  border-top: 1px solid #111827;
   border-bottom: 1px solid #111827;
+  background: #f8fafc;
+  font-size: 11px;
+}
+
+.sheet-professional-summary.is-collapsed {
+  padding: 4px 10px;
+  background: #f1f5f9;
+}
+
+.sheet-professional-summary.is-print {
   background: #fcfdff;
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .sheet-professional-summary.has-impact {
-  background: linear-gradient(90deg, #f0f7ff 0%, #ffffff 28%, #ffffff 100%);
+  background: linear-gradient(90deg, #f0f7ff 0%, #f8fafc 28%, #f8fafc 100%);
 }
 
 .professional-summary-head {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 
 .professional-summary-head strong {
-  font-size: 13px;
+  font-size: 12px;
 }
 
-.professional-summary-head span {
+.professional-summary-head span:not(.recent-event-pill):not(.professional-count) {
   padding-bottom: 1px;
-  border-bottom: 1px solid #999;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.professional-count {
+  color: #64748b;
+  font-size: 10px;
+}
+
+.professional-toggle {
+  margin-left: auto;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  background: #fff;
+  padding: 2px 8px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.professional-toggle:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.professional-collapsed-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.professional-paper-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  max-height: min(220px, 32vh);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.sheet-professional-summary.is-print .professional-paper-grid {
+  max-height: none;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.professional-paper-group {
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: #fff;
+}
+
+.professional-paper-group b {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10px;
+  color: #334155;
+}
+
+.professional-paper-group dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 6px;
+}
+
+.professional-paper-group dl div {
+  display: contents;
+}
+
+.professional-editable-field {
+  display: contents;
+}
+
+.professional-paper-group dt,
+.professional-paper-group dd {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.professional-paper-group dt {
+  color: #64748b;
+}
+
+.professional-paper-group dd {
+  color: #0f172a;
+}
+
+.professional-paper-group.template-events p,
+.professional-paper-group.quality-tips p {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 9px;
 }
 
 .recent-event-pill {
@@ -1606,88 +2256,11 @@ onBeforeUnmount(() => {
   padding: 2px 8px !important;
   background: #f0fff4;
   color: #15803d;
-  font-family: "Microsoft YaHei", sans-serif;
+  border-bottom: none !important;
 }
 
-.professional-paper-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 6px;
-}
-
-.professional-paper-group {
-  min-width: 0;
-  border: 1px solid #b9c6d5;
-  background: #fff;
-}
-
-.professional-paper-group b {
-  display: block;
-  padding: 4px 6px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #1e293b;
-}
-
-.professional-paper-group dl {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  margin: 0;
-}
-
-.professional-paper-group dl div {
-  display: grid;
-  grid-template-columns: minmax(86px, 0.42fr) minmax(0, 1fr);
-  min-height: 26px;
-  border-right: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.professional-editable-field {
+.professional-editable-field:not(.disabled) {
   cursor: text;
-}
-
-.professional-editable-field:hover {
-  background: #f8fbff;
-  box-shadow: inset 0 0 0 1px rgba(22, 93, 255, 0.18);
-}
-
-.professional-editable-field.disabled {
-  cursor: default;
-}
-
-.professional-paper-group dt,
-.professional-paper-group dd {
-  margin: 0;
-  padding: 4px 5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: normal;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-}
-
-.professional-paper-group dt {
-  border-right: 1px solid #e2e8f0;
-  color: #475569;
-}
-
-.professional-paper-group dd {
-  font-weight: 700;
-}
-
-.template-events p,
-.quality-tips p {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin: 0;
-  padding: 5px 6px;
-}
-
-.template-events span,
-.quality-tips span {
-  white-space: nowrap;
 }
 
 .tip-关注 {
@@ -1701,7 +2274,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1280px) {
   .professional-paper-grid {
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1709,7 +2282,7 @@ onBeforeUnmount(() => {
 .sheet-band,
 .vital-chart {
   display: grid;
-  grid-template-columns: 140px 1fr;
+  grid-template-columns: var(--sheet-left-total) 1fr;
   border-bottom: 1px solid #111827;
 }
 
@@ -1760,13 +2333,16 @@ onBeforeUnmount(() => {
 }
 
 .sheet-band {
-  grid-template-columns: 28px 112px 1fr;
-  min-height: calc(var(--rows, 3) * 22px);
+  grid-template-columns: var(--sheet-side-col) var(--sheet-label-col) 1fr;
+  min-height: calc(var(--rows, 3) * 26px);
 }
 
 .band-side {
   writing-mode: vertical-rl;
   letter-spacing: 2px;
+  padding: 6px 2px;
+  line-height: 1.35;
+  font-size: 12px;
 }
 
 .band-labels {
@@ -1776,19 +2352,20 @@ onBeforeUnmount(() => {
 }
 
 .band-labels span {
-  display: grid;
-  place-items: center;
-  min-height: 22px;
-  padding: 2px 4px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 4px 6px;
   border-bottom: 1px solid #b8c0cc;
   font-size: 12px;
-  line-height: 1;
+  line-height: 1.35;
   text-align: center;
   overflow: hidden;
 }
 
 .band-track {
-  min-height: calc(var(--rows, 3) * 22px);
+  min-height: calc(var(--rows, 3) * 26px);
 }
 
 .medication-band {
@@ -1796,7 +2373,7 @@ onBeforeUnmount(() => {
 }
 
 .monitor-band {
-  min-height: 176px;
+  min-height: calc(var(--rows, 4) * 26px);
 }
 
 .print-grid-lines,
@@ -1892,7 +2469,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   line-height: 1;
   pointer-events: auto;
-  transform: translate(0, -50%);
+  transform: translate(-50%, -50%);
 }
 
 .monitor-value.abnormal {
@@ -1990,6 +2567,21 @@ onBeforeUnmount(() => {
   right: -5px;
 }
 
+.inhaled-line {
+  border-top-color: #7c3aed;
+  color: #7c3aed;
+}
+
+.inhaled-point {
+  color: #7c3aed;
+  border-color: #7c3aed;
+}
+
+.autologous-line {
+  border-top-color: #b45309;
+  color: #b45309;
+}
+
 .fluid-line {
   border-top-color: #047857;
   color: #047857;
@@ -2001,8 +2593,25 @@ onBeforeUnmount(() => {
 }
 
 .vital-chart {
-  grid-template-columns: 176px 54px 1fr;
+  grid-template-columns: var(--sheet-left-total) 1fr;
   height: 300px;
+}
+
+.chart-area {
+  position: relative;
+  padding-left: 54px;
+}
+
+.chart-area .chart-scale {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 54px;
+  border-right: 1px solid #111827;
+  background: #f8fafc;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .chart-legend,
@@ -2017,6 +2626,10 @@ onBeforeUnmount(() => {
   gap: 2px;
   padding: 4px 2px;
   font-size: 11px;
+}
+
+.chart-scale {
+  position: relative;
 }
 
 .event-legend,
@@ -2151,7 +2764,7 @@ onBeforeUnmount(() => {
 
 .surgery-status-row {
   display: grid;
-  grid-template-columns: 140px 1fr;
+  grid-template-columns: var(--sheet-left-total) 1fr;
   min-height: 32px;
   border-bottom: 1px solid #111827;
 }
@@ -2190,6 +2803,11 @@ onBeforeUnmount(() => {
   text-shadow: 0 1px 0 #fff;
 }
 
+.surgery-status-symbol.is-active {
+  box-shadow: 0 0 0 2px #165dff;
+  background: #eff6ff;
+}
+
 .surgery-status-symbol.is-critical {
   border-color: #dc2626;
   color: #dc2626;
@@ -2226,60 +2844,44 @@ onBeforeUnmount(() => {
 }
 
 .reference-notes {
-  grid-template-columns: 80px 1.25fr 1.25fr 1.1fr 1fr;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
   border-bottom: 1px solid #111827;
 }
 
-.reference-notes > div:not(.note-vertical) {
-  min-width: 0;
-}
-
-.reference-notes > div:not(.note-vertical) strong {
+.reference-notes :deep(.paper-field) {
   display: block;
-  max-width: 100%;
-  line-height: 1.25;
-  white-space: normal;
-  word-break: keep-all;
-  overflow-wrap: anywhere;
-}
-
-.reference-notes .note-vertical {
-  display: grid;
-  place-items: center;
-  padding: 0;
-}
-
-.reference-notes .note-vertical strong {
-  writing-mode: vertical-rl;
-  letter-spacing: 2px;
-}
-
-.sheet-footer-summary {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  border-bottom: 1px solid #111827;
-  font-size: 12px;
-}
-
-.sheet-footer-summary div {
-  display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  min-height: 24px;
+  padding: 8px;
   border-right: 1px solid #111827;
-  border-bottom: 1px solid #111827;
+  min-height: 76px;
 }
 
-.sheet-footer-summary strong {
-  padding: 4px 6px;
-  border-right: 1px solid #111827;
+.reference-notes :deep(.paper-field:last-child) {
+  border-right: 0;
+}
+
+.reference-notes :deep(.paper-field-label) {
+  display: block;
+  margin-bottom: 6px;
   font-weight: 700;
+  color: #111827;
 }
 
-.sheet-footer-summary span {
-  padding: 4px 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.reference-notes :deep(.paper-field-input),
+.reference-notes :deep(.paper-field-value) {
+  min-height: 48px;
+}
+
+@media (max-width: 960px) {
+  .reference-notes {
+    grid-template-columns: 1fr;
+  }
+
+  .reference-notes :deep(.paper-field) {
+    border-right: 0;
+    border-bottom: 1px solid #111827;
+  }
 }
 
 .live-context-menu {
@@ -2325,55 +2927,6 @@ onBeforeUnmount(() => {
 
 .danger-menu {
   color: #dc2626;
-}
-
-.live-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1300;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(15, 23, 42, 0.28);
-}
-
-.live-modal {
-  width: min(920px, 96vw);
-  max-height: 88vh;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fbfdff;
-  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.2);
-}
-
-.live-modal.small {
-  width: min(560px, 96vw);
-}
-
-.live-modal header,
-.live-modal footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #fff;
-}
-
-.live-modal footer {
-  justify-content: flex-end;
-  border-top: 1px solid #e5e7eb;
-  border-bottom: 0;
-}
-
-.live-modal header button {
-  border: 0;
-  background: transparent;
-  font-size: 20px;
-  cursor: pointer;
 }
 
 .live-modal-body {
@@ -2707,8 +3260,9 @@ onBeforeUnmount(() => {
     border: 1px solid #111;
   }
 
-  .live-context-menu,
-  .live-modal-backdrop {
+  .sheet-locked-ribbon,
+  .sheet-print-watermark,
+  .live-context-menu {
     display: none !important;
   }
 

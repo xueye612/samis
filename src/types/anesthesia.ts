@@ -26,7 +26,10 @@ export interface VitalSign {
   TEMP?: number;
   BIS?: number;
   CVP?: number;
-  source?: '手工录入' | '设备采集占位' | '手工修正';
+  source?: '手工录入' | '设备采集' | '设备采集占位' | '接口导入' | '手工修正';
+  displayValue?: Record<string, number | string>;
+  correctedValue?: Record<string, number | string>;
+  originalValue?: Record<string, number | string>;
   remark?: string;
   rescue?: boolean;
   abnormalHandled?: Record<string, string>;
@@ -43,6 +46,8 @@ export interface AnesthesiaEvent {
   staff: string[];
   reported: boolean;
   qualityIncluded: boolean;
+  status?: 'active' | 'voided';
+  voidReason?: string;
 }
 
 export interface AnesthesiaPlaneRecord {
@@ -66,7 +71,7 @@ export interface RescueRecord {
 
 export interface MedicationRecord {
   id: string;
-  mode: '单次用药' | '持续泵入';
+  mode: '单次用药' | '持续泵入' | '间断追加';
   time?: string;
   endTime?: string;
   drug: string;
@@ -80,10 +85,16 @@ export interface MedicationRecord {
   startTime?: string;
   adjustTime?: string;
   stopTime?: string;
+  pauseTime?: string;
+  resumeTime?: string;
   totalAmount?: string;
   checker?: string;
   highAlert?: boolean;
   reason?: string;
+  drugCategory?: string;
+  rowIndex?: number;
+  status?: 'active' | 'paused' | 'voided';
+  voidReason?: string;
 }
 
 export interface FluidRecord {
@@ -154,6 +165,8 @@ export interface SurgeryCase {
   urgency: '急诊' | '择期';
   anesthesiologist: string;
   anesthesiaNurse: string;
+  circulatingNurses?: string;
+  scrubNurses?: string;
   status: CaseStatus;
   locationType: '手术室内' | '手术室外';
   plannedStart: string;
@@ -193,6 +206,25 @@ export interface SurgeryCase {
   recordDraft?: AnesthesiaRecordDraft;
   airwayRecord?: AirwayRecord;
   recoveryRecord?: RecoveryRecord;
+  professionalFieldValues?: Record<string, string>;
+  anesthesiaEnd?: string;
+  roomInTime?: string;
+  position?: string;
+  transferIcuPlanned?: boolean;
+  cancelStage?: string;
+  cancelReason?: string;
+  isVaginalDelivery?: boolean;
+  actualSurgeryName?: string;
+  paymentMethod?: string;
+  height?: number;
+  recordDocument?: import('@/types/anesthesiaRecord').AnesthesiaRecordDocument;
+  recordSnapshot?: import('@/types/anesthesiaRecord').AnesthesiaRecordSnapshot;
+  labResults?: import('@/types/anesthesiaRecord').LabResultRecord[];
+  transfusionEvents?: import('@/types/anesthesiaRecord').TransfusionEventRecord[];
+  ioRecords?: import('@/types/anesthesiaRecord').IoRecordEntry[];
+  recordSummary?: import('@/types/anesthesiaRecord').RecordSummaryFields;
+  layoutWarnings?: import('@/types/anesthesiaRecord').LayoutWarning[];
+  printedAt?: string;
 }
 
 export interface AnesthesiaRecordDeviceState {
@@ -309,6 +341,9 @@ export interface PostoperativeFollowUp {
   transferredIcu: boolean;
   death: boolean;
   advice: string;
+  newComa?: boolean;
+  neuroDurationHours?: number;
+  hoarsenessDurationHours?: number;
 }
 
 export interface QualityIndicatorDefinition {

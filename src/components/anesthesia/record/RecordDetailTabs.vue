@@ -17,19 +17,26 @@
     <a-tab-pane key="anesthesia" title="麻醉信息">
       <div class="tab-grid">
         <a-card title="关键时间" :bordered="false">
-          <a-descriptions :column="2" bordered size="small">
-            <a-descriptions-item label="计划">{{ formatTime(record.plannedStart) }} - {{ formatTime(record.scheduledEnd) }}</a-descriptions-item>
-            <a-descriptions-item label="启动">{{ formatTime(record.actualStart) || '-' }}</a-descriptions-item>
-            <a-descriptions-item label="麻醉开始">{{ formatTime(record.anesthesiaStart) || '-' }}</a-descriptions-item>
-            <a-descriptions-item label="手术开始">{{ formatTime(record.surgeryStart) || '-' }}</a-descriptions-item>
-            <a-descriptions-item label="手术结束">{{ formatTime(record.surgeryEnd) || '-' }}</a-descriptions-item>
-            <a-descriptions-item label="离室">{{ formatTime(record.leaveRoomTime) || '-' }}</a-descriptions-item>
-          </a-descriptions>
-        </a-card>
-        <a-card title="快速事件" :bordered="false">
-          <a-space wrap>
-            <a-button v-for="event in eventOptions" :key="event" size="small" :disabled="record.locked" @click="$emit('event', event)">{{ event }}</a-button>
-          </a-space>
+          <a-table :data="timelineRows" :pagination="false" size="small">
+            <template #columns>
+              <a-table-column title="节点" data-index="label" :width="120" />
+              <a-table-column title="时间" :width="160">
+                <template #cell="{ record: row }">
+                  <a-time-picker
+                    :model-value="row.pickerValue"
+                    format="HH:mm"
+                    value-format="HH:mm"
+                    size="small"
+                    :disabled="record.locked"
+                    @change="(value) => saveTimeline(row, value as string | undefined)"
+                  />
+                </template>
+              </a-table-column>
+              <a-table-column title="状态" :width="90">
+                <template #cell="{ record: row }"><a-tag :color="row.recorded ? 'arcoblue' : 'gray'">{{ row.recorded ? '已记录' : '待记录' }}</a-tag></template>
+              </a-table-column>
+            </template>
+          </a-table>
         </a-card>
       </div>
     </a-tab-pane>
@@ -123,6 +130,17 @@
     </a-tab-pane>
 
     <a-tab-pane key="quality" title="质控签名">
+      <a-card v-if="(qualityDefects ?? []).length" title="当前病例质控缺陷" :bordered="false" class="defect-card">
+        <a-table :data="qualityDefects ?? []" :pagination="false" size="small">
+          <template #columns>
+            <a-table-column title="缺陷" data-index="defectType" />
+            <a-table-column title="级别" :width="90">
+              <template #cell="{ record: row }"><a-tag :color="row.defectLevel === '严重' ? 'red' : 'orange'">{{ row.defectLevel }}</a-tag></template>
+            </a-table-column>
+            <a-table-column title="说明" data-index="defectDesc" />
+          </template>
+        </a-table>
+      </a-card>
       <a-table :data="qualityChecks" :pagination="false" size="small">
         <template #columns>
           <a-table-column title="检查项" data-index="item" />
@@ -139,34 +157,50 @@
 <script setup lang="ts">
 import dayjs from 'dayjs';
 import { computed, ref, watch } from 'vue';
-import { quickEventOptions } from '@/mock/anesthesiaRecordPrototype';
+import { type AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
+import { buildTimelineNodeStates, type MethodTimelineNode } from '@/services/methodTimelineEngine';
 import type { FluidRecord, MedicationRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
 import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/types/system';
 import type { LiveRecordQualityCheck } from '@/services/anesthesiaRecordEngine';
+import type { QualityDefect } from '@/types/quality';
 
 const props = defineProps<{
   record: SurgeryCase;
   activeTab?: string;
+  methodKeys: AnesthesiaMethodKey[];
   vitalItems: VitalSignDictItem[];
   drugItems: DrugDictItem[];
   fluidItems: FluidBloodDictItem[];
   qualityChecks: LiveRecordQualityCheck[];
+  qualityDefects?: QualityDefect[];
 }>();
 const emit = defineEmits<{
   'update:activeTab': [value: string];
   event: [type: string];
   drug: [name: string];
   fluid: [name: string];
+  'save-timeline': [node: MethodTimelineNode, isoTime: string];
 }>();
 
 const activeKey = ref(props.activeTab ?? 'patient');
 watch(() => props.activeTab, (value) => { if (value) activeKey.value = value; });
 watch(activeKey, (value) => emit('update:activeTab', value));
 
-const eventOptions = quickEventOptions.map((item) => item.name);
 const drugOptions = computed(() => props.drugItems.filter((item) => item.enabled).map((item) => ({ label: item.name, value: item.name })));
 const fluidOptions = computed(() => props.fluidItems.filter((item) => item.enabled).map((item) => ({ label: `${item.subCategory} / ${item.name}`, value: item.name })));
 const sortedEvents = computed(() => [...props.record.events].sort((a, b) => a.time.localeCompare(b.time)));
+const timelineRows = computed(() => buildTimelineNodeStates(props.record, props.methodKeys).map((node) => ({
+  ...node,
+  pickerValue: node.time ? dayjs(node.time).format('HH:mm') : undefined,
+})));
+
+const saveTimeline = (row: MethodTimelineNode, value?: string) => {
+  if (!value || props.record.locked) return;
+  const [hour, minute] = value.split(':').map(Number);
+  const base = props.record.plannedStart || props.record.anesthesiaStart || dayjs().toISOString();
+  const isoTime = dayjs(base).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
+  emit('save-timeline', row, isoTime);
+};
 
 const formatTime = (value?: string) => (value ? dayjs(value).format('HH:mm') : '');
 const medicationTime = (row: MedicationRecord) => {
@@ -191,6 +225,10 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 <style scoped>
 .record-detail-tabs {
   margin-top: 12px;
+}
+
+.defect-card {
+  margin-bottom: 12px;
 }
 
 .tab-grid {

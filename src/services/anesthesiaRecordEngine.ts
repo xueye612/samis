@@ -1,9 +1,20 @@
 import type { AnesthesiaPlaneRecord, FluidRecord, MedicationRecord, OutputDetailRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
+import type {
+  AnesthesiaRecordDocument,
+  AnesthesiaRecordSnapshot,
+  LabResultRecord,
+  RecordPrintCheck,
+  RecordSummaryFields,
+  TransfusionEventRecord,
+} from '@/types/anesthesiaRecord';
+import type { QualityDefect } from '@/types/quality';
 import type { DrugDictItem, FluidBloodDictItem, FluidBloodSubCategory, VitalSignDictItem } from '@/types/system';
+import { runRecordQualityChecks } from '@/services/anesthesiaRecordHelpers';
 
 export const LIVE_TIME_STEP_MINUTES = 1;
 export const LIVE_DEFAULT_SEGMENT_MINUTES = 10;
 export const RECORD_LOCAL_STATE_KEY = 'samis.anesthesiaRecord.localState.v1';
+export const DEFAULT_SHEET_MONITOR_ORDER = ['HR', 'SBP', 'DBP', 'SpO2', 'EtCO2', 'TEMP'] as const;
 
 export interface LiveTick {
   time: string;
@@ -152,6 +163,36 @@ export function buildVitalCatalog(items: VitalSignDictItem[]) {
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
+export function resolveDefaultMonitorOrder(items: VitalSignDictItem[]) {
+  const enabled = items.filter((item) => item.enabled);
+  const enabledCodes = new Set(enabled.map((item) => item.shortCode));
+  const preferred = DEFAULT_SHEET_MONITOR_ORDER.filter((code) => enabledCodes.has(code));
+  if (preferred.length >= 4) return [...preferred];
+  return enabled.slice(0, 8).map((item) => item.shortCode);
+}
+
+export function isInhaledMedication(
+  record: Pick<MedicationRecord, 'route' | 'drug' | 'name'>,
+  drugs: DrugDictItem[] = [],
+) {
+  if (record.route?.includes('吸入')) return true;
+  const drugName = record.drug || record.name;
+  const dict = drugs.find((item) => item.name === drugName);
+  return Boolean(dict?.defaultRoute?.includes('吸入'));
+}
+
+export function isAutologousFluidCategory(category: FluidRecord['category']) {
+  return category === '自体血回输';
+}
+
+export function isBloodProductCategory(category: FluidRecord['category']) {
+  return category === '血液制品';
+}
+
+export function isInfusionFluidCategory(category: FluidRecord['category']) {
+  return category === '晶体液' || category === '胶体液';
+}
+
 export function buildFluidCatalog(items: FluidBloodDictItem[], subCategory?: FluidBloodSubCategory) {
   return [...items]
     .filter((item) => item.enabled && (!subCategory || item.subCategory === subCategory))
@@ -216,11 +257,12 @@ export function createFluidLineDraft(
   const normalized = normalizeFluidFromDict(fluid, options.executor);
   const time = options.at ?? isoOrClockToClock(new Date().toISOString());
   const isBlood = fluid.subCategory === '血液制品';
+  const isAutologous = fluid.subCategory === '自体血回输';
   return {
     kind: isBlood ? 'transfusion' : 'infusion',
     id: options.id,
     name: normalized.name,
-    category: normalized.category,
+    category: isAutologous ? '自体血回输' : normalized.category,
     time,
     endTime: minutesToClock((clockToMinutes(time) ?? 0) + LIVE_DEFAULT_SEGMENT_MINUTES),
     amount: normalized.volume,
@@ -616,6 +658,31 @@ export function runLiveRecordQualityChecks(
   ];
 }
 
+export function runUnifiedRecordQualityChecks(
+  item: SurgeryCase,
+  dictionaries: { drugs: DrugDictItem[]; vitals: VitalSignDictItem[]; fluids: FluidBloodDictItem[] },
+  caseDefects: QualityDefect[] = [],
+): LiveRecordQualityCheck[] {
+  const recordChecks = runRecordQualityChecks(item).map((row) => ({
+    item: row.item,
+    status: row.status,
+    message: row.message,
+    target: row.target,
+  } satisfies LiveRecordQualityCheck));
+  const liveChecks = runLiveRecordQualityChecks(item, dictionaries);
+  const merged = new Map<string, LiveRecordQualityCheck>();
+  [...recordChecks, ...liveChecks].forEach((row) => merged.set(row.item, row));
+  caseDefects.forEach((defect) => {
+    merged.set(`质控缺陷：${defect.defectType}`, {
+      item: `质控缺陷：${defect.defectType}`,
+      status: defect.defectLevel === '严重' ? '未通过' : '警告',
+      message: defect.defectDesc,
+      target: 'quality',
+    });
+  });
+  return Array.from(merged.values());
+}
+
 export function collectRecordTimes(item: SurgeryCase) {
   return [
     item.anesthesiaStart,
@@ -629,6 +696,142 @@ export function collectRecordTimes(item: SurgeryCase) {
     ...(item.anesthesiaPlanes ?? []).map((row) => row.time),
     ...(item.outputRecords ?? []).map((row) => row.time),
   ].filter(Boolean) as string[];
+}
+
+export function roundAxisStartTime(time = '08:00', roundMinutes = 30): string {
+  const minutes = clockToMinutes(isoOrClockToClock(time)) ?? 0;
+  const step = Math.max(1, roundMinutes);
+  const rounded = Math.floor(minutes / step) * step;
+  return minutesToClock(rounded);
+}
+
+export function resolveTimeAxisIntervals(record: SurgeryCase): { minorInterval: 5 | 1 | 3 | 10 | 15; majorInterval: number } {
+  if (record.vitalFrequency === '抢救1分钟' || record.rescue?.startTime) {
+    return { minorInterval: 1, majorInterval: 15 };
+  }
+  const minor = record.recordDocument?.minorInterval ?? 5;
+  const major = record.recordDocument?.majorInterval ?? 30;
+  return { minorInterval: minor, majorInterval: major };
+}
+
+export const DEFAULT_HOSPITAL_NAME = 'SAMIS 演示医院';
+
+export function buildRecordSnapshot(record: SurgeryCase, hospitalName = DEFAULT_HOSPITAL_NAME): AnesthesiaRecordSnapshot {
+  const surgeryDate = record.plannedStart ? new Date(record.plannedStart).toISOString().slice(0, 10) : '';
+  return {
+    capturedAt: new Date().toISOString(),
+    hospitalName,
+    recordNo: record.recordDocument?.recordNo ?? record.id,
+    patientName: record.patientName,
+    gender: record.gender,
+    age: record.age,
+    height: record.height ?? record.preVisit.height,
+    weight: record.preVisit.weight,
+    department: record.department,
+    bedNo: `${record.sequence}台`,
+    inpatientNo: record.patientId ?? record.id,
+    paymentMethod: record.paymentMethod ?? '未记录',
+    bloodType: record.fluids.find((item) => item.bloodType)?.bloodType,
+    asa: record.asa,
+    diagnosisPreop: record.diagnosis,
+    diagnosisPostop: record.recordSummary?.manualOverrides?.diagnosisPostop?.value ?? record.diagnosis,
+    surgeryPlanned: record.surgeryName,
+    surgeryActual: record.actualSurgeryName ?? record.surgeryName,
+    anesthesiaMethod: record.anesthesiaMethod,
+    surgicalPosition: record.position,
+    room: record.room,
+    surgeonName: record.surgeon,
+    anesthesiologistName: record.anesthesiologist,
+    nurseName: [record.circulatingNurses, record.scrubNurses].filter(Boolean).join(' / ') || record.anesthesiaNurse,
+    circulatingNurseNames: record.circulatingNurses ?? record.anesthesiaNurse,
+    scrubNurseNames: record.scrubNurses,
+    surgeryDate,
+    preMedication: record.preVisit.preMedication,
+    fasting: record.preVisit.fasting,
+  };
+}
+
+export function ensureRecordDocument(record: SurgeryCase): AnesthesiaRecordDocument {
+  if (record.recordDocument) return record.recordDocument;
+  const { minorInterval, majorInterval } = resolveTimeAxisIntervals(record);
+  return {
+    recordNo: record.id,
+    recordType: 'intraoperative',
+    pageCount: 1,
+    timeAxisPages: [],
+    hospitalName: DEFAULT_HOSPITAL_NAME,
+    paymentMethod: record.paymentMethod,
+    minorInterval,
+    majorInterval,
+  };
+}
+
+export function syncTransfusionEventsFromFluids(record: SurgeryCase): TransfusionEventRecord[] {
+  return record.fluids
+    .filter((item) => item.category === '血液制品' || item.category === '自体血回输')
+    .map((item, index) => ({
+      id: item.id,
+      bloodProduct: item.name,
+      amount: item.volume,
+      amountUnit: item.unit ?? 'U',
+      volume: item.volume,
+      volumeUnit: item.unit ?? 'ml',
+      channelType: item.product,
+      startTime: item.startTime ?? item.time ?? '',
+      endTime: item.endTime,
+      reactionFlag: Boolean(item.reaction && item.reaction !== '无'),
+      reactionDescription: item.reaction,
+      rowIndex: index,
+      status: 'active' as const,
+    }));
+}
+
+export function buildRecordSummaryFields(record: SurgeryCase): RecordSummaryFields {
+  const balance = buildBalanceSummary(record);
+  const summary = record.recordSummary ?? {};
+  const extubationTime = summary.extubationTime
+    ?? record.airwayRecord?.extubationTime
+    ?? (record.events.find((item) => item.type.includes('拔管') && item.status !== 'voided')?.time);
+  const recoveryTime = summary.recoveryTime ?? record.recoveryRecord?.leaveTime;
+  const destination = summary.destination ?? record.transferTo ?? record.recoveryRecord?.destination;
+  return {
+    crystalTotal: summary.crystalTotal ?? balance.crystalInput,
+    colloidTotal: summary.colloidTotal ?? balance.colloidInput,
+    bloodTotal: summary.bloodTotal ?? balance.bloodInput,
+    urineTotal: summary.urineTotal ?? balance.urine,
+    bloodLossTotal: summary.bloodLossTotal ?? balance.bloodLoss,
+    drainageTotal: summary.drainageTotal ?? balance.drainage,
+    inputTotal: summary.inputTotal ?? balance.totalInput,
+    outputTotal: summary.outputTotal ?? balance.totalOutput,
+    anesthesiaEffect: summary.anesthesiaEffect ?? '良',
+    analgesiaMethod: summary.analgesiaMethod ?? (record.postoperativeAnalgesia ? 'PCA' : '未记录'),
+    extubationTime: extubationTime ? isoOrClockToClock(extubationTime) : undefined,
+    recoveryTime: recoveryTime ? isoOrClockToClock(recoveryTime) : undefined,
+    destination: destination ? String(destination) : undefined,
+    handoverNote: summary.handoverNote ?? record.recoveryRecord?.handoverNote,
+    completedAt: summary.completedAt,
+    manualOverrides: summary.manualOverrides,
+  };
+}
+
+export function runPrintPreflightChecks(
+  record: SurgeryCase,
+  layoutWarnings: Array<{ severity: string }> = [],
+): RecordPrintCheck[] {
+  const summary = buildRecordSummaryFields(record);
+  const balance = buildBalanceSummary(record);
+  const checks: RecordPrintCheck[] = [];
+  const push = (item: string, status: RecordPrintCheck['status'], message: string) => checks.push({ item, status, message });
+
+  push('患者手术信息', record.patientName && record.surgeryName ? '通过' : '未通过', record.patientName ? '患者与手术信息完整' : '缺少患者或手术信息');
+  push('关键时间节点', record.anesthesiaStart && record.surgeryStart ? '通过' : '警告', '建议补齐入室、麻醉开始、手术开始、出室时间');
+  push('出入量一致性', summary.inputTotal === balance.totalInput ? '通过' : '警告', '底部汇总与过程合计应一致');
+  push('持续泵注', record.medications.some((item) => item.mode === '持续泵入' && item.status !== 'voided' && !item.endTime && !item.stopTime) ? '警告' : '通过', '检查是否存在未结束持续泵注');
+  push('未结束液体', record.fluids.some((item) => item.category !== '血液制品' && !item.endTime) ? '警告' : '通过', '检查是否存在未结束液体');
+  push('未结束输血', record.fluids.some((item) => item.category === '血液制品' && !item.endTime) ? '警告' : '通过', '检查是否存在未结束输血');
+  push('布局重叠', layoutWarnings.some((item) => item.severity === 'error') ? '未通过' : layoutWarnings.length ? '警告' : '通过', layoutWarnings.length ? `存在 ${layoutWarnings.length} 项布局提示` : '未发现严重布局重叠');
+  push('页码连续', (record.recordDocument?.pageCount ?? 1) >= 1 ? '通过' : '未通过', `共 ${record.recordDocument?.pageCount ?? 1} 页`);
+  return checks;
 }
 
 export function saveRecordLocalState(storage: StorageLike, state: RecordLocalState) {

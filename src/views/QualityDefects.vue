@@ -36,7 +36,7 @@ import { useAnesthesiaStore } from '@/stores/anesthesia';
 
 const router = useRouter();
 const store = useAnesthesiaStore();
-const goCaseDetail = (caseId: string) => router.push(`/surgery/detail/${caseId}`);
+const goCaseDetail = (caseId: string) => router.push({ name: 'record', params: { id: caseId }, query: { from: 'plan' } });
 </script>
 
 <style scoped>

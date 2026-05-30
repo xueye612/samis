@@ -193,7 +193,7 @@ const onMonthRangeChange = (_value: unknown, _date: unknown, dateString?: (strin
 };
 
 const selected = computed(() => store.selectedIndicator ?? store.indicatorDetails[0]);
-const goCaseDetail = (caseId: string) => router.push(`/surgery/detail/${caseId}`);
+const goCaseDetail = (caseId: string) => router.push({ name: 'record', params: { id: caseId }, query: { from: 'plan' } });
 const setCategory = (value: string | number | boolean | Record<string, unknown> | Array<string | number | boolean | Record<string, unknown>>) => {
   const next = Array.isArray(value) ? value[0] : value;
   store.setQualityCategory((next || '全部') as '全部' | QualityCategory);

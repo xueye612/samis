@@ -28,6 +28,7 @@ import type {
   QualityDataset,
   VitalSignRecordTable,
   WarmingRecordTable,
+  AirwayRecordTable,
 } from '@/types/mockTables';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -90,6 +91,14 @@ export function syncCaseToDataset(dataset: QualityDataset, clinical: SurgeryCase
   const isNeuraxial = clinical.anesthesiaMethod.includes('椎管内');
   const isRegional = clinical.anesthesiaMethod.includes('阻滞');
   const surgeryType = clinical.urgency === '急诊' ? '急诊' : clinical.department.includes('产科') ? '产科' : '择期';
+  const cancelEvent = clinical.events.find((event) => event.type.includes('取消'));
+  const cancelStage = clinical.cancelStage
+    ?? (cancelEvent?.type.includes('麻醉开始后') ? '麻醉开始后手术前' : cancelEvent ? '入室后手术前' : existing?.cancelStage);
+  const cancelReason = clinical.cancelReason ?? cancelEvent?.treatment ?? existing?.cancelReason;
+  const isVaginalDelivery = clinical.isVaginalDelivery
+    ?? existing?.isVaginalDelivery
+    ?? (clinical.surgeryName.includes('阴道分娩')
+      || (clinical.department.includes('产科') && clinical.anesthesiaMethod.includes('椎管内') && !clinical.surgeryName.includes('剖宫产')));
 
   const row: AnesthesiaCaseTable = {
     caseId: clinical.id,
@@ -110,24 +119,25 @@ export function syncCaseToDataset(dataset: QualityDataset, clinical: SurgeryCase
     isRegionalAnesthesia: isRegional,
     isNeuraxialAnesthesia: isNeuraxial,
     isObstetric: clinical.department.includes('产科'),
-    isVaginalDelivery: false,
+    isVaginalDelivery,
     status: statusMap[clinical.status] ?? clinical.status,
     scheduledStartTime: clinical.plannedStart,
-    roomInTime: clinical.events.find((e) => e.type === '入室')?.time ?? clinical.plannedStart,
+    roomInTime: clinical.roomInTime ?? clinical.events.find((e) => e.type === '入室' || e.type.includes('入室'))?.time ?? clinical.plannedStart,
     anesthesiaStartTime: clinical.anesthesiaStart,
     operationStartTime: clinical.surgeryStart,
     operationEndTime: clinical.surgeryEnd,
+    anesthesiaEndTime: clinical.anesthesiaEnd,
     roomOutTime: clinical.leaveRoomTime,
     isTransferIcu: clinical.transferTo === 'ICU' || clinical.events.some((e) => e.type === '非计划转ICU'),
-    transferIcuPlanned: false,
+    transferIcuPlanned: clinical.transferIcuPlanned ?? existing?.transferIcuPlanned ?? false,
     transferIcuReason: clinical.events.find((e) => e.type === '非计划转ICU')?.treatment,
     isDeleted: false,
     isTest: false,
     createdAt: existing?.createdAt ?? clinical.plannedStart,
     updatedAt: dayjs().toISOString(),
-    cancelTime: clinical.status === '已取消' ? dayjs().toISOString() : existing?.cancelTime,
-    cancelStage: clinical.status === '已取消' ? existing?.cancelStage : undefined,
-    cancelReason: clinical.status === '已取消' ? existing?.cancelReason : undefined,
+    cancelTime: clinical.status === '已取消' ? (cancelEvent?.time ?? existing?.cancelTime) : existing?.cancelTime,
+    cancelStage: clinical.status === '已取消' ? (cancelStage as AnesthesiaCaseTable['cancelStage']) : undefined,
+    cancelReason: clinical.status === '已取消' ? cancelReason : undefined,
   };
 
   if (existing) Object.assign(existing, row);
@@ -243,6 +253,8 @@ export function syncCaseToDataset(dataset: QualityDataset, clinical: SurgeryCase
   }));
   dataset.events = [...preservedEvents, ...clinicalEvents];
 
+  syncAirwayFromClinical(dataset, clinical);
+
   if (clinical.activeWarming) {
     const warming: WarmingRecordTable = {
       recordId: `wr-${clinical.id}`,
@@ -262,6 +274,26 @@ export function syncCaseToDataset(dataset: QualityDataset, clinical: SurgeryCase
       rescueEvent.reviewStatus = clinical.rescue.endTime ? '已确认' : '待审核';
     }
   }
+}
+
+function syncAirwayFromClinical(dataset: QualityDataset, clinical: SurgeryCase) {
+  const intubationEvent = clinical.events.find((event) => event.type.includes('插管') || event.type.includes('喉罩'));
+  const extubationEvent = clinical.events.find((event) => event.type.includes('拔管') || event.type.includes('拔除喉罩'));
+  const airway = clinical.airwayRecord;
+  const intubationTime = airway?.intubationTime ?? intubationEvent?.time;
+  const extubationTime = airway?.extubationTime ?? extubationEvent?.time;
+  if (!intubationTime && !extubationTime) return;
+
+  const row: AirwayRecordTable = {
+    recordId: `airway-${clinical.id}`,
+    caseId: clinical.id,
+    airwayType: intubationEvent?.type.includes('喉罩') ? '喉罩' : intubationTime ? '气管插管' : '无',
+    intubationTime,
+    extubationTime,
+    unplanned: clinical.events.some((event) => event.type.includes('非计划') && event.type.includes('插管')),
+  };
+  dataset.airwayRecords = dataset.airwayRecords.filter((item) => item.caseId !== clinical.id);
+  dataset.airwayRecords.push(row);
 }
 
 function vitalToRecord(caseId: string, vital: VitalSign, index: number, nurse: string): VitalSignRecordTable {
@@ -319,12 +351,14 @@ export function syncFollowUpToDataset(dataset: QualityDataset, followUp: Postope
     nauseaVomiting: followUp.nausea,
     headache: followUp.headache,
     hoarseness: followUp.hoarseness,
+    hoarsenessDurationHours: followUp.hoarsenessDurationHours ?? (followUp.hoarseness ? 24 : undefined),
     neuroComplication: followUp.numbness || followUp.motorDisorder,
+    neuroDurationHours: followUp.neuroDurationHours ?? ((followUp.numbness || followUp.motorDisorder) ? 48 : undefined),
     awareness: followUp.awareness,
     respiratoryDepression: followUp.respiratoryDepression,
     reintubation: followUp.reintubation,
     transferredIcu: followUp.transferredIcu,
-    newComa: false,
+    newComa: followUp.newComa ?? false,
     death24h: followUp.death,
     advice: followUp.advice,
   };

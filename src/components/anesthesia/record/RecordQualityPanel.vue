@@ -22,13 +22,32 @@
       </div>
     </a-card>
 
+    <a-card v-if="qualityDefects.length" :bordered="false" class="quality-card defect-card">
+      <template #title>质控缺陷</template>
+      <div class="defect-list">
+        <button
+          v-for="item in qualityDefects.slice(0, 6)"
+          :key="item.defectId"
+          type="button"
+          class="defect-item"
+          @click="$emit('focus-defect', item)"
+        >
+          <a-tag :color="item.defectLevel === '严重' ? 'red' : 'orange'" size="small">{{ item.defectLevel }}</a-tag>
+          <span>{{ item.defectType }}</span>
+        </button>
+      </div>
+    </a-card>
+
     <a-card :bordered="false" class="quality-card">
       <template #title>异常生命体征</template>
       <a-empty v-if="!abnormalVitals.length" description="暂无异常" />
       <div v-else class="abnormal-list">
         <div v-for="item in abnormalVitals.slice(0, 6)" :key="item.id">
           <strong>{{ formatTime(item.time) }} {{ item.metric }} {{ item.value }}{{ item.unit }}</strong>
-          <span>{{ item.handled ? '已闭环' : '待处置' }}</span>
+          <a-space>
+            <span>{{ item.handled ? '已闭环' : '待处置' }}</span>
+            <a-button v-if="!item.handled" size="mini" type="primary" @click="$emit('handle-abnormal', item)">处置</a-button>
+          </a-space>
         </div>
       </div>
     </a-card>
@@ -65,11 +84,20 @@ import dayjs from 'dayjs';
 import { computed } from 'vue';
 import type { SurgeryCase } from '@/types/anesthesia';
 import type { AbnormalVitalByDictionary, LiveRecordQualityCheck } from '@/services/anesthesiaRecordEngine';
+import type { QualityDefect } from '@/types/quality';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   record: SurgeryCase;
   checks: LiveRecordQualityCheck[];
   abnormalVitals: AbnormalVitalByDictionary[];
+  qualityDefects?: QualityDefect[];
+}>(), {
+  qualityDefects: () => [],
+});
+
+defineEmits<{
+  'focus-defect': [defect: QualityDefect];
+  'handle-abnormal': [item: AbnormalVitalByDictionary];
 }>();
 
 const passCount = computed(() => props.checks.filter((item) => item.status === '通过').length);
@@ -167,5 +195,23 @@ const colorFor = (status: string) => status === '通过' ? 'green' : status === 
   border-radius: 6px;
   background: #f8fafc;
   color: #475569;
+}
+
+.defect-list {
+  display: grid;
+  gap: 8px;
+}
+
+.defect-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #fee2e2;
+  border-radius: 6px;
+  background: #fff7f7;
+  text-align: left;
+  cursor: pointer;
 }
 </style>

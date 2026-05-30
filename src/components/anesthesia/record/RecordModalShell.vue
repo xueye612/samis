@@ -39,7 +39,8 @@ defineEmits<{ close: [] }>();
   place-items: start center;
   padding: 72px 16px 24px;
   overflow: auto;
-  background: rgba(15, 23, 42, 0.18);
+  background: rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(2px);
 }
 
 .record-modal-backdrop.top {
@@ -52,10 +53,10 @@ defineEmits<{ close: [] }>();
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  border: 1px solid #b7c7d9;
-  border-radius: 8px;
-  background: #f7fbff;
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.22), 0 8px 20px rgba(15, 23, 42, 0.08);
   font-family: "Microsoft YaHei", sans-serif;
 }
 
@@ -77,9 +78,9 @@ defineEmits<{ close: [] }>();
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 14px;
-  background: #e6f0fb;
-  border-bottom: 1px solid #c8d7e8;
+  padding: 14px 18px;
+  background: linear-gradient(180deg, #f8fbff 0%, #f1f5f9 100%);
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .record-modal footer {
@@ -112,6 +113,6 @@ defineEmits<{ close: [] }>();
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 14px 18px;
+  padding: 16px 18px 18px;
 }
 </style>

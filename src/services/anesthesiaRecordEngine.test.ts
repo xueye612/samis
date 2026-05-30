@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/types/system';
 import type { SurgeryCase } from '@/types/anesthesia';
+import { anesthesiaCases } from '@/mock/anesthesiaCases';
 import {
   buildDrugCatalog,
   buildFluidCatalog,
@@ -8,6 +9,14 @@ import {
   buildMonitorCells,
   buildRecordBandGrid,
   buildBalanceSummary,
+  buildRecordSnapshot,
+  roundAxisStartTime,
+  resolveDefaultMonitorOrder,
+  isInhaledMedication,
+  isAutologousFluidCategory,
+  isBloodProductCategory,
+  isInfusionFluidCategory,
+  runPrintPreflightChecks,
   chartYWithPadding,
   clampVitalValueByDict,
   createAnesthesiaPlaneDraft,
@@ -177,6 +186,23 @@ describe('anesthesiaRecordEngine dictionary linkage', () => {
     });
   });
 
+  it('resolveDefaultMonitorOrder prefers standard intraop monitor bundle', () => {
+    const catalog: VitalSignDictItem[] = ['HR', 'SBP', 'DBP', 'SpO2', 'EtCO2', 'TEMP', 'BIS'].map((shortCode, index) => ({
+      id: `v-${shortCode}`,
+      code: `V-${shortCode}`,
+      name: shortCode,
+      shortCode,
+      unit: '-',
+      normalRange: '',
+      chartEnabled: true,
+      decimalPlaces: 0,
+      sortOrder: index,
+      enabled: true,
+    }));
+    expect(resolveDefaultMonitorOrder(catalog)).toEqual(['HR', 'SBP', 'DBP', 'SpO2', 'EtCO2', 'TEMP']);
+    expect(resolveDefaultMonitorOrder(vitals)).toEqual(['SBP', 'TEMP']);
+  });
+
   it('creates editable line drafts from dictionaries instead of committing quick records immediately', () => {
     expect(createMedicationLineDraft(drugs[0], { at: '09:15', executor: '刘医生' })).toMatchObject({
       kind: 'medication',
@@ -329,6 +355,18 @@ describe('anesthesiaRecordEngine printable chart layout', () => {
     });
   });
 
+  it('rounds axis start to 00 or 30 minute grid', () => {
+    expect(roundAxisStartTime('08:17')).toBe('08:00');
+    expect(roundAxisStartTime('08:47')).toBe('08:30');
+  });
+
+  it('builds record snapshot and print preflight checks', () => {
+    const snapshot = buildRecordSnapshot(anesthesiaCases[0]);
+    expect(snapshot.patientName).toBeTruthy();
+    const checks = runPrintPreflightChecks(anesthesiaCases[0], []);
+    expect(checks.some((item) => item.item === '页码连续')).toBe(true);
+  });
+
   it('summarizes fluid input and output rows for the printable balance area', () => {
     const item = baseCase();
     item.fluids.push({ id: 'f2', category: '晶体液', name: '乳酸钠林格液', startTime: '09:00', volume: 500, unit: 'ml', executor: '赵护士' });
@@ -345,6 +383,51 @@ describe('anesthesiaRecordEngine printable chart layout', () => {
       bloodLoss: 300,
       otherOutput: 25,
     });
+  });
+});
+
+describe('anesthesiaRecordEngine band helpers', () => {
+  const sevoflurane: DrugDictItem = {
+    id: 'drug-sev',
+    code: 'SEV',
+    name: '七氟烷',
+    specification: '250ml/瓶',
+    doseUnit: '%',
+    defaultRoute: '吸入',
+    defaultDose: 2,
+    highAlert: false,
+    common: true,
+    sortOrder: 7,
+    enabled: true,
+  };
+
+  it('detects inhaled medication by route or drug dictionary', () => {
+    expect(isInhaledMedication({ drug: '七氟烷', name: '七氟烷', route: '吸入' }, [sevoflurane])).toBe(true);
+    expect(isInhaledMedication({ drug: '七氟烷', name: '七氟烷', route: '' }, [sevoflurane])).toBe(true);
+    expect(isInhaledMedication({ drug: '丙泊酚', name: '丙泊酚', route: '静脉' }, drugs)).toBe(false);
+  });
+
+  it('splits fluid categories for sheet bands', () => {
+    expect(isInfusionFluidCategory('晶体液')).toBe(true);
+    expect(isInfusionFluidCategory('胶体液')).toBe(true);
+    expect(isAutologousFluidCategory('自体血回输')).toBe(true);
+    expect(isBloodProductCategory('血液制品')).toBe(true);
+    expect(isInfusionFluidCategory('自体血回输')).toBe(false);
+  });
+
+  it('maps autologous fluid draft category from dictionary', () => {
+    const autologousFluid: FluidBloodDictItem = {
+      id: 'fluid-auto',
+      code: 'AUTO',
+      name: '自体血回输',
+      subCategory: '自体血回输',
+      defaultUnit: 'ml',
+      defaultVolume: 300,
+      enabled: true,
+    };
+    const draft = createFluidLineDraft(autologousFluid, { at: '09:00', executor: '测试' });
+    expect(draft.category).toBe('自体血回输');
+    expect(draft.kind).toBe('infusion');
   });
 });
 

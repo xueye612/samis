@@ -8,7 +8,8 @@
       </div>
       <a-space>
         <a-button @click="router.back()">返回</a-button>
-        <a-button type="primary" @click="router.push('/surgery/schedule')">查看排班</a-button>
+        <a-button type="primary" @click="router.push(buildRecordRoute(selectedId))">进入麻醉记录单</a-button>
+        <a-button @click="router.push('/surgery/schedule')">查看排班</a-button>
       </a-space>
     </section>
     <a-card class="section-card" :bordered="false">
@@ -58,6 +59,7 @@
 import dayjs from 'dayjs';
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { buildRecordRoute } from '@/services/recordNavigation';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
 const route = useRoute();

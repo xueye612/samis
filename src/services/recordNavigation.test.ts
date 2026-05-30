@@ -20,4 +20,8 @@ describe('recordNavigation', () => {
   it('falls back to the anesthesia plan when the entry source is missing', () => {
     expect(buildRecordReturnTarget(undefined).path).toBe('/surgery/plan');
   });
+
+  it('includes case id when returning to patient detail', () => {
+    expect(buildRecordReturnTarget('detail', 'case-or01').path).toBe('/surgery/detail/case-or01');
+  });
 });

@@ -20,8 +20,12 @@ export function normalizeRecordEntrySource(source: unknown): RecordEntrySource {
   return typeof value === 'string' && isRecordEntrySource(value) ? value : 'plan';
 }
 
-export function buildRecordReturnTarget(source: unknown): RecordReturnTarget {
-  return returnTargets[normalizeRecordEntrySource(source)];
+export function buildRecordReturnTarget(source: unknown, caseId?: string): RecordReturnTarget {
+  const base = returnTargets[normalizeRecordEntrySource(source)];
+  if (caseId && base.path === '/surgery/detail') {
+    return { ...base, path: `/surgery/detail/${caseId}` };
+  }
+  return base;
 }
 
 export function buildRecordRoute(caseId: string, source: RecordEntrySource = 'plan') {

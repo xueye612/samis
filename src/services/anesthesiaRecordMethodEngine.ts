@@ -94,6 +94,10 @@ export function getMethodLabels(methods: AnesthesiaMethodKey[]): string[] {
     .filter((label): label is string => Boolean(label));
 }
 
+export function formatAnesthesiaMethodLabel(methods: AnesthesiaMethodKey[]): string {
+  return getMethodLabels(methods).join(' + ');
+}
+
 export function hasAnesthesiaPlaneModule(methods: AnesthesiaMethodKey[]): boolean {
   return methods.includes('neuraxial');
 }

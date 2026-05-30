@@ -127,7 +127,7 @@ export interface QuickEventOption {
   stage: EventStage;
   severity: Severity;
   treatment?: string;
-  syncField?: 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'leaveRoomTime';
+  syncField?: 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'anesthesiaEnd' | 'leaveRoomTime' | 'roomInTime';
 }
 
 export const anesthesiaMethodOptions: AnesthesiaMethodOption[] = [
@@ -514,9 +514,10 @@ export const quickEventOptions: QuickEventOption[] = [
   { name: '低氧', stage: '术中', severity: '中度' },
   { name: '低体温', stage: '术中', severity: '中度' },
   { name: '升压药', stage: '术中', severity: '轻度' },
+  { name: '手术结束', stage: '术中', severity: '轻度', syncField: 'surgeryEnd' },
   { name: '拔管', stage: '苏醒期', severity: '轻度' },
   { name: '拔除喉罩', stage: '苏醒期', severity: '轻度' },
-  { name: '麻醉结束', stage: '苏醒期', severity: '轻度' },
+  { name: '麻醉结束', stage: '苏醒期', severity: '轻度', syncField: 'anesthesiaEnd' },
   { name: '苏醒评估', stage: '苏醒期', severity: '轻度' },
   { name: '离室', stage: '苏醒期', severity: '轻度', syncField: 'leaveRoomTime' },
 ];

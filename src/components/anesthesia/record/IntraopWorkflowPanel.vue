@@ -31,6 +31,9 @@
         <span>最近记录</span>
         <strong>{{ recentEventLabel || '暂无快捷事件' }}</strong>
       </div>
+      <div class="status-row-link">
+        <a-button size="mini" type="text" :disabled="locked" @click="$emit('focus-status-row')">定位手术状态行</a-button>
+      </div>
     </section>
 
     <section class="workflow-section">
@@ -155,6 +158,7 @@ const emit = defineEmits<{
   'quick-event': [eventName: string];
   'confirm-all': [];
   'confirm-item': [landingId: string];
+  'focus-status-row': [];
 }>();
 
 const stageSelectOptions = computed(() => props.stageOptions.map((value) => ({ label: value, value })));
