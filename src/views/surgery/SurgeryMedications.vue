@@ -1,12 +1,26 @@
 <template>
   <div class="page-stack">
     <a-card class="section-card" :bordered="false" title="术中用药">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id">
+      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id" :scroll="{ x: 980 }">
         <template #columns>
-          <a-table-column title="名称/患者" data-index="label" />
-          <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
+          <a-table-column title="患者/手术" :width="210">
+            <template #cell="{ record }">
+              <strong>{{ record.patientName }}</strong>
+              <p class="row-sub">{{ record.room }} · {{ record.surgeryName }}</p>
+            </template>
+          </a-table-column>
+          <a-table-column title="类型" :width="90">
+            <template #cell="{ record }"><a-tag :color="record.mode === '持续泵入' ? 'arcoblue' : 'gray'">{{ record.mode === '持续泵入' ? '持续' : '单次' }}</a-tag></template>
+          </a-table-column>
+          <a-table-column title="时间" data-index="timeText" :width="160" />
+          <a-table-column title="药品" data-index="drug" />
+          <a-table-column title="剂量/泵速" data-index="amountText" :width="190" />
+          <a-table-column title="途径" data-index="route" :width="90" />
+          <a-table-column title="核对" :width="100">
+            <template #cell="{ record }"><a-tag :color="record.highAlert && !record.checker ? 'red' : 'green'">{{ record.checker || '未核对' }}</a-tag></template>
+          </a-table-column>
+          <a-table-column title="操作" :width="100">
+            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record.caseId)">查看</a-button></template>
           </a-table-column>
         </template>
       </a-table>
@@ -15,34 +29,63 @@
 </template>
 
 <script setup lang="ts">
+import dayjs from 'dayjs';
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import type { MedicationRecord } from '@/types/anesthesia';
 
-interface RowItem { id: string; label: string; desc: string; link?: string }
+interface RowItem {
+  id: string;
+  caseId: string;
+  patientName: string;
+  room: string;
+  surgeryName: string;
+  mode: MedicationRecord['mode'];
+  timeText: string;
+  drug: string;
+  amountText: string;
+  route?: string;
+  checker?: string;
+  highAlert?: boolean;
+}
 
 const store = useAnesthesiaStore();
 const router = useRouter();
-const rows = computed(() => buildRows('cases'));
 
-function buildRows(k: string): RowItem[] {
-  if (k === 'todos') return store.todos.map((item) => ({ id: item.id, label: item.title, desc: item.category, link: item.caseId }));
-  if (k === 'qualityDefects') return store.qualityDefects.map((item) => ({ id: item.defectId, label: item.defectType, desc: item.defectDesc, link: item.caseId }));
-  if (k === 'indicatorDetails') return store.indicatorDetails.slice(0, 10).map((item) => ({ id: item.code, label: item.name, desc: String(item.displayValue), link: '' }));
-  if (k === 'qualityReportCache') return store.qualityReportCache.map((item) => ({ id: item.period, label: item.period, desc: item.generatedAt, link: '' }));
-  if (k === 'pdcaRecords') return store.pdcaRecords.map((item) => ({ id: item.id, label: item.title, desc: item.problem, link: '' }));
-  if (k === 'auditLogs') return store.auditLogs.map((item) => ({ id: item.id, label: item.action, desc: item.detail, link: item.target }));
-  if (k === 'integrationEndpoints') return store.integrationEndpoints.map((item) => ({ id: item.id, label: item.name, desc: item.endpoint, link: item.id }));
-  if (k === 'systemUsers') return store.systemUsers.map((item) => ({ id: item.id, label: item.name, desc: item.role, link: '' }));
-  if (k === 'pacuPatients') return store.pacuPatients.map((item) => ({ id: item.id, label: item.patientName, desc: item.room, link: item.caseId }));
-  if (k === 'followUps') return store.followUps.map((item) => ({ id: item.id, label: item.type, desc: String(item.vas), link: item.caseId }));
-  if (k === 'qualityDataset') return store.qualityDataset.events.filter((item) => item.isQualityEvent).map((item) => ({ id: item.eventId, label: item.eventType, desc: item.description, link: item.caseId }));
-  if (k === 'roles') return [{ id: 'admin', label: '质控管理员', desc: '全部权限', link: '' }, { id: 'anes', label: '麻醉医师', desc: '临床操作', link: '' }];
-  if (k === 'mock') return [{ id: 'seed', label: 'Mock 数据集', desc: 'qualitySeed + clinical 同步', link: '' }];
-  return store.cases.map((item) => ({ id: item.id, label: item.patientName, desc: item.surgeryName, link: item.id }));
-}
+const rows = computed<RowItem[]>(() => store.cases.flatMap((item) => item.medications.map((row) => ({
+  id: `${item.id}-${row.id}`,
+  caseId: item.id,
+  patientName: item.patientName,
+  room: item.room,
+  surgeryName: item.surgeryName,
+  mode: row.mode,
+  timeText: medicationTime(row),
+  drug: row.drug,
+  amountText: medicationAmount(row),
+  route: row.route,
+  checker: row.checker,
+  highAlert: row.highAlert,
+}))));
 
-const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/record/${record.link}`);
+const formatTime = (value?: string) => (value ? dayjs(value).format('HH:mm') : '');
+const medicationTime = (row: MedicationRecord) => {
+  const start = formatTime(row.startTime ?? row.time) || '-';
+  return row.mode === '持续泵入' ? `${start} - ${formatTime(row.stopTime ?? row.endTime) || '进行中'}` : start;
 };
+const medicationAmount = (row: MedicationRecord) => {
+  const dose = `${row.dose ?? ''}${row.unit ?? ''}` || '-';
+  return row.mode === '持续泵入'
+    ? [row.pumpRate, row.totalAmount ? `总量${row.totalAmount}` : '', row.concentration].filter(Boolean).join(' / ') || dose
+    : dose;
+};
+const go = (id: string) => router.push(`/surgery/record/${id}`);
 </script>
+
+<style scoped>
+.row-sub {
+  margin: 2px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+</style>

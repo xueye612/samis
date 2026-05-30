@@ -47,7 +47,14 @@
         <section v-for="group in professionalFieldGroups" :key="group.title" class="professional-paper-group">
           <b>{{ group.title }}</b>
           <dl>
-            <div v-for="item in group.items" :key="`${group.title}-${item.label}`">
+            <div
+              v-for="item in group.items"
+              :key="`${group.title}-${item.label}`"
+              class="professional-editable-field"
+              :class="{ disabled: readOnly }"
+              title="双击编辑"
+              @dblclick.stop="openProfessionalFieldEditor(group.title, item.label, item.value)"
+            >
               <dt>{{ item.label }}</dt>
               <dd>{{ item.value || '待记录' }}</dd>
             </div>
@@ -348,8 +355,8 @@
       :title="`${lineForm.kind === 'medication' ? '用药' : lineForm.kind === 'transfusion' ? '输血' : '输液'}数据`"
       @close="lineVisible = false"
     >
-        <div class="live-modal-body">
-          <label>
+        <div class="live-modal-body line-form-body">
+          <label class="field-wide">
             名称
             <select v-if="lineForm.kind === 'medication'" v-model="lineForm.name" @change="syncMedicationForm">
               <option v-for="drug in drugs" :key="drug.id" :value="drug.name">{{ drug.name }}（{{ drug.specification }}）</option>
@@ -358,9 +365,9 @@
               <option v-for="fluid in lineForm.kind === 'transfusion' ? bloodCatalog : infusionCatalog" :key="fluid.id" :value="fluid.name">{{ fluid.name }}</option>
             </select>
           </label>
-          <label v-if="lineForm.kind === 'medication'">
+          <label v-if="lineForm.kind === 'medication'" class="field-wide field-mode">
             类型
-            <span class="inline-options">
+            <span class="inline-options mode-options">
               <label><input v-model="lineForm.mode" type="radio" value="单次用药" />单次</label>
               <label><input v-model="lineForm.mode" type="radio" value="持续泵入" />持续</label>
             </span>
@@ -393,6 +400,27 @@
           <button class="btn small" @click="lineVisible = false">关闭</button>
           <button class="btn small primary" :disabled="readOnly" @click="saveLineForm">保存</button>
         </template>
+    </RecordModalShell>
+
+    <RecordModalShell v-if="professionalEditor.visible" size="small" top-layer title="专业字段编辑" @close="professionalEditor.visible = false">
+      <div class="live-modal-body professional-editor-body">
+        <label>
+          模块
+          <input v-model="professionalEditor.group" disabled />
+        </label>
+        <label>
+          字段
+          <input v-model="professionalEditor.label" disabled />
+        </label>
+        <label class="field-wide">
+          内容
+          <textarea v-model="professionalEditor.value" rows="3" />
+        </label>
+      </div>
+      <template #footer>
+        <button class="btn small" @click="professionalEditor.visible = false">关闭</button>
+        <button class="btn small primary" :disabled="readOnly" @click="saveProfessionalFieldEdit">保存</button>
+      </template>
     </RecordModalShell>
 
     <RecordModalShell v-if="planeVisible" size="small" top-layer title="麻醉平面" @close="planeVisible = false">
@@ -508,28 +536,29 @@
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'medications'" class="live-data-table">
-            <thead><tr><th>时间</th><th>名称</th><th>剂量</th><th>途径</th><th>核对</th><th>操作</th></tr></thead>
+            <thead><tr><th>类型</th><th>时间</th><th>名称</th><th>剂量/泵速</th><th>途径</th><th>核对</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="row in record.medications" :key="row.id" @dblclick="openMedicationEditor(row)">
-                <td>{{ isoOrClockToClock(row.time ?? row.startTime) }}</td><td>{{ row.drug }}</td><td>{{ row.dose }}{{ row.unit }}</td><td>{{ row.route }}</td><td>{{ row.checker || '-' }}</td>
+                <td><span class="table-pill" :class="{ continuous: row.mode === '持续泵入' }">{{ row.mode === '持续泵入' ? '持续' : '单次' }}</span></td>
+                <td>{{ medicationTimeText(row) }}</td><td>{{ row.drug }}</td><td>{{ medicationDoseText(row) }}</td><td>{{ row.route || '-' }}</td><td>{{ row.checker || '-' }}</td>
                 <td><button @click="openMedicationEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'medication', row.id)">删除</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'infusions'" class="live-data-table">
-            <thead><tr><th>时间</th><th>名称</th><th>容量</th><th>结束</th><th>操作</th></tr></thead>
+            <thead><tr><th>类别</th><th>时间</th><th>名称</th><th>容量</th><th>执行人</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="row in record.fluids.filter((item) => item.category !== '血液制品')" :key="row.id" @dblclick="openFluidEditor(row)">
-                <td>{{ isoOrClockToClock(row.startTime ?? row.time) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit }}</td><td>{{ isoOrClockToClock(row.endTime) || '-' }}</td>
+                <td><span class="table-pill fluid">{{ row.category }}</span></td><td>{{ fluidTimeText(row) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit ?? 'ml' }}</td><td>{{ row.executor || '-' }}</td>
                 <td><button @click="openFluidEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'fluid', row.id)">删除</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'transfusions'" class="live-data-table">
-            <thead><tr><th>时间</th><th>血品</th><th>血型</th><th>核对</th><th>反应</th><th>操作</th></tr></thead>
+            <thead><tr><th>时间</th><th>血品</th><th>容量</th><th>血型</th><th>核对</th><th>反应</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="row in record.fluids.filter((item) => item.category === '血液制品')" :key="row.id" @dblclick="openFluidEditor(row)">
-                <td>{{ isoOrClockToClock(row.startTime ?? row.time) }}</td><td>{{ row.name }} {{ row.volume }}{{ row.unit }}</td><td>{{ row.bloodType || '-' }} {{ row.rh || '' }}</td><td>{{ row.doubleCheck ? '完成' : '未完成' }}</td><td>{{ row.reaction || '-' }}</td>
+                <td>{{ fluidTimeText(row) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit ?? 'ml' }}</td><td>{{ row.bloodType || '-' }} {{ row.rh || '' }}</td><td><span class="table-pill" :class="{ danger: !row.doubleCheck }">{{ row.doubleCheck ? '完成' : '未完成' }}</span></td><td>{{ row.reaction || '-' }}</td>
                 <td><button @click="openFluidEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'fluid', row.id)">删除</button></td>
               </tr>
             </tbody>
@@ -695,6 +724,13 @@ const lineForm = reactive({
   anesthesiaConfirmed: false,
   circulatingConfirmed: false,
 });
+const professionalFieldEdits = reactive<Record<string, string>>({});
+const professionalEditor = reactive({
+  visible: false,
+  group: '',
+  label: '',
+  value: '',
+});
 const monitorForm = reactive({ id: '', time: '', source: '手工录入', remark: '' });
 const outputForm = reactive({ id: '', time: '', type: '尿量' as OutputDetailRecord['type'], volume: 0, remark: '' });
 const planeForm = reactive({
@@ -765,6 +801,7 @@ const sheetAnesthesiaMethod = computed(() => props.appliedMethodLabels.length ? 
 const gridBackgroundStyle = computed(() => ({ '--minor-count': Math.max(1, timeScale.value.minorTicks.length - 1) }));
 const bandGrid = (rows: number) => buildRecordBandGrid(timeScale.value, rows);
 const chartGrid = computed(() => buildRecordBandGrid(timeScale.value, 8));
+const professionalFieldKey = (group: string, label: string) => `${group}::${label}`;
 const professionalFieldGroups = computed(() => {
   const fields = props.templateImpact?.professionalFields.length
     ? props.templateImpact.professionalFields
@@ -777,7 +814,7 @@ const professionalFieldGroups = computed(() => {
   const grouped = new Map<string, Array<{ label: string; value: string }>>();
   fields.forEach((field) => {
     if (!grouped.has(field.group)) grouped.set(field.group, []);
-    grouped.get(field.group)?.push({ label: field.label, value: field.value });
+    grouped.get(field.group)?.push({ label: field.label, value: professionalFieldEdits[professionalFieldKey(field.group, field.label)] ?? field.value });
   });
   return Array.from(grouped.entries()).map(([title, items]) => ({ title, items }));
 });
@@ -961,6 +998,17 @@ const operationSummary = computed(() => statusEvents.value.filter((item) => ['�
 const postopAnalgesiaSummary = computed(() => (props.record.postoperativeAnalgesia ? `镇痛方式：${props.record.recoveryRecord?.conclusion ?? '待记录'}` : '未启用'));
 
 const formatDate = (value?: string) => (value ? dayjs(value).format('YYYY-MM-DD') : '-');
+const medicationTimeText = (row: MedicationRecord) => {
+  const start = isoOrClockToClock(row.startTime ?? row.time);
+  if (row.mode !== '持续泵入') return start || '-';
+  return `${start || '-'} - ${isoOrClockToClock(row.stopTime ?? row.endTime) || '进行中'}`;
+};
+const medicationDoseText = (row: MedicationRecord) => {
+  const dose = `${row.dose ?? ''}${row.unit ?? ''}` || '-';
+  if (row.mode !== '持续泵入') return dose;
+  return [row.pumpRate, row.totalAmount ? `总量${row.totalAmount}` : '', row.concentration].filter(Boolean).join(' / ') || dose;
+};
+const fluidTimeText = (row: FluidRecord) => `${isoOrClockToClock(row.startTime ?? row.time) || '-'} - ${isoOrClockToClock(row.endTime) || '进行中'}`;
 const planeDirectionText = (direction?: AnesthesiaPlaneRecord['direction']) => direction === 'up' ? '↑' : direction === 'fixed' ? '－' : '↓';
 const topFor = (index: number, total: number) => `${((index + 0.5) / Math.max(total, 1)) * 100}%`;
 const leftFor = (time?: string) => `${timeToPercent(time, sheetStart.value, sheetEnd.value)}%`;
@@ -1209,6 +1257,17 @@ const saveLineForm = () => {
     });
   }
   lineVisible.value = false;
+};
+const openProfessionalFieldEditor = (group: string, label: string, value: string) => {
+  if (props.readOnly) return;
+  professionalEditor.visible = true;
+  professionalEditor.group = group;
+  professionalEditor.label = label;
+  professionalEditor.value = professionalFieldEdits[professionalFieldKey(group, label)] ?? value ?? '';
+};
+const saveProfessionalFieldEdit = () => {
+  professionalFieldEdits[professionalFieldKey(professionalEditor.group, professionalEditor.label)] = professionalEditor.value;
+  professionalEditor.visible = false;
 };
 const openTargetEditor = () => {
   if (menu.type === 'plane') openPlaneEditor(menu.target as AnesthesiaPlaneRecord);
@@ -1582,6 +1641,19 @@ onBeforeUnmount(() => {
   min-height: 26px;
   border-right: 1px solid #e2e8f0;
   border-bottom: 1px solid #e2e8f0;
+}
+
+.professional-editable-field {
+  cursor: text;
+}
+
+.professional-editable-field:hover {
+  background: #f8fbff;
+  box-shadow: inset 0 0 0 1px rgba(22, 93, 255, 0.18);
+}
+
+.professional-editable-field.disabled {
+  cursor: default;
 }
 
 .professional-paper-group dt,
@@ -2321,7 +2393,8 @@ onBeforeUnmount(() => {
 }
 
 .live-modal-body input,
-.live-modal-body select {
+.live-modal-body select,
+.live-modal-body textarea {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -2330,6 +2403,49 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   padding: 3px 7px;
   background: #fff;
+}
+
+.live-modal-body textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.line-form-body,
+.professional-editor-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.line-form-body label,
+.professional-editor-body label {
+  margin-bottom: 0;
+}
+
+.line-form-body .field-wide,
+.professional-editor-body .field-wide {
+  grid-column: 1 / -1;
+}
+
+.mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mode-options label {
+  justify-content: center;
+  min-height: 32px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.mode-options label:has(input:checked) {
+  border-color: #165dff;
+  background: #eef5ff;
+  color: #0f3a8c;
+  font-weight: 700;
 }
 
 .time-stepper {
@@ -2528,6 +2644,47 @@ onBeforeUnmount(() => {
   border: 1px solid #e2e8f0;
   padding: 6px;
   text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.live-data-table th {
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 700;
+}
+
+.table-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 22px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.table-pill.continuous {
+  border-color: #165dff;
+  background: #eef5ff;
+  color: #0f3a8c;
+}
+
+.table-pill.fluid {
+  border-color: #0f766e;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.table-pill.danger {
+  border-color: #f87171;
+  background: #fef2f2;
+  color: #b91c1c;
 }
 
 .btn {

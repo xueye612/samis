@@ -2,6 +2,9 @@
   <div v-if="current" class="anesthesia-record-workstation">
     <section class="record-topbar">
       <div class="brand-block">
+        <a-button class="return-button" size="small" @click="goBackToSource">
+          {{ returnTarget.label }}
+        </a-button>
         <div class="brand-mark">麻</div>
         <div>
           <h1>麻醉记录单</h1>
@@ -10,6 +13,7 @@
       </div>
 
       <div class="top-context">
+        <span class="workflow-route">{{ returnTarget.contextLabel }} / 麻醉记录单</span>
         <a-tag :color="current.locked ? 'gray' : current.rescue ? 'red' : 'green'">{{ current.locked ? '已锁定' : current.rescue ? '抢救中' : current.recordStatus ?? '记录中' }}</a-tag>
         <span>采集：{{ current.device?.collectStatus ?? current.collectStatus ?? '未连接' }}</span>
         <span>数据源：{{ current.device?.dataSource ?? '手工录入 + 设备采集占位' }}</span>
@@ -208,6 +212,7 @@ import LiveAnesthesiaSheet from '@/components/anesthesia/record/LiveAnesthesiaSh
 import RecordDetailTabs from '@/components/anesthesia/record/RecordDetailTabs.vue';
 import RecordQualityPanel from '@/components/anesthesia/record/RecordQualityPanel.vue';
 import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog } from '@/services/anesthesiaRecordEngine';
+import { buildRecordReturnTarget, buildRecordRoute, normalizeRecordEntrySource } from '@/services/recordNavigation';
 import {
   buildCompletionGaps,
   buildConfirmedTemplateImpact,
@@ -259,6 +264,8 @@ const manualStage = ref<IntraopStage | ''>('');
 const selectedScenario = ref<SurgeryScenarioKey>('generalSurgery');
 
 const sortedCases = computed(() => sortCasesByClinicalPriority(store.cases));
+const recordEntrySource = computed(() => normalizeRecordEntrySource(route.query.from));
+const returnTarget = computed(() => buildRecordReturnTarget(recordEntrySource.value));
 const filteredCases = computed(() => {
   const text = keyword.value.trim();
   if (!text) return sortedCases.value;
@@ -351,8 +358,9 @@ watch(current, (item) => {
 
 const selectCase = (id: string) => {
   selectedId.value = id;
-  router.replace({ name: 'record', params: { id } });
+  router.replace(buildRecordRoute(id, recordEntrySource.value));
 };
+const goBackToSource = () => router.push(returnTarget.value.path);
 const requireCurrent = (): SurgeryCase | undefined => current.value;
 const startRecord = () => {
   if (!requireCurrent()) return;
@@ -492,7 +500,7 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: 280px minmax(260px, 1fr) auto;
+  grid-template-columns: minmax(360px, 440px) minmax(260px, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 12px;
@@ -521,6 +529,12 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+.return-button {
+  flex: 0 0 auto;
+  color: #165dff;
+  background: #eef6ff;
 }
 
 .brand-mark {
@@ -554,6 +568,13 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.workflow-route {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #165dff;
 }
 
 .record-layout {

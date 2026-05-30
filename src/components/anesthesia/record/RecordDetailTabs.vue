@@ -58,13 +58,16 @@
           <template #extra>
             <a-select size="small" placeholder="从字典加药" :options="drugOptions" :disabled="record.locked" @change="(value) => $emit('drug', String(value))" />
           </template>
-          <a-table :data="record.medications" :pagination="false" size="small">
+          <a-table :data="record.medications" :pagination="false" size="small" :scroll="{ x: 760 }">
             <template #columns>
-              <a-table-column title="时间" :width="84"><template #cell="{ record: row }">{{ formatTime(row.time ?? row.startTime) }}</template></a-table-column>
+              <a-table-column title="类型" :width="82">
+                <template #cell="{ record: row }"><a-tag :color="row.mode === '持续泵入' ? 'arcoblue' : 'gray'">{{ row.mode === '持续泵入' ? '持续' : '单次' }}</a-tag></template>
+              </a-table-column>
+              <a-table-column title="时间" :width="150"><template #cell="{ record: row }">{{ medicationTime(row) }}</template></a-table-column>
               <a-table-column title="药品" data-index="drug" />
-              <a-table-column title="剂量"><template #cell="{ record: row }">{{ row.dose ?? '' }}{{ row.unit ?? '' }}</template></a-table-column>
-              <a-table-column title="途径" data-index="route" />
-              <a-table-column title="核对"><template #cell="{ record: row }"><a-tag :color="row.highAlert && !row.checker ? 'red' : 'green'">{{ row.checker || '未核对' }}</a-tag></template></a-table-column>
+              <a-table-column title="剂量/泵速" :width="170"><template #cell="{ record: row }">{{ medicationAmount(row) }}</template></a-table-column>
+              <a-table-column title="途径" data-index="route" :width="90" />
+              <a-table-column title="核对" :width="96"><template #cell="{ record: row }"><a-tag :color="row.highAlert && !row.checker ? 'red' : 'green'">{{ row.checker || '未核对' }}</a-tag></template></a-table-column>
             </template>
           </a-table>
         </a-card>
@@ -74,13 +77,13 @@
               <a-select size="small" placeholder="从字典加输注" :options="fluidOptions" :disabled="record.locked" @change="(value) => $emit('fluid', String(value))" />
             </a-space>
           </template>
-          <a-table :data="record.fluids" :pagination="false" size="small">
+          <a-table :data="record.fluids" :pagination="false" size="small" :scroll="{ x: 760 }">
             <template #columns>
               <a-table-column title="类别" data-index="category" :width="90" />
               <a-table-column title="名称" data-index="name" />
-              <a-table-column title="量"><template #cell="{ record: row }">{{ row.volume }}{{ row.unit ?? 'ml' }}</template></a-table-column>
-              <a-table-column title="时间"><template #cell="{ record: row }">{{ formatTime(row.startTime) }} - {{ formatTime(row.endTime) || '进行中' }}</template></a-table-column>
-              <a-table-column title="核对"><template #cell="{ record: row }"><a-tag :color="row.category === '血液制品' && !row.doubleCheck ? 'red' : 'green'">{{ row.doubleCheck ? '已核对' : '未核对' }}</a-tag></template></a-table-column>
+              <a-table-column title="量" :width="90"><template #cell="{ record: row }">{{ row.volume }}{{ row.unit ?? 'ml' }}</template></a-table-column>
+              <a-table-column title="时间" :width="150"><template #cell="{ record: row }">{{ fluidTime(row) }}</template></a-table-column>
+              <a-table-column title="核对" :width="96"><template #cell="{ record: row }"><a-tag :color="row.category === '血液制品' && !row.doubleCheck ? 'red' : 'green'">{{ row.doubleCheck ? '已核对' : '未核对' }}</a-tag></template></a-table-column>
             </template>
           </a-table>
         </a-card>
@@ -137,7 +140,7 @@
 import dayjs from 'dayjs';
 import { computed, ref, watch } from 'vue';
 import { quickEventOptions } from '@/mock/anesthesiaRecordPrototype';
-import type { SurgeryCase, VitalSign } from '@/types/anesthesia';
+import type { FluidRecord, MedicationRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
 import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/types/system';
 import type { LiveRecordQualityCheck } from '@/services/anesthesiaRecordEngine';
 
@@ -166,6 +169,17 @@ const fluidOptions = computed(() => props.fluidItems.filter((item) => item.enabl
 const sortedEvents = computed(() => [...props.record.events].sort((a, b) => a.time.localeCompare(b.time)));
 
 const formatTime = (value?: string) => (value ? dayjs(value).format('HH:mm') : '');
+const medicationTime = (row: MedicationRecord) => {
+  const start = formatTime(row.startTime ?? row.time) || '-';
+  return row.mode === '持续泵入' ? `${start} - ${formatTime(row.stopTime ?? row.endTime) || '进行中'}` : start;
+};
+const medicationAmount = (row: MedicationRecord) => {
+  const dose = `${row.dose ?? ''}${row.unit ?? ''}` || '-';
+  return row.mode === '持续泵入'
+    ? [row.pumpRate, row.totalAmount ? `总量${row.totalAmount}` : '', row.concentration].filter(Boolean).join(' / ') || dose
+    : dose;
+};
+const fluidTime = (row: FluidRecord) => `${formatTime(row.startTime ?? row.time) || '-'} - ${formatTime(row.endTime) || '进行中'}`;
 const eventTime = (type: string) => formatTime(props.record.events.find((item) => item.type === type)?.time);
 const isAbnormal = (row: VitalSign, item: VitalSignDictItem) => {
   const value = row[item.shortCode as keyof VitalSign];

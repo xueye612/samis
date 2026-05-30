@@ -5,8 +5,10 @@
         <template #columns>
           <a-table-column title="名称/患者" data-index="label" />
           <a-table-column title="说明" data-index="desc" />
-          <a-table-column title="操作" :width="120">
-            <template #cell="{ record }"><a-button size="mini" type="primary" @click="go(record)">查看</a-button></template>
+          <a-table-column title="操作" :width="150">
+            <template #cell="{ record }">
+              <a-button size="mini" type="primary" @click="go(record)">进入记录单</a-button>
+            </template>
           </a-table-column>
         </template>
       </a-table>
@@ -17,6 +19,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
+import { buildRecordRoute } from '@/services/recordNavigation';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
 interface RowItem { id: string; label: string; desc: string; link?: string }
@@ -43,6 +46,6 @@ function buildRows(k: string): RowItem[] {
 }
 
 const go = (record: RowItem) => {
-  if (record.link) router.push(`/surgery/record/${record.link}`);
+  if (record.link) router.push(buildRecordRoute(record.link, 'plan'));
 };
 </script>
