@@ -565,8 +565,10 @@ export function vitalMarkerShape(item: Pick<VitalSignDictItem, 'shortCode' | 'ch
 
 export function buildBalanceSummary(item: Pick<SurgeryCase, 'fluids' | 'outputs' | 'outputRecords'>): BalanceSummary {
   const inputByCategory = (category: FluidRecord['category']) =>
-    item.fluids.filter((row) => row.category === category).reduce((sum, row) => sum + (Number(row.volume) || 0), 0);
-  const outputDetails = item.outputRecords ?? [];
+    item.fluids
+      .filter((row) => row.category === category && row.status !== 'voided')
+      .reduce((sum, row) => sum + (Number(row.volume) || 0), 0);
+  const outputDetails = (item.outputRecords ?? []).filter((row) => row.status !== 'voided');
   const outputByType = (type: OutputDetailRecord['type']) =>
     outputDetails.filter((row) => row.type === type).reduce((sum, row) => sum + (Number(row.volume) || 0), 0);
   const urine = outputDetails.length ? outputByType('尿量') : item.outputs.urine || 0;

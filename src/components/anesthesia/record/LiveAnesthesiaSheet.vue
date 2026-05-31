@@ -461,13 +461,12 @@
         <button v-if="(menu.type === 'medication' || menu.type === 'inhaled') && medicationTarget?.mode === '持续泵入' && !medicationTarget?.stopTime" :disabled="readOnly" @click="stopMedicationPump">停止泵注</button>
         <button v-if="(menu.type === 'medication' || menu.type === 'inhaled') && medicationTarget?.mode === '持续泵入'" :disabled="readOnly" @click="pauseMedication">暂停泵注</button>
         <button v-if="(menu.type === 'medication' || menu.type === 'inhaled') && medicationTarget?.status === 'paused'" :disabled="readOnly" @click="resumeMedication">恢复泵注</button>
-        <button v-if="menu.type === 'medication' || menu.type === 'inhaled'" :disabled="readOnly" @click="voidMedication">作废用药</button>
-        <button v-if="!pendingDelete" class="danger-menu" :disabled="readOnly" @click="pendingDelete = true">删除当前项</button>
+        <button v-if="!pendingDelete" class="danger-menu" :disabled="readOnly" @click="pendingDelete = true">作废当前项</button>
         <div v-else class="menu-delete-confirm">
-          <p>确认删除？此操作会记入修改痕迹，无法在记录中追溯原始数据。</p>
+          <p>确认作废？作废后不显示在记录单上，但会保留原始数据并记入修改痕迹，可在「已录入数据维护」中撤销。</p>
           <div class="menu-delete-actions">
             <button @click.stop="pendingDelete = false">取消</button>
-            <button class="danger-menu" :disabled="readOnly" @click="deleteTarget">确认删除</button>
+            <button class="danger-menu" :disabled="readOnly" @click="voidTarget">确认作废</button>
           </div>
         </div>
       </div>
@@ -675,74 +674,74 @@
           <table v-if="activeDataList === 'planes'" class="live-data-table">
             <thead><tr><th>时间</th><th>平面</th><th>变化</th><th>备注</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.anesthesiaPlanes ?? []" :key="row.id" @dblclick="openPlaneEditor(row)">
+              <tr v-for="row in record.anesthesiaPlanes ?? []" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openPlaneEditor(row)">
                 <td>{{ isoOrClockToClock(row.time) }}</td><td>{{ row.level }}</td><td>{{ planeDirectionText(row.direction) }}</td><td>{{ row.remark || '-' }}</td>
-                <td><button @click="openPlaneEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'plane', row.id)">删除</button></td>
+                <td><button @click="openPlaneEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'plane', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'plane', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'medications'" class="live-data-table">
             <thead><tr><th>类型</th><th>时间</th><th>名称</th><th>剂量/泵速</th><th>途径</th><th>核对</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in ivMedicationRecords" :key="row.id" @dblclick="openMedicationEditor(row)">
+              <tr v-for="row in tableIvMedications" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openMedicationEditor(row)">
                 <td><span class="table-pill" :class="{ continuous: row.mode === '持续泵入' }">{{ row.mode === '持续泵入' ? '持续' : '单次' }}</span></td>
                 <td>{{ medicationTimeText(row) }}</td><td>{{ row.drug }}</td><td>{{ medicationDoseText(row) }}</td><td>{{ row.route || '-' }}</td><td>{{ row.checker || '-' }}</td>
-                <td><button @click="openMedicationEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'medication', row.id)">删除</button></td>
+                <td><button @click="openMedicationEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'medication', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'medication', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'inhaled'" class="live-data-table">
             <thead><tr><th>类型</th><th>时间</th><th>名称</th><th>浓度/剂量</th><th>途径</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in inhaledMedicationRecords" :key="row.id" @dblclick="openMedicationEditor(row)">
+              <tr v-for="row in tableInhaledMedications" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openMedicationEditor(row)">
                 <td><span class="table-pill" :class="{ continuous: row.mode === '持续泵入' }">{{ row.mode === '持续泵入' ? '持续' : '单次' }}</span></td>
                 <td>{{ medicationTimeText(row) }}</td><td>{{ row.drug }}</td><td>{{ medicationDoseText(row) }}</td><td>{{ row.route || '吸入' }}</td>
-                <td><button @click="openMedicationEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'medication', row.id)">删除</button></td>
+                <td><button @click="openMedicationEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'medication', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'medication', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'infusions'" class="live-data-table">
             <thead><tr><th>类别</th><th>时间</th><th>名称</th><th>容量</th><th>执行人</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.fluids.filter((item) => isInfusionFluidCategory(item.category))" :key="row.id" @dblclick="openFluidEditor(row)">
+              <tr v-for="row in record.fluids.filter((item) => isInfusionFluidCategory(item.category))" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openFluidEditor(row)">
                 <td><span class="table-pill fluid">{{ row.category }}</span></td><td>{{ fluidTimeText(row) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit ?? 'ml' }}</td><td>{{ row.executor || '-' }}</td>
-                <td><button @click="openFluidEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'fluid', row.id)">删除</button></td>
+                <td><button @click="openFluidEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'fluid', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'fluid', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'autologous'" class="live-data-table">
             <thead><tr><th>时间</th><th>名称</th><th>容量</th><th>执行人</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.fluids.filter((item) => isAutologousFluidCategory(item.category))" :key="row.id" @dblclick="openFluidEditor(row)">
+              <tr v-for="row in record.fluids.filter((item) => isAutologousFluidCategory(item.category))" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openFluidEditor(row)">
                 <td>{{ fluidTimeText(row) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit ?? 'ml' }}</td><td>{{ row.executor || '-' }}</td>
-                <td><button @click="openFluidEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'fluid', row.id)">删除</button></td>
+                <td><button @click="openFluidEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'fluid', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'fluid', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'transfusions'" class="live-data-table">
             <thead><tr><th>时间</th><th>血品</th><th>容量</th><th>血型</th><th>核对</th><th>反应</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.fluids.filter((item) => item.category === '血液制品')" :key="row.id" @dblclick="openFluidEditor(row)">
+              <tr v-for="row in record.fluids.filter((item) => item.category === '血液制品')" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openFluidEditor(row)">
                 <td>{{ fluidTimeText(row) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit ?? 'ml' }}</td><td>{{ row.bloodType || '-' }} {{ row.rh || '' }}</td><td><span class="table-pill" :class="{ danger: !row.doubleCheck }">{{ row.doubleCheck ? '完成' : '未完成' }}</span></td><td>{{ row.reaction || '-' }}</td>
-                <td><button @click="openFluidEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'fluid', row.id)">删除</button></td>
+                <td><button @click="openFluidEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'fluid', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'fluid', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'vitals'" class="live-data-table">
             <thead><tr><th>时间</th><th v-for="item in monitorRows" :key="item.shortCode">{{ item.shortCode }}</th><th>来源</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in visibleVitals" :key="row.id ?? row.time" @dblclick="openMonitorDialog(row)">
+              <tr v-for="row in pageVitals" :key="row.id ?? row.time" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openMonitorDialog(row)">
                 <td>{{ isoOrClockToClock(row.time) }}</td><td v-for="item in monitorRows" :key="item.shortCode">{{ row[item.shortCode as keyof typeof row] ?? '' }}</td><td>{{ row.source }}</td>
-                <td><button @click="openMonitorDialog(row)">编辑</button><button :disabled="readOnly || !row.id" @click="emit('deleteRecord', 'vital', row.id || '')">删除</button></td>
+                <td><button @click="openMonitorDialog(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly || !row.id" @click="emit('restoreRecord', 'vital', row.id || '')">撤销</button><button v-else class="danger-menu" :disabled="readOnly || !row.id" @click="emit('voidRecord', 'vital', row.id || '')">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else class="live-data-table">
             <thead><tr><th>时间</th><th>类型</th><th>容量</th><th>备注</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.outputRecords ?? []" :key="row.id" @dblclick="openOutputEditor(row)">
+              <tr v-for="row in record.outputRecords ?? []" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openOutputEditor(row)">
                 <td>{{ isoOrClockToClock(row.time) }}</td><td>{{ row.type }}</td><td>{{ row.volume }}ml</td><td>{{ row.remark || '-' }}</td>
-                <td><button @click="openOutputEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'output', row.id)">删除</button></td>
+                <td><button @click="openOutputEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'output', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'output', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
@@ -898,6 +897,8 @@ const emit = defineEmits<{
   savePlane: [record: AnesthesiaPlaneRecord];
   saveMonitorOrder: [codes: string[]];
   deleteRecord: [kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane', id: string];
+  voidRecord: [kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane', id: string];
+  restoreRecord: [kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane', id: string];
   selectEvent: [event: AnesthesiaEvent];
   saveProfessionalField: [group: string, label: string, value: string];
   saveTimeline: [node: MethodTimelineNode, isoTime: string];
@@ -1126,9 +1127,10 @@ const templateEventRows = computed(() => (props.templateImpact?.events ?? []).ma
 })));
 const professionalFieldCount = computed(() => professionalFieldGroups.value.reduce((sum, group) => sum + group.items.length, 0));
 const showProfessionalSummary = computed(() => professionalFieldGroups.value.length > 0 || templateEventRows.value.length > 0 || templateQualityTips.value.length > 0);
-const visibleVitals = computed(() => [...props.record.vitals]
+const pageVitals = computed(() => [...props.record.vitals]
   .filter((row) => !currentPage.value || isTimeOnPage(row.time, currentPage.value))
   .sort((a, b) => isoOrClockToClock(a.time).localeCompare(isoOrClockToClock(b.time))));
+const visibleVitals = computed(() => pageVitals.value.filter((row) => row.status !== 'voided'));
 const enabledVitalItems = computed(() => props.vitals.filter((item) => item.enabled));
 const selectedMonitorItems = computed(() => selectedMonitorCodes.value
   .map((code) => enabledVitalItems.value.find((item) => item.shortCode === code))
@@ -1176,7 +1178,7 @@ const showAutologousBand = computed(() => !isPacuRecord.value && (
   || autologousRows.value.length > 0
 ));
 const planeRowOffset = computed(() => props.showAnesthesiaPlane ? 1 : 0);
-const planeRows = computed(() => (props.showAnesthesiaPlane ? (props.record.anesthesiaPlanes ?? []) : []).map((item) => ({
+const planeRows = computed(() => (props.showAnesthesiaPlane ? (props.record.anesthesiaPlanes ?? []).filter((item) => item.status !== 'voided') : []).map((item) => ({
   key: item.id,
   label: `${item.level}${planeDirectionText(item.direction)}`,
   time: item.time,
@@ -1291,9 +1293,12 @@ const mapMedicationRow = (item: MedicationRecord, index: number, planeOffset: nu
 const activeMedicationRecords = computed(() => [...props.record.medications, ...templateMedicationSources.value].filter((item) => item.status !== 'voided'));
 const ivMedicationRecords = computed(() => activeMedicationRecords.value.filter((item) => !isInhaledMedication(item, props.drugs)));
 const inhaledMedicationRecords = computed(() => activeMedicationRecords.value.filter((item) => isInhaledMedication(item, props.drugs)));
+const allMedicationRecords = computed(() => [...props.record.medications, ...templateMedicationSources.value]);
+const tableIvMedications = computed(() => allMedicationRecords.value.filter((item) => !isInhaledMedication(item, props.drugs)));
+const tableInhaledMedications = computed(() => allMedicationRecords.value.filter((item) => isInhaledMedication(item, props.drugs)));
 const medicationRows = computed(() => ivMedicationRecords.value.map((item, index) => mapMedicationRow(item, index, planeRowOffset.value)));
 const inhaledMedicationRows = computed(() => inhaledMedicationRecords.value.map((item, index) => mapMedicationRow(item, index, 0)));
-const infusionRows = computed(() => props.record.fluids.filter((item) => isInfusionFluidCategory(item.category)).map((item, index) => ({
+const infusionRows = computed(() => props.record.fluids.filter((item) => isInfusionFluidCategory(item.category) && item.status !== 'voided').map((item, index) => ({
   key: item.id,
   label: item.name,
   amount: `${item.volume}${item.unit ?? 'ml'}`,
@@ -1302,7 +1307,7 @@ const infusionRows = computed(() => props.record.fluids.filter((item) => isInfus
   index,
   source: item,
 })));
-const autologousRows = computed(() => props.record.fluids.filter((item) => isAutologousFluidCategory(item.category)).map((item, index) => ({
+const autologousRows = computed(() => props.record.fluids.filter((item) => isAutologousFluidCategory(item.category) && item.status !== 'voided').map((item, index) => ({
   key: item.id,
   label: item.name,
   amount: `${item.volume}${item.unit ?? 'ml'}`,
@@ -1311,7 +1316,7 @@ const autologousRows = computed(() => props.record.fluids.filter((item) => isAut
   index,
   source: item,
 })));
-const transfusionRows = computed(() => props.record.fluids.filter((item) => isBloodProductCategory(item.category)).map((item, index) => {
+const transfusionRows = computed(() => props.record.fluids.filter((item) => isBloodProductCategory(item.category) && item.status !== 'voided').map((item, index) => {
   const dict = props.fluids.find((fluid) => fluid.name === item.name);
   return {
     key: item.id,
@@ -1325,7 +1330,7 @@ const transfusionRows = computed(() => props.record.fluids.filter((item) => isBl
 }));
 const outputRows = computed(() => {
   const records = props.record.outputRecords?.length
-    ? props.record.outputRecords
+    ? props.record.outputRecords.filter((row) => row.status !== 'voided')
     : [
       { id: 'summary-urine', time: props.record.surgeryEnd ?? props.record.leaveRoomTime ?? props.record.plannedStart, type: '尿量' as const, volume: props.record.outputs.urine },
       { id: 'summary-blood', time: props.record.surgeryEnd ?? props.record.leaveRoomTime ?? props.record.plannedStart, type: '出血量' as const, volume: props.record.outputs.bloodLoss },
@@ -1802,15 +1807,20 @@ const continueTarget = () => {
     openFluidEditor({ ...source, id: '', startTime: isoOrClockToClock(source.endTime) || menu.at });
   }
 };
-const deleteTarget = () => {
+const menuTargetKind = (): 'medication' | 'fluid' | 'vital' | 'output' | 'plane' | null => {
+  if (menu.type === 'medication' || menu.type === 'inhaled') return 'medication';
+  if (menu.type === 'plane') return 'plane';
+  if (menu.type === 'infusion' || menu.type === 'autologous' || menu.type === 'transfusion') return 'fluid';
+  if (menu.type === 'vital') return 'vital';
+  if (menu.type === 'output') return 'output';
+  return null;
+};
+const voidTarget = () => {
   if (!hasLineTarget.value) return;
   const target = menu.target as { id?: string };
-  if (!target.id) return;
-  if (menu.type === 'medication' || menu.type === 'inhaled') emit('deleteRecord', 'medication', target.id);
-  if (menu.type === 'plane') emit('deleteRecord', 'plane', target.id);
-  if (menu.type === 'infusion' || menu.type === 'autologous' || menu.type === 'transfusion') emit('deleteRecord', 'fluid', target.id);
-  if (menu.type === 'vital') emit('deleteRecord', 'vital', target.id);
-  if (menu.type === 'output') emit('deleteRecord', 'output', target.id);
+  const kind = menuTargetKind();
+  if (!target.id || !kind) return;
+  emit('voidRecord', kind, target.id);
   closeMenu();
 };
 
@@ -3416,6 +3426,16 @@ onBeforeUnmount(() => {
   border-color: #f87171;
   background: #fef2f2;
   color: #b91c1c;
+}
+
+.live-data-table tr.row-voided td {
+  color: #94a3b8;
+  text-decoration: line-through;
+  background: #f8fafc;
+}
+
+.live-data-table tr.row-voided td:last-child {
+  text-decoration: none;
 }
 
 .btn {

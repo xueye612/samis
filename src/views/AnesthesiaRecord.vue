@@ -134,6 +134,8 @@
               @save-plane="savePlane"
               @save-monitor-order="saveMonitorOrder"
               @delete-record="deleteRecord"
+              @void-record="voidRecord"
+              @restore-record="restoreRecord"
               @save-professional-field="saveProfessionalField"
               @save-timeline="saveTimelineNode"
               @save-header-field="saveHeaderField"
@@ -961,6 +963,16 @@ const deleteRecord = (kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane
   if (kind === 'vital') store.deleteVital(selectedId.value, id);
   if (kind === 'output') store.deleteOutputRecord(selectedId.value, id);
   if (kind === 'plane') store.deleteAnesthesiaPlane(selectedId.value, id);
+};
+const voidRecord = (kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane', id: string) => {
+  if (!id) return;
+  store.voidRecord(selectedId.value, kind, id);
+  Message.success('已作废，可在「已录入数据维护」中撤销');
+};
+const restoreRecord = (kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane', id: string) => {
+  if (!id) return;
+  store.restoreRecord(selectedId.value, kind, id);
+  Message.success('已撤销作废');
 };
 const selectSheetEvent = (event: Pick<AnesthesiaEvent, 'type'>) => {
   selectedEventName.value = event.type;
