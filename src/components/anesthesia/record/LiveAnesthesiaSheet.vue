@@ -257,21 +257,11 @@
 
     <div class="vital-chart">
       <div class="chart-layout">
-        <div class="chart-legend-panel">
-          <div class="event-legend-pairs">
-            <div v-for="(pair, index) in eventLegendPairs" :key="`pair-${index}`" class="legend-pair-row">
-              <span v-for="item in pair" :key="item.label"><b>{{ item.symbol }}</b>{{ item.label }}</span>
-            </div>
-          </div>
-          <div class="room-entry-legend">
-            <span v-for="item in roomLegendItems" :key="item.label"><b>{{ item.symbol }}</b>{{ item.label }}</span>
-          </div>
-          <div class="vital-symbol-legend">
-            <span v-for="item in referenceLegendItems" :key="item.shortCode">
-              <b :style="{ color: item.chartColor }">{{ symbolText(item.chartSymbol) }}</b>{{ item.legendLabel }}
-            </span>
-          </div>
-        </div>
+        <RecordChartLegend
+          :event-legend-pairs="eventLegendPairs"
+          :room-legend-items="roomLegendItems"
+          :reference-legend-items="referenceLegendItems"
+        />
         <div ref="chartAreaRef" class="chart-area" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'chart')">
           <div class="temp-scale-column" aria-hidden="true">
             <span
@@ -757,6 +747,9 @@ import RecordFooterSummary from '@/components/anesthesia/record/sheet/RecordFoot
 import NumberedNoteColumn from '@/components/anesthesia/record/sheet/NumberedNoteColumn.vue';
 import RecordTimeAxis from '@/components/anesthesia/record/sheet/RecordTimeAxis.vue';
 import LabResultLayer from '@/components/anesthesia/record/sheet/LabResultLayer.vue';
+import GridLines from '@/components/anesthesia/record/sheet/RecordGridLines';
+import RecordChartLegend from '@/components/anesthesia/record/sheet/RecordChartLegend.vue';
+import { useVitalChartDrawing } from '@/components/anesthesia/record/sheet/useVitalChartDrawing';
 import type { AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
 import {
   getMethodTimelineNodes,
@@ -811,24 +804,6 @@ import { buildMonitorLayoutObjects, mergeLayoutWarnings, resolveLayoutCollisions
 import { buildMilestoneStatusEvents } from '@/services/methodTimelineEngine';
 import { buildEventLegendPairs, buildRoomLegendItems, resolveEventSymbol } from '@/config/recordEventSymbols';
 import { useRecordCoordinates } from '@/components/anesthesia/record/sheet/useRecordCoordinates';
-
-const GridLines = defineComponent({
-  name: 'GridLines',
-  props: {
-    grid: { type: Object as () => RecordBandGrid, required: true },
-    chart: { type: Boolean, default: false },
-  },
-  setup(props) {
-    return () => [
-      h('div', { class: 'print-grid-lines', 'aria-hidden': 'true' }, props.grid.verticalLines.map((line) =>
-        h('span', { key: line.id, class: { major: line.isMajor }, style: { left: `${line.percent}%` } }),
-      )),
-      h('div', { class: props.chart ? 'print-chart-horizontal-lines' : 'print-row-lines', 'aria-hidden': 'true' }, props.grid.rowLines.map((line) =>
-        h('span', { key: line.id, class: { major: line.isMajor }, style: { top: `${line.percent}%` } }),
-      )),
-    ];
-  },
-});
 
 const props = withDefaults(defineProps<{
   record: SurgeryCase;
@@ -1546,30 +1521,11 @@ const isAbnormal = (row: VitalSign, item: VitalSignDictItem) => {
   if (typeof value !== 'number') return false;
   return (typeof item.lowerLimit === 'number' && value < item.lowerLimit) || (typeof item.upperLimit === 'number' && value > item.upperLimit);
 };
-const chartY = (value: number, item?: VitalSignDictItem) => resolveChartY(value, item?.shortCode);
-const chartPoints = (item: VitalSignDictItem) => visibleVitals.value
-  .map((row) => ({ row, value: row[item.shortCode as keyof VitalSign] }))
-  .filter((entry): entry is { row: VitalSign; value: number } => typeof entry.value === 'number')
-  .map((entry) => ({
-    key: `${entry.row.id ?? entry.row.time}-${item.shortCode}`,
-    row: entry.row,
-    x: Math.min(1000, Math.max(0, timeToPercent(entry.row.time, sheetStart.value, sheetEnd.value) * 10)),
-    y: chartY(entry.value, item),
-  }));
-const chartLine = (item: VitalSignDictItem) => chartPoints(item).map((point) => `${point.x},${point.y}`).join(' ');
-const symbolText = (symbol?: string) => ({ 'triangle-down': '▽', 'triangle-up': '△', circle: '●', 'hollow-circle': '○', diamond: '◇', star: '★', square: '■', text: '•' }[symbol ?? 'text']);
-const markerPath = (item: VitalSignDictItem, x: number, y: number) => {
-  const marker = vitalMarkerShape(item);
-  if (marker.shape === 'triangle-down') return `M ${x - 5} ${y - 4} L ${x + 5} ${y - 4} L ${x} ${y + 6} Z`;
-  if (marker.shape === 'triangle-up') return `M ${x - 5} ${y + 5} L ${x + 5} ${y + 5} L ${x} ${y - 5} Z`;
-  if (marker.shape === 'square') return `M ${x - 5} ${y - 5} H ${x + 5} V ${y + 5} H ${x - 5} Z`;
-  if (marker.shape === 'diamond') return `M ${x} ${y - 6} L ${x + 6} ${y} L ${x} ${y + 6} L ${x - 6} ${y} Z`;
-  if (marker.shape === 'hollow-circle' || marker.shape === 'circle') {
-    return `M ${x} ${y - 5} A 5 5 0 1 1 ${x - 0.01} ${y - 5} Z`;
-  }
-  return `M ${x - 5} ${y} H ${x + 5} M ${x} ${y - 5} V ${y + 5}`;
-};
-const markerFill = (item: VitalSignDictItem) => vitalMarkerShape(item).fill ? (item.chartColor ?? '#2563eb') : '#fff';
+const { chartPoints, chartLine, symbolText, markerPath, markerFill } = useVitalChartDrawing(
+  () => visibleVitals.value,
+  () => sheetStart.value,
+  () => sheetEnd.value,
+);
 
 const eventClock = (event: MouseEvent) => {
   const element = event.currentTarget as HTMLElement;
@@ -2717,64 +2673,8 @@ onBeforeUnmount(() => {
   min-height: 300px;
 }
 
-.chart-legend-panel,
 .chart-area {
   min-height: 300px;
-}
-
-.chart-legend-panel {
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-  gap: 6px;
-  padding: 8px 6px;
-  border-right: 1px solid #111827;
-  background: #f8fafc;
-  font-size: 11px;
-}
-
-.event-legend-pairs {
-  display: grid;
-  gap: 4px;
-}
-
-.legend-pair-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px 8px;
-}
-
-.legend-pair-row span,
-.room-entry-legend span,
-.vital-symbol-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  min-height: 20px;
-  line-height: 1.35;
-  white-space: nowrap;
-}
-
-.legend-pair-row b,
-.room-entry-legend b,
-.vital-symbol-legend b {
-  min-width: 12px;
-  color: #111827;
-  font-weight: 700;
-}
-
-.room-entry-legend {
-  display: grid;
-  gap: 4px;
-  padding: 4px 0;
-  border-top: 1px solid #dbeafe;
-  border-bottom: 1px solid #dbeafe;
-}
-
-.vital-symbol-legend {
-  display: grid;
-  gap: 3px;
-  align-content: start;
-  padding-top: 2px;
 }
 
 .temp-scale-column {
