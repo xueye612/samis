@@ -381,6 +381,7 @@
         @select-line="focusSequenceMarker('keyOperations', $event)"
       />
       <NumberedNoteColumn
+        v-if="showPostopAnalgesiaNote"
         label="术后镇痛"
         :model-value="summaryNotes.postopAnalgesia"
         :readonly="readOnly"
@@ -792,6 +793,7 @@ import { buildMonitorLayoutObjects, mergeLayoutWarnings, resolveLayoutCollisions
 import { buildMilestoneStatusEvents } from '@/services/methodTimelineEngine';
 import { buildEventLegendPairs, buildRoomLegendItems, resolveEventSymbol } from '@/config/recordEventSymbols';
 import { useRecordCoordinates } from '@/components/anesthesia/record/sheet/useRecordCoordinates';
+import { resolveSectionVisible, type RecordSectionVisibility } from '@/config/recordSections';
 
 const props = withDefaults(defineProps<{
   record: SurgeryCase;
@@ -804,6 +806,7 @@ const props = withDefaults(defineProps<{
   monitorOrder?: string[];
   readOnly?: boolean;
   showAnesthesiaPlane?: boolean;
+  sectionVisibility?: RecordSectionVisibility;
   appliedTemplateName?: string;
   appliedMethodLabels?: string[];
   appliedModules?: DynamicModuleEntry[];
@@ -831,6 +834,7 @@ const props = withDefaults(defineProps<{
   monitorOrder: () => [],
   readOnly: false,
   showAnesthesiaPlane: true,
+  sectionVisibility: () => ({}),
   appliedTemplateName: '',
   appliedMethodLabels: () => [],
   appliedModules: () => [],
@@ -1122,16 +1126,19 @@ const fluidCatalogForForm = computed(() => {
   if (lineForm.category === '自体血回输') return autologousCatalog.value;
   return infusionCatalog.value;
 });
-const showInhaledBand = computed(() => !isPacuRecord.value && (
-  inhaledDrugCatalog.value.length > 0
-  || inhaledMedicationRows.value.length > 0
-  || props.methodKeys.includes('general')
+const showInhaledBand = computed(() => resolveSectionVisible(
+  props.sectionVisibility.inhaled,
+  !isPacuRecord.value && (inhaledMedicationRows.value.length > 0 || props.methodKeys.includes('general')),
 ));
-const showAutologousBand = computed(() => !isPacuRecord.value && (
-  props.record.autologousBlood
-  || autologousCatalog.value.length > 0
-  || autologousRows.value.length > 0
+const showAutologousBand = computed(() => resolveSectionVisible(
+  props.sectionVisibility.autologous,
+  !isPacuRecord.value && (Boolean(props.record.autologousBlood) || autologousRows.value.length > 0),
 ));
+const showPostopAnalgesiaNote = computed(() => {
+  const note = (summaryNotes.value.postopAnalgesia || '').trim();
+  const hasContent = Boolean(props.record.postoperativeAnalgesia) || (note !== '' && note !== '未启用');
+  return resolveSectionVisible(props.sectionVisibility.postopAnalgesia, !props.readOnly || hasContent);
+});
 const planeRowOffset = computed(() => props.showAnesthesiaPlane ? 1 : 0);
 const planeRows = computed(() => (props.showAnesthesiaPlane ? (props.record.anesthesiaPlanes ?? []).filter((item) => item.status !== 'voided') : []).map((item) => ({
   key: item.id,

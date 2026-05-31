@@ -41,6 +41,7 @@
         <a-space wrap>
           <a-button size="small" @click="patientPanelOpen = !patientPanelOpen">{{ patientPanelOpen ? '隐藏患者队列' : '展开患者队列' }}</a-button>
           <a-button size="small" @click="qualityPanelOpen = !qualityPanelOpen">{{ qualityPanelOpen ? '隐藏质控侧栏' : '展开质控侧栏' }}</a-button>
+          <a-button size="small" @click="sectionSettingsVisible = true">纸面显示</a-button>
           <a-select
             :model-value="selectedId"
             size="small"
@@ -116,6 +117,7 @@
               :read-only="current.locked"
               :page-no="livePageNo"
               :show-anesthesia-plane="sheetShowAnesthesiaPlane"
+              :section-visibility="sectionVisibility"
               :applied-template-name="sheetTemplateName"
               :applied-method-labels="sheetAppliedMethodLabels"
               :applied-modules="sheetAppliedModules"
@@ -294,6 +296,8 @@
       :template-impact="confirmedTemplateImpact"
       :method-keys="sheetMethodKeys"
       :show-anesthesia-plane="sheetShowAnesthesiaPlane"
+      :section-visibility="sectionVisibility"
+      :include-professional-appendix="includeProfessionalAppendix"
       @close="printPreviewVisible = false"
       @print="executePrint"
       @confirm-print="confirmPrintAndLock"
@@ -326,6 +330,30 @@
       <p>{{ abnormalTarget ? `${abnormalTarget.metric} ${abnormalTarget.value}${abnormalTarget.unit}` : '' }}</p>
       <a-textarea v-model="abnormalTreatment" placeholder="请输入处置措施" :auto-size="{ minRows: 3 }" />
     </a-modal>
+
+    <a-modal v-model:visible="sectionSettingsVisible" title="纸面显示设置" :footer="false" width="540px">
+      <p style="margin:0 0 12px;color:#64748b;font-size:13px;line-height:1.5;">隐藏不需要的区块可让记录单更简洁、打印更稳定。「自动」按本台手术是否用到来判断（如未用吸入麻醉/自体血即不显示）。</p>
+      <div
+        v-for="section in sectionOptions"
+        :key="section.key"
+        style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0f2f5;"
+      >
+        <div style="min-width:0;">
+          <strong style="display:block;font-size:13px;">{{ section.label }}</strong>
+          <small style="color:#94a3b8;">{{ section.hint }}</small>
+        </div>
+        <a-radio-group
+          :model-value="sectionVisibility[section.key] ?? 'auto'"
+          type="button"
+          size="small"
+          @change="(value) => setSectionMode(section.key, String(value) as SectionVisibilityMode)"
+        >
+          <a-radio value="auto">自动</a-radio>
+          <a-radio value="show">显示</a-radio>
+          <a-radio value="hide">隐藏</a-radio>
+        </a-radio-group>
+      </div>
+    </a-modal>
   </div>
   <a-empty v-else description="暂无麻醉记录单病例" />
 </template>
@@ -350,6 +378,7 @@ import RecordQualityPanel from '@/components/anesthesia/record/RecordQualityPane
 import RecordAuditPanel from '@/components/anesthesia/record/RecordAuditPanel.vue';
 import PrintPreview from '@/components/anesthesia/record/PrintPreview.vue';
 import { buildSurgeryNameOptions, SURGICAL_POSITION_OPTIONS } from '@/config/recordHeaderOptions';
+import { OPTIONAL_RECORD_SECTIONS, resolveSectionVisible, type RecordSectionKey, type RecordSectionVisibility, type SectionVisibilityMode } from '@/config/recordSections';
 import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog, resolveDefaultMonitorOrder, runPrintPreflightChecks } from '@/services/anesthesiaRecordEngine';
 import { buildRecordReturnTarget, buildRecordRoute, normalizeRecordEntrySource } from '@/services/recordNavigation';
 import { buildRecordPagination } from '@/services/recordPaginationEngine';
@@ -410,6 +439,7 @@ interface RecordWorkflowDraft {
   confirmedQualityTips?: TemplateQualityTip[];
   manualStage?: IntraopStage | '';
   selectedScenario?: SurgeryScenarioKey;
+  sectionVisibility?: RecordSectionVisibility;
 }
 
 const route = useRoute();
@@ -436,6 +466,12 @@ const activeTimelineKey = ref('');
 const selectedEventName = ref('');
 const manualStage = ref<IntraopStage | ''>('');
 const selectedScenario = ref<SurgeryScenarioKey>('generalSurgery');
+const sectionVisibility = ref<RecordSectionVisibility>({});
+const sectionSettingsVisible = ref(false);
+const sectionOptions = OPTIONAL_RECORD_SECTIONS;
+const setSectionMode = (key: RecordSectionKey, mode: SectionVisibilityMode) => {
+  sectionVisibility.value = { ...sectionVisibility.value, [key]: mode };
+};
 const liveSheetRef = ref<{
   openDataList: (key: 'medications' | 'infusions' | 'transfusions' | 'vitals' | 'outputs' | 'planes') => void;
   flashEventType: (type: string) => void;
@@ -529,7 +565,8 @@ const sheetMethodKeys = computed(() => hasConfirmedTemplateLanding.value ? selec
 const sheetTemplateName = computed(() => confirmedLandingItems.value.length ? selectedTemplateName.value : '');
 const sheetAppliedMethodLabels = computed(() => getMethodLabels(sheetMethodKeys.value));
 const sheetAppliedModules = computed(() => getDynamicModuleEntries(sheetMethodKeys.value));
-const sheetShowAnesthesiaPlane = computed(() => hasAnesthesiaPlaneModule(sheetMethodKeys.value));
+const sheetShowAnesthesiaPlane = computed(() => resolveSectionVisible(sectionVisibility.value.plane, hasAnesthesiaPlaneModule(sheetMethodKeys.value)));
+const includeProfessionalAppendix = computed(() => resolveSectionVisible(sectionVisibility.value.professionalAppendix, false));
 const timelineNodeStates = computed(() => (
   current.value ? buildTimelineNodeStates(current.value, sheetMethodKeys.value) : []
 ));
@@ -614,6 +651,7 @@ const restoreWorkflowState = (caseId: string) => {
   confirmedQualityTips.value = draft.confirmedQualityTips ?? [];
   manualStage.value = draft.manualStage ?? '';
   selectedScenario.value = draft.selectedScenario ?? (current.value ? inferSurgeryScenarioFromCase(current.value) : 'generalSurgery');
+  sectionVisibility.value = draft.sectionVisibility ?? {};
   activeTab.value = draft.selectedTab ?? 'patient';
   recentEventLabel.value = '';
   selectedEventName.value = '';
@@ -634,7 +672,7 @@ watch(livePageCount, (count) => {
   if (livePageNo.value > count) livePageNo.value = Math.max(1, count);
 });
 watch(activeTab, () => saveDraft(false));
-watch([primaryMethod, auxiliaryMethods, selectedTemplateName, pendingLandingItems, confirmedLandingItems, manualStage, selectedScenario], () => saveDraft(false), { deep: true });
+watch([primaryMethod, auxiliaryMethods, selectedTemplateName, pendingLandingItems, confirmedLandingItems, manualStage, selectedScenario, sectionVisibility], () => saveDraft(false), { deep: true });
 
 const selectCase = (id: string) => {
   selectedId.value = id;
@@ -680,6 +718,7 @@ const saveDraft = (withLog = true) => {
     confirmedQualityTips: confirmedQualityTips.value,
     manualStage: manualStage.value,
     selectedScenario: selectedScenario.value,
+    sectionVisibility: sectionVisibility.value,
   });
   if (withLog && current.value) current.value.operationLogs = ['保存麻醉记录单草稿', ...(current.value.operationLogs ?? [])].slice(0, 8);
 };
