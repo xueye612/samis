@@ -46,6 +46,7 @@ export const secondaryMenus: Record<string, SecondaryMenuItem[]> = {
     { key: 'schedule', label: '手术排班', path: '/surgery/schedule', icon: 'IconCalendar' },
     { key: 'duty', label: '值班排班', path: '/surgery/duty', icon: 'IconList' },
     { key: 'detail', label: '患者麻醉详情', path: '/surgery/detail', icon: 'IconList' },
+    { key: 'prototype', label: '原型优化框架', path: '/surgery/prototype', icon: 'IconDashboard' },
     { key: 'preVisit', label: '术前访视', path: '/surgery/pre-visit', icon: 'IconFile' },
     { key: 'plan', label: '麻醉计划', path: '/surgery/plan', icon: 'IconFile' },
     { key: 'handover', label: '麻醉交班', path: '/surgery/handover', icon: 'IconSwap' },
@@ -118,6 +119,7 @@ export function matchSecondaryKey(path: string, menuKey: string) {
   if (hit) return hit.key;
   if (menuKey === 'surgery' && path.includes('/surgery/record')) return 'record';
   if (menuKey === 'surgery' && path.includes('/surgery/detail')) return 'detail';
+  if (menuKey === 'surgery' && path.includes('/surgery/prototype')) return 'prototype';
   if (menuKey === 'surgery' && path.includes('/monitor/')) return 'intraopMonitor';
   if (menuKey === 'surgery' && path.includes('/special/non-or')) return 'nonOr';
   if (menuKey === 'surgery' && path.includes('/special/obstetric')) return 'obstetric';

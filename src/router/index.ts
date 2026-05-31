@@ -14,6 +14,7 @@ import SurgerySchedule from '@/views/SurgerySchedule.vue';
 import ScheduleDuty from '@/views/surgery/ScheduleDuty.vue';
 import PatientAnesthesiaDetail from '@/views/PatientAnesthesiaDetail.vue';
 import PreVisit from '@/views/PreVisit.vue';
+import AnesthesiaPrototypeHub from '@/views/surgery/AnesthesiaPrototypeHub.vue';
 import AnesthesiaPlan from '@/views/surgery/AnesthesiaPlan.vue';
 import AnesthesiaHandover from '@/views/surgery/AnesthesiaHandover.vue';
 import AnesthesiaSummary from '@/views/surgery/AnesthesiaSummary.vue';
@@ -82,6 +83,7 @@ const router = createRouter({
     { path: '/surgery/schedule', name: 'schedule', component: SurgerySchedule, meta: { menu: 'surgery', title: '手术排班' } },
     { path: '/surgery/duty', name: 'scheduleDuty', component: ScheduleDuty, meta: { menu: 'surgery', title: '值班排班' } },
     { path: '/surgery/detail/:id?', name: 'patientAnesthesiaDetail', component: PatientAnesthesiaDetail, meta: { menu: 'surgery', title: '患者麻醉详情' } },
+    { path: '/surgery/prototype', name: 'anesthesiaPrototypeHub', component: AnesthesiaPrototypeHub, meta: { menu: 'surgery', title: '原型优化框架' } },
     { path: '/surgery/pre-visit', name: 'preVisit', component: PreVisit, meta: { menu: 'surgery', title: '术前访视/麻醉评估' } },
     { path: '/surgery/plan', name: 'anesthesiaPlan', component: AnesthesiaPlan, meta: { menu: 'surgery', title: '麻醉计划' } },
     { path: '/surgery/handover', name: 'anesthesiaHandover', component: AnesthesiaHandover, meta: { menu: 'surgery', title: '麻醉交班' } },
