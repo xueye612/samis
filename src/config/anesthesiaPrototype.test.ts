@@ -115,8 +115,36 @@ describe('anesthesia prototype config helpers', () => {
     expect(metrics.highAlertUncheckedCount).toBe(1);
     expect(metrics.uncheckedBloodProductCount).toBe(1);
     expect(metrics.qualityEventCount).toBe(1);
+    expect(metrics.unreportedQualityEventCount).toBe(1);
     expect(metrics.abnormalVitalCount).toBe(1);
-    expect(metrics.missingItemCount).toBe(4);
+    expect(metrics.unhandledAbnormalVitalCount).toBe(1);
+    expect(metrics.missingItemCount).toBe(6);
+  });
+
+  it('uses configured vital dictionary limits for abnormal statistics', () => {
+    const [snapshot] = buildIntraopSnapshots([
+      makeCase({
+        vitals: [
+          { id: 'vital-1', time: '2026-05-31T08:25:00.000Z', HR: 88, abnormalHandled: { HR: '已复测' } },
+        ],
+      }),
+    ], [
+      { id: 'vital-1', code: 'V-HR', name: '心率', shortCode: 'HR', unit: 'bpm', lowerLimit: 90, upperLimit: 120, sortOrder: 1, enabled: true },
+    ]);
+
+    const metrics = buildPrototypeMetrics([
+      makeCase({
+        vitals: [
+          { id: 'vital-1', time: '2026-05-31T08:25:00.000Z', HR: 88, abnormalHandled: { HR: '已复测' } },
+        ],
+      }),
+    ], [makeFollowUp('case-1')], [
+      { id: 'vital-1', code: 'V-HR', name: '心率', shortCode: 'HR', unit: 'bpm', lowerLimit: 90, upperLimit: 120, sortOrder: 1, enabled: true },
+    ]);
+
+    expect(snapshot.abnormalVitalCount).toBe(1);
+    expect(metrics.abnormalVitalCount).toBe(1);
+    expect(metrics.unhandledAbnormalVitalCount).toBe(0);
   });
 
   it('builds per-case intraoperative snapshots with completion scores', () => {

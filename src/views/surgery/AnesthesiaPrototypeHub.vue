@@ -295,8 +295,8 @@ const router = useRouter();
 const activeTab = ref('components');
 const selectedCaseId = ref(store.cases[0]?.id ?? '');
 
-const metrics = computed(() => buildPrototypeMetrics(store.cases, store.followUps));
-const intraopRows = computed(() => buildIntraopSnapshots(store.cases));
+const metrics = computed(() => buildPrototypeMetrics(store.cases, store.followUps, store.configVitals));
+const intraopRows = computed(() => buildIntraopSnapshots(store.cases, store.configVitals));
 const currentCase = computed(() => store.cases.find((item) => item.id === selectedCaseId.value) ?? store.cases[0]);
 const currentSnapshot = computed(() => intraopRows.value.find((item) => item.caseId === currentCase.value?.id));
 const dictionarySummary = computed(() => buildDictionarySummary(store.configDrugs, store.configFluids, store.configVitals, store.configEvents));
@@ -308,7 +308,7 @@ const metricCards = computed<Array<{ label: string; value: string | number; hint
   { label: '术后随访率', value: `${metrics.value.followUpRate}%`, hint: `${metrics.value.followUpCount} 条随访记录`, tag: metrics.value.followUpRate < 90 ? '待闭环' : '达标', variant: metrics.value.followUpRate < 90 ? 'warn' : 'default', icon: 'IconCalendar' },
   { label: '术中用药', value: metrics.value.medicationCount, hint: `高警示未核对 ${metrics.value.highAlertUncheckedCount} 条`, tag: metrics.value.highAlertUncheckedCount ? '风险' : '正常', variant: metrics.value.highAlertUncheckedCount ? 'danger' : 'default', icon: 'IconExperiment' },
   { label: '液体/输血', value: `${metrics.value.fluidVolumeTotal}ml`, hint: `血制品 ${metrics.value.bloodProductCount} 条，未核对 ${metrics.value.uncheckedBloodProductCount} 条`, tag: metrics.value.uncheckedBloodProductCount ? '核对' : '正常', variant: metrics.value.uncheckedBloodProductCount ? 'danger' : 'default', icon: 'IconSwap' },
-  { label: '质控待处理', value: metrics.value.missingItemCount, hint: `异常体征 ${metrics.value.abnormalVitalCount} 点，质控事件 ${metrics.value.qualityEventCount} 条`, tag: metrics.value.missingItemCount ? '待办' : '清零', variant: metrics.value.missingItemCount ? 'warn' : 'default', icon: 'IconExclamationCircle' },
+  { label: '质控待处理', value: metrics.value.missingItemCount, hint: `未处置异常 ${metrics.value.unhandledAbnormalVitalCount} 点，未上报事件 ${metrics.value.unreportedQualityEventCount} 条`, tag: metrics.value.missingItemCount ? '待办' : '清零', variant: metrics.value.missingItemCount ? 'warn' : 'default', icon: 'IconExclamationCircle' },
 ]);
 
 const vitalTrend = computed(() => {
@@ -325,10 +325,13 @@ const exportPrototype = () => {
   const payload = JSON.stringify({
     generatedAt: new Date().toISOString(),
     metrics: metrics.value,
+    workflowBlueprint,
     componentPlans: prototypeComponentPlans,
     dictionaryFields: baseDictionaryFields,
     qualityExtractionFields,
     visualGuidelines,
+    printExportProfiles,
+    currentOptimizationFocus: ['统一页面视觉层级', '组件职责清晰化', '数据字典驱动内容', '质控字段可统计', '打印/导出不包含麻醉记录单本体'],
   }, null, 2);
   const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);

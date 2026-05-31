@@ -73,7 +73,9 @@ export interface PrototypeMetrics {
   bloodProductCount: number;
   uncheckedBloodProductCount: number;
   qualityEventCount: number;
+  unreportedQualityEventCount: number;
   abnormalVitalCount: number;
+  unhandledAbnormalVitalCount: number;
   missingItemCount: number;
 }
 
@@ -210,37 +212,56 @@ export const printExportProfiles: PrintExportProfile[] = [
 
 const roundRate = (numerator: number, denominator: number) => (denominator ? Math.round((numerator / denominator) * 100) : 0);
 
-const isAbnormalVital = (vital: VitalSign) => {
-  const checks: Array<[keyof VitalSign, number | undefined, number | undefined]> = [
-    ['HR', 50, 120],
-    ['SBP', 90, 160],
-    ['DBP', 50, 100],
-    ['SpO2', 95, undefined],
-    ['RR', 8, 25],
-    ['EtCO2', 30, 45],
-    ['TEMP', 35.5, 38.5],
-  ];
-  return checks.some(([key, lower, upper]) => {
+type VitalKey = keyof VitalSign;
+
+const fallbackVitalLimits: Array<[VitalKey, number | undefined, number | undefined]> = [
+  ['HR', 50, 120],
+  ['SBP', 90, 160],
+  ['DBP', 50, 100],
+  ['SpO2', 95, undefined],
+  ['RR', 8, 25],
+  ['EtCO2', 30, 45],
+  ['TEMP', 35.5, 38.5],
+];
+
+const vitalLimitsFromDict = (vitalDict: VitalSignDictItem[] = []) => {
+  const configured = vitalDict
+    .filter((item) => item.enabled && (item.lowerLimit !== undefined || item.upperLimit !== undefined))
+    .map((item) => [item.shortCode as VitalKey, item.lowerLimit, item.upperLimit] as [VitalKey, number | undefined, number | undefined]);
+  return configured.length ? configured : fallbackVitalLimits;
+};
+
+const abnormalVitalKeys = (vital: VitalSign, vitalDict: VitalSignDictItem[] = []) =>
+  vitalLimitsFromDict(vitalDict).filter(([key, lower, upper]) => {
     const value = vital[key];
     if (typeof value !== 'number') return false;
     return (lower !== undefined && value < lower) || (upper !== undefined && value > upper);
-  });
-};
+  }).map(([key]) => key as string);
 
-const countAbnormalVitals = (vitals: VitalSign[]) => vitals.filter(isAbnormalVital).length;
+const countAbnormalVitals = (vitals: VitalSign[], vitalDict: VitalSignDictItem[] = []) =>
+  vitals.reduce((sum, vital) => sum + abnormalVitalKeys(vital, vitalDict).length, 0);
 
-export function buildPrototypeMetrics(cases: SurgeryCase[], followUps: PostoperativeFollowUp[]): PrototypeMetrics {
+const countUnhandledAbnormalVitals = (vitals: VitalSign[], vitalDict: VitalSignDictItem[] = []) =>
+  vitals.reduce((sum, vital) => {
+    const handled = vital.abnormalHandled ?? {};
+    return sum + abnormalVitalKeys(vital, vitalDict).filter((key) => !handled[key]).length;
+  }, 0);
+
+export function buildPrototypeMetrics(cases: SurgeryCase[], followUps: PostoperativeFollowUp[], vitalDict: VitalSignDictItem[] = []): PrototypeMetrics {
   const electiveCases = cases.filter((item) => item.urgency === '择期');
   const completedPreVisitCount = electiveCases.filter((item) => item.preVisit.completed).length;
   const followUpCaseIds = new Set(followUps.map((item) => item.caseId));
   const followUpTargets = cases.filter((item) => item.postoperativeAnalgesia || ['PACU', '已离室'].includes(item.status));
   const medicationRows = cases.flatMap((item) => item.medications);
   const fluidRows = cases.flatMap((item) => item.fluids);
+  const eventRows = cases.flatMap((item) => item.events);
   const highAlertUncheckedCount = medicationRows.filter((item) => item.highAlert && !item.checker).length;
   const bloodRows = fluidRows.filter((item) => item.category === '血液制品');
   const uncheckedBloodProductCount = bloodRows.filter((item) => !item.doubleCheck).length;
-  const qualityEventCount = cases.flatMap((item) => item.events).filter((item) => item.qualityIncluded).length;
-  const abnormalVitalCount = cases.reduce((sum, item) => sum + countAbnormalVitals(item.vitals), 0);
+  const qualityEventCount = eventRows.filter((item) => item.qualityIncluded).length;
+  const unreportedQualityEventCount = eventRows.filter((item) => item.qualityIncluded && !item.reported).length;
+  const abnormalVitalCount = cases.reduce((sum, item) => sum + countAbnormalVitals(item.vitals, vitalDict), 0);
+  const unhandledAbnormalVitalCount = cases.reduce((sum, item) => sum + countUnhandledAbnormalVitals(item.vitals, vitalDict), 0);
   const missingPreVisitCount = electiveCases.length - completedPreVisitCount;
   const missingFollowUpCount = followUpTargets.filter((item) => !followUpCaseIds.has(item.id)).length;
 
@@ -256,17 +277,24 @@ export function buildPrototypeMetrics(cases: SurgeryCase[], followUps: Postopera
     bloodProductCount: bloodRows.length,
     uncheckedBloodProductCount,
     qualityEventCount,
+    unreportedQualityEventCount,
     abnormalVitalCount,
-    missingItemCount: missingPreVisitCount + missingFollowUpCount + highAlertUncheckedCount + uncheckedBloodProductCount,
+    unhandledAbnormalVitalCount,
+    missingItemCount: missingPreVisitCount
+      + missingFollowUpCount
+      + highAlertUncheckedCount
+      + uncheckedBloodProductCount
+      + unhandledAbnormalVitalCount
+      + unreportedQualityEventCount,
   };
 }
 
-export function buildIntraopSnapshots(cases: SurgeryCase[]): IntraopSnapshot[] {
+export function buildIntraopSnapshots(cases: SurgeryCase[], vitalDict: VitalSignDictItem[] = []): IntraopSnapshot[] {
   return cases.map((item) => {
     const highAlertUncheckedCount = item.medications.filter((row) => row.highAlert && !row.checker).length;
     const bloodProductCount = item.fluids.filter((row) => row.category === '血液制品').length;
     const qualityEventCount = item.events.filter((event) => event.qualityIncluded).length;
-    const abnormalVitalCount = countAbnormalVitals(item.vitals);
+    const abnormalVitalCount = countAbnormalVitals(item.vitals, vitalDict);
     const completedChecks = [
       item.preVisit.completed,
       item.medications.length > 0,
