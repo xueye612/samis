@@ -257,22 +257,11 @@
 
     <div class="vital-chart">
       <div class="chart-layout">
-        <div class="chart-legend-panel">
-          <div class="event-legend-pairs">
-            <div v-for="(pair, index) in eventLegendPairs" :key="`pair-${index}`" class="legend-pair-row">
-              <span v-for="item in pair" :key="item.label"><b>{{ item.symbol }}</b>{{ item.label }}</span>
-            </div>
-          </div>
-          <div class="room-entry-legend">
-            <span><b>▷</b>入手术室</span>
-            <span><b>▶</b>出手术室</span>
-          </div>
-          <div class="vital-symbol-legend">
-            <span v-for="item in referenceLegendItems" :key="item.shortCode">
-              <b :style="{ color: item.chartColor }">{{ symbolText(item.chartSymbol) }}</b>{{ item.legendLabel }}
-            </span>
-          </div>
-        </div>
+        <RecordChartLegend
+          :event-legend-pairs="eventLegendPairs"
+          :room-legend-items="roomLegendItems"
+          :reference-legend-items="referenceLegendItems"
+        />
         <div ref="chartAreaRef" class="chart-area" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'chart')">
           <div class="temp-scale-column" aria-hidden="true">
             <span
@@ -392,6 +381,7 @@
         @select-line="focusSequenceMarker('keyOperations', $event)"
       />
       <NumberedNoteColumn
+        v-if="showPostopAnalgesiaNote"
         label="术后镇痛"
         :model-value="summaryNotes.postopAnalgesia"
         :readonly="readOnly"
@@ -455,51 +445,44 @@
       @update:handover-note="emit('saveSummaryField', { handoverNote: $event })"
     />
 
-    <div v-if="menu.visible" class="live-context-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" @click.stop>
-      <div v-if="hasLineTarget" class="menu-section">
-        <button :disabled="readOnly" @click="openTargetEditor">编辑数据</button>
-        <button v-if="menu.type === 'medication' || menu.type === 'inhaled' || menu.type === 'infusion' || menu.type === 'autologous'" :disabled="readOnly" @click="continueTarget">继续用药/输液</button>
-        <button v-if="(menu.type === 'medication' || menu.type === 'inhaled') && medicationTarget?.mode === '持续泵入' && !medicationTarget?.stopTime" :disabled="readOnly" @click="stopMedicationPump">停止泵注</button>
-        <button v-if="(menu.type === 'medication' || menu.type === 'inhaled') && medicationTarget?.mode === '持续泵入'" :disabled="readOnly" @click="pauseMedication">暂停泵注</button>
-        <button v-if="(menu.type === 'medication' || menu.type === 'inhaled') && medicationTarget?.status === 'paused'" :disabled="readOnly" @click="resumeMedication">恢复泵注</button>
-        <button v-if="menu.type === 'medication' || menu.type === 'inhaled'" :disabled="readOnly" @click="voidMedication">作废用药</button>
-        <button class="danger-menu" :disabled="readOnly" @click="deleteTarget">删除当前项</button>
-      </div>
-
-      <div v-if="showDrugMenus" class="menu-section">
-        <strong>新增用药</strong>
-        <button v-for="drug in ivCommonDrugs" :key="drug.id" :disabled="readOnly" @click="openMedicationEditor(drug)">{{ drug.name }} {{ drug.specification }}</button>
-        <button v-for="drug in ivOtherDrugs.slice(0, 6)" :key="drug.id" :disabled="readOnly" @click="openMedicationEditor(drug)">{{ drug.name }}</button>
-      </div>
-
-      <div v-if="showInhaledMenus" class="menu-section">
-        <strong>新增吸入麻醉</strong>
-        <button v-for="drug in inhaledDrugCatalog" :key="drug.id" :disabled="readOnly" @click="openMedicationEditor(drug)">{{ drug.name }} {{ drug.specification }}</button>
-      </div>
-
-      <div v-if="showPlaneMenus" class="menu-section">
-        <strong>麻醉平面</strong>
-        <button :disabled="readOnly" @click="openPlaneEditor()">新增麻醉平面</button>
-      </div>
-
-      <div v-if="showFluidMenus" class="menu-section">
-        <strong>新增输液</strong>
-        <button v-for="fluid in infusionCatalog.slice(0, 8)" :key="fluid.id" :disabled="readOnly" @click="openFluidEditor(fluid)">{{ fluid.name }} {{ fluid.defaultVolume ?? '' }}{{ fluid.defaultUnit ?? '' }}</button>
-        <strong v-if="showAutologousMenus">新增自体血</strong>
-        <button v-for="fluid in autologousCatalog" :key="fluid.id" :disabled="readOnly" @click="openFluidEditor(fluid)">{{ fluid.name }} {{ fluid.defaultVolume ?? '' }}{{ fluid.defaultUnit ?? '' }}</button>
-        <strong>新增输血</strong>
-        <button v-for="fluid in bloodCatalog" :key="fluid.id" :disabled="readOnly" @click="openFluidEditor(fluid)">{{ fluid.name }} {{ fluid.defaultVolume ?? '' }}{{ fluid.defaultUnit ?? '' }}</button>
-      </div>
-
-      <div class="menu-section">
-        <button v-if="showVitalMenus" :disabled="readOnly" @click="openMonitorDialog()">添加生命体征</button>
-        <button v-if="showVitalMenus" :disabled="readOnly" @click="openBatchMonitorDialog">批量添加生命体征</button>
-        <button v-if="showVitalMenus" :disabled="readOnly" @click="openLabEditor()">添加血气/检验</button>
-        <button v-if="showVitalMenus" :disabled="readOnly" @click="observeVisible = true; menu.visible = false">监测项目设置</button>
-        <button v-if="showOutputMenus" :disabled="readOnly" @click="openOutputEditor()">添加出入量</button>
-        <button @click="openDataList(defaultDataList)">已录入数据维护</button>
-      </div>
-    </div>
+    <RecordContextMenu
+      :visible="menu.visible"
+      :x="menu.x"
+      :y="menu.y"
+      :read-only="readOnly"
+      v-model:pending-delete="pendingDelete"
+      :has-line-target="hasLineTarget"
+      :type="menu.type"
+      :medication-target="medicationTarget"
+      :show-drug-menus="showDrugMenus"
+      :show-inhaled-menus="showInhaledMenus"
+      :show-plane-menus="showPlaneMenus"
+      :show-fluid-menus="showFluidMenus"
+      :show-autologous-menus="showAutologousMenus"
+      :show-vital-menus="showVitalMenus"
+      :show-output-menus="showOutputMenus"
+      :iv-common-drugs="ivCommonDrugs"
+      :iv-other-drugs="ivOtherDrugs"
+      :inhaled-drug-catalog="inhaledDrugCatalog"
+      :infusion-catalog="infusionCatalog"
+      :autologous-catalog="autologousCatalog"
+      :blood-catalog="bloodCatalog"
+      @edit="openTargetEditor"
+      @continue="continueTarget"
+      @stop-pump="stopMedicationPump"
+      @pause="pauseMedication"
+      @resume="resumeMedication"
+      @void="voidTarget"
+      @add-medication="openMedicationEditor"
+      @add-fluid="openFluidEditor"
+      @add-plane="openPlaneEditor()"
+      @add-monitor="openMonitorDialog()"
+      @batch-monitor="openBatchMonitorDialog"
+      @add-lab="openLabEditor()"
+      @open-observe="observeVisible = true; menu.visible = false"
+      @add-output="openOutputEditor()"
+      @open-data-list="openDataList(defaultDataList)"
+    />
 
     <RecordModalShell
       v-if="lineVisible"
@@ -669,74 +652,74 @@
           <table v-if="activeDataList === 'planes'" class="live-data-table">
             <thead><tr><th>时间</th><th>平面</th><th>变化</th><th>备注</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.anesthesiaPlanes ?? []" :key="row.id" @dblclick="openPlaneEditor(row)">
+              <tr v-for="row in record.anesthesiaPlanes ?? []" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openPlaneEditor(row)">
                 <td>{{ isoOrClockToClock(row.time) }}</td><td>{{ row.level }}</td><td>{{ planeDirectionText(row.direction) }}</td><td>{{ row.remark || '-' }}</td>
-                <td><button @click="openPlaneEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'plane', row.id)">删除</button></td>
+                <td><button @click="openPlaneEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'plane', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'plane', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'medications'" class="live-data-table">
             <thead><tr><th>类型</th><th>时间</th><th>名称</th><th>剂量/泵速</th><th>途径</th><th>核对</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in ivMedicationRecords" :key="row.id" @dblclick="openMedicationEditor(row)">
+              <tr v-for="row in tableIvMedications" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openMedicationEditor(row)">
                 <td><span class="table-pill" :class="{ continuous: row.mode === '持续泵入' }">{{ row.mode === '持续泵入' ? '持续' : '单次' }}</span></td>
                 <td>{{ medicationTimeText(row) }}</td><td>{{ row.drug }}</td><td>{{ medicationDoseText(row) }}</td><td>{{ row.route || '-' }}</td><td>{{ row.checker || '-' }}</td>
-                <td><button @click="openMedicationEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'medication', row.id)">删除</button></td>
+                <td><button @click="openMedicationEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'medication', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'medication', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'inhaled'" class="live-data-table">
             <thead><tr><th>类型</th><th>时间</th><th>名称</th><th>浓度/剂量</th><th>途径</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in inhaledMedicationRecords" :key="row.id" @dblclick="openMedicationEditor(row)">
+              <tr v-for="row in tableInhaledMedications" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openMedicationEditor(row)">
                 <td><span class="table-pill" :class="{ continuous: row.mode === '持续泵入' }">{{ row.mode === '持续泵入' ? '持续' : '单次' }}</span></td>
                 <td>{{ medicationTimeText(row) }}</td><td>{{ row.drug }}</td><td>{{ medicationDoseText(row) }}</td><td>{{ row.route || '吸入' }}</td>
-                <td><button @click="openMedicationEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'medication', row.id)">删除</button></td>
+                <td><button @click="openMedicationEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'medication', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'medication', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'infusions'" class="live-data-table">
             <thead><tr><th>类别</th><th>时间</th><th>名称</th><th>容量</th><th>执行人</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.fluids.filter((item) => isInfusionFluidCategory(item.category))" :key="row.id" @dblclick="openFluidEditor(row)">
+              <tr v-for="row in record.fluids.filter((item) => isInfusionFluidCategory(item.category))" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openFluidEditor(row)">
                 <td><span class="table-pill fluid">{{ row.category }}</span></td><td>{{ fluidTimeText(row) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit ?? 'ml' }}</td><td>{{ row.executor || '-' }}</td>
-                <td><button @click="openFluidEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'fluid', row.id)">删除</button></td>
+                <td><button @click="openFluidEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'fluid', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'fluid', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'autologous'" class="live-data-table">
             <thead><tr><th>时间</th><th>名称</th><th>容量</th><th>执行人</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.fluids.filter((item) => isAutologousFluidCategory(item.category))" :key="row.id" @dblclick="openFluidEditor(row)">
+              <tr v-for="row in record.fluids.filter((item) => isAutologousFluidCategory(item.category))" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openFluidEditor(row)">
                 <td>{{ fluidTimeText(row) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit ?? 'ml' }}</td><td>{{ row.executor || '-' }}</td>
-                <td><button @click="openFluidEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'fluid', row.id)">删除</button></td>
+                <td><button @click="openFluidEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'fluid', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'fluid', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'transfusions'" class="live-data-table">
             <thead><tr><th>时间</th><th>血品</th><th>容量</th><th>血型</th><th>核对</th><th>反应</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.fluids.filter((item) => item.category === '血液制品')" :key="row.id" @dblclick="openFluidEditor(row)">
+              <tr v-for="row in record.fluids.filter((item) => item.category === '血液制品')" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openFluidEditor(row)">
                 <td>{{ fluidTimeText(row) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit ?? 'ml' }}</td><td>{{ row.bloodType || '-' }} {{ row.rh || '' }}</td><td><span class="table-pill" :class="{ danger: !row.doubleCheck }">{{ row.doubleCheck ? '完成' : '未完成' }}</span></td><td>{{ row.reaction || '-' }}</td>
-                <td><button @click="openFluidEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'fluid', row.id)">删除</button></td>
+                <td><button @click="openFluidEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'fluid', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'fluid', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else-if="activeDataList === 'vitals'" class="live-data-table">
             <thead><tr><th>时间</th><th v-for="item in monitorRows" :key="item.shortCode">{{ item.shortCode }}</th><th>来源</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in visibleVitals" :key="row.id ?? row.time" @dblclick="openMonitorDialog(row)">
+              <tr v-for="row in pageVitals" :key="row.id ?? row.time" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openMonitorDialog(row)">
                 <td>{{ isoOrClockToClock(row.time) }}</td><td v-for="item in monitorRows" :key="item.shortCode">{{ row[item.shortCode as keyof typeof row] ?? '' }}</td><td>{{ row.source }}</td>
-                <td><button @click="openMonitorDialog(row)">编辑</button><button :disabled="readOnly || !row.id" @click="emit('deleteRecord', 'vital', row.id || '')">删除</button></td>
+                <td><button @click="openMonitorDialog(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly || !row.id" @click="emit('restoreRecord', 'vital', row.id || '')">撤销</button><button v-else class="danger-menu" :disabled="readOnly || !row.id" @click="emit('voidRecord', 'vital', row.id || '')">作废</button></td>
               </tr>
             </tbody>
           </table>
           <table v-else class="live-data-table">
             <thead><tr><th>时间</th><th>类型</th><th>容量</th><th>备注</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.outputRecords ?? []" :key="row.id" @dblclick="openOutputEditor(row)">
+              <tr v-for="row in record.outputRecords ?? []" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openOutputEditor(row)">
                 <td>{{ isoOrClockToClock(row.time) }}</td><td>{{ row.type }}</td><td>{{ row.volume }}ml</td><td>{{ row.remark || '-' }}</td>
-                <td><button @click="openOutputEditor(row)">编辑</button><button :disabled="readOnly" @click="emit('deleteRecord', 'output', row.id)">删除</button></td>
+                <td><button @click="openOutputEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'output', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'output', row.id)">作废</button></td>
               </tr>
             </tbody>
           </table>
@@ -752,6 +735,10 @@ import RecordFooterSummary from '@/components/anesthesia/record/sheet/RecordFoot
 import NumberedNoteColumn from '@/components/anesthesia/record/sheet/NumberedNoteColumn.vue';
 import RecordTimeAxis from '@/components/anesthesia/record/sheet/RecordTimeAxis.vue';
 import LabResultLayer from '@/components/anesthesia/record/sheet/LabResultLayer.vue';
+import GridLines from '@/components/anesthesia/record/sheet/RecordGridLines';
+import RecordChartLegend from '@/components/anesthesia/record/sheet/RecordChartLegend.vue';
+import RecordContextMenu from '@/components/anesthesia/record/sheet/RecordContextMenu.vue';
+import { useVitalChartDrawing } from '@/components/anesthesia/record/sheet/useVitalChartDrawing';
 import type { AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
 import {
   getMethodTimelineNodes,
@@ -804,24 +791,9 @@ import { buildLiveTimeScale } from '@/services/anesthesiaRecordEngine';
 import { buildRecordPagination, clipSegmentToPage, isSegmentCrossingPage, isTimeOnPage } from '@/services/recordPaginationEngine';
 import { buildMonitorLayoutObjects, mergeLayoutWarnings, resolveLayoutCollisions } from '@/services/recordLayoutEngine';
 import { buildMilestoneStatusEvents } from '@/services/methodTimelineEngine';
-
-const GridLines = defineComponent({
-  name: 'GridLines',
-  props: {
-    grid: { type: Object as () => RecordBandGrid, required: true },
-    chart: { type: Boolean, default: false },
-  },
-  setup(props) {
-    return () => [
-      h('div', { class: 'print-grid-lines', 'aria-hidden': 'true' }, props.grid.verticalLines.map((line) =>
-        h('span', { key: line.id, class: { major: line.isMajor }, style: { left: `${line.percent}%` } }),
-      )),
-      h('div', { class: props.chart ? 'print-chart-horizontal-lines' : 'print-row-lines', 'aria-hidden': 'true' }, props.grid.rowLines.map((line) =>
-        h('span', { key: line.id, class: { major: line.isMajor }, style: { top: `${line.percent}%` } }),
-      )),
-    ];
-  },
-});
+import { buildEventLegendPairs, buildRoomLegendItems, resolveEventSymbol } from '@/config/recordEventSymbols';
+import { useRecordCoordinates } from '@/components/anesthesia/record/sheet/useRecordCoordinates';
+import { resolveSectionVisible, type RecordSectionVisibility } from '@/config/recordSections';
 
 const props = withDefaults(defineProps<{
   record: SurgeryCase;
@@ -834,6 +806,7 @@ const props = withDefaults(defineProps<{
   monitorOrder?: string[];
   readOnly?: boolean;
   showAnesthesiaPlane?: boolean;
+  sectionVisibility?: RecordSectionVisibility;
   appliedTemplateName?: string;
   appliedMethodLabels?: string[];
   appliedModules?: DynamicModuleEntry[];
@@ -861,6 +834,7 @@ const props = withDefaults(defineProps<{
   monitorOrder: () => [],
   readOnly: false,
   showAnesthesiaPlane: true,
+  sectionVisibility: () => ({}),
   appliedTemplateName: '',
   appliedMethodLabels: () => [],
   appliedModules: () => [],
@@ -891,6 +865,8 @@ const emit = defineEmits<{
   savePlane: [record: AnesthesiaPlaneRecord];
   saveMonitorOrder: [codes: string[]];
   deleteRecord: [kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane', id: string];
+  voidRecord: [kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane', id: string];
+  restoreRecord: [kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane', id: string];
   selectEvent: [event: AnesthesiaEvent];
   saveProfessionalField: [group: string, label: string, value: string];
   saveTimeline: [node: MethodTimelineNode, isoTime: string];
@@ -928,6 +904,7 @@ const menu = reactive<{ visible: boolean; x: number; y: number; type: MenuType; 
   at: '',
 });
 
+const pendingDelete = ref(false);
 const lineVisible = ref(false);
 const monitorVisible = ref(false);
 const monitorBatch = ref(false);
@@ -1053,37 +1030,28 @@ const vitalDragState = reactive<{
   top: 0,
 });
 
-const sheetStart = computed(() => currentPage.value?.pageStartTime ?? pagination.value.axisStart);
-const sheetEnd = computed(() => currentPage.value?.pageEndTime ?? pagination.value.axisEnd);
-const pagination = computed(() => {
-  const intervals = resolveTimeAxisIntervals(props.record);
-  return buildRecordPagination(props.record, {
-    minorInterval: intervals.minorInterval,
-    majorInterval: intervals.majorInterval,
-  });
-});
-const currentPage = computed(() => {
-  const pages = props.record.recordDocument?.timeAxisPages?.length
-    ? props.record.recordDocument.timeAxisPages
-    : pagination.value.pages;
-  const fallback = pages[0] ?? pagination.value.pages[0];
-  return pages.find((item) => item.pageNo === props.pageNo) ?? fallback;
-});
-const isLastPage = computed(() => currentPage.value ? currentPage.value.pageNo === currentPage.value.pageCount : true);
+const {
+  pagination,
+  currentPage,
+  isLastPage,
+  sheetStart,
+  sheetEnd,
+  timeScale,
+  gridBackgroundStyle,
+  bandGrid,
+  chartGrid,
+  leftFor,
+  topFor,
+  pointStyle,
+  segmentStyle,
+} = useRecordCoordinates(() => props.record, () => props.pageNo);
 const displaySnapshot = computed(() => props.record.recordSnapshot ?? buildRecordSnapshot(props.record, props.record.recordDocument?.hospitalName));
 const displaySummary = computed(() => buildRecordSummaryFields(props.record));
 const labResults = computed(() => (props.record.labResults ?? []).filter(
   (row) => !currentPage.value || isTimeOnPage(row.resultTime, currentPage.value),
 ));
-const timeScale = computed(() => {
-  const intervals = resolveTimeAxisIntervals(props.record);
-  return buildLiveTimeScale(sheetStart.value, sheetEnd.value, intervals.minorInterval, intervals.majorInterval);
-});
 const isPacuRecord = computed(() => props.record.recordDocument?.recordType === 'pacu');
 const sheetAnesthesiaMethod = computed(() => props.appliedMethodLabels.length ? props.appliedMethodLabels.join(' + ') : props.record.anesthesiaMethod);
-const gridBackgroundStyle = computed(() => ({ '--minor-count': Math.max(1, timeScale.value.minorTicks.length - 1) }));
-const bandGrid = (rows: number) => buildRecordBandGrid(timeScale.value, rows);
-const chartGrid = computed(() => buildRecordBandGrid(timeScale.value, 8));
 const professionalFieldKey = (group: string, label: string) => `${group}::${label}`;
 const professionalFieldGroups = computed(() => {
   const modules = props.methodKeys.length
@@ -1118,9 +1086,10 @@ const templateEventRows = computed(() => (props.templateImpact?.events ?? []).ma
 })));
 const professionalFieldCount = computed(() => professionalFieldGroups.value.reduce((sum, group) => sum + group.items.length, 0));
 const showProfessionalSummary = computed(() => professionalFieldGroups.value.length > 0 || templateEventRows.value.length > 0 || templateQualityTips.value.length > 0);
-const visibleVitals = computed(() => [...props.record.vitals]
+const pageVitals = computed(() => [...props.record.vitals]
   .filter((row) => !currentPage.value || isTimeOnPage(row.time, currentPage.value))
   .sort((a, b) => isoOrClockToClock(a.time).localeCompare(isoOrClockToClock(b.time))));
+const visibleVitals = computed(() => pageVitals.value.filter((row) => row.status !== 'voided'));
 const enabledVitalItems = computed(() => props.vitals.filter((item) => item.enabled));
 const selectedMonitorItems = computed(() => selectedMonitorCodes.value
   .map((code) => enabledVitalItems.value.find((item) => item.shortCode === code))
@@ -1157,18 +1126,21 @@ const fluidCatalogForForm = computed(() => {
   if (lineForm.category === '自体血回输') return autologousCatalog.value;
   return infusionCatalog.value;
 });
-const showInhaledBand = computed(() => !isPacuRecord.value && (
-  inhaledDrugCatalog.value.length > 0
-  || inhaledMedicationRows.value.length > 0
-  || props.methodKeys.includes('general')
+const showInhaledBand = computed(() => resolveSectionVisible(
+  props.sectionVisibility.inhaled,
+  !isPacuRecord.value && (inhaledMedicationRows.value.length > 0 || props.methodKeys.includes('general')),
 ));
-const showAutologousBand = computed(() => !isPacuRecord.value && (
-  props.record.autologousBlood
-  || autologousCatalog.value.length > 0
-  || autologousRows.value.length > 0
+const showAutologousBand = computed(() => resolveSectionVisible(
+  props.sectionVisibility.autologous,
+  !isPacuRecord.value && (Boolean(props.record.autologousBlood) || autologousRows.value.length > 0),
 ));
+const showPostopAnalgesiaNote = computed(() => {
+  const note = (summaryNotes.value.postopAnalgesia || '').trim();
+  const hasContent = Boolean(props.record.postoperativeAnalgesia) || (note !== '' && note !== '未启用');
+  return resolveSectionVisible(props.sectionVisibility.postopAnalgesia, !props.readOnly || hasContent);
+});
 const planeRowOffset = computed(() => props.showAnesthesiaPlane ? 1 : 0);
-const planeRows = computed(() => (props.showAnesthesiaPlane ? (props.record.anesthesiaPlanes ?? []) : []).map((item) => ({
+const planeRows = computed(() => (props.showAnesthesiaPlane ? (props.record.anesthesiaPlanes ?? []).filter((item) => item.status !== 'voided') : []).map((item) => ({
   key: item.id,
   label: `${item.level}${planeDirectionText(item.direction)}`,
   time: item.time,
@@ -1190,11 +1162,8 @@ const referenceLegendItems = computed(() => chartVitals.value.map((item) => ({
           : item.shortCode === 'TEMP' ? '体温'
             : item.shortCode,
 })));
-const eventLegendPairs = [
-  [{ symbol: 'X', label: '麻醉开始' }, { symbol: '*', label: '麻醉结束' }],
-  [{ symbol: '◎', label: '手术开始' }, { symbol: 'Ⓞ', label: '手术结束' }],
-  [{ symbol: 'Φ', label: '麻醉插管' }, { symbol: 'Θ', label: '麻醉拔管' }],
-];
+const eventLegendPairs = buildEventLegendPairs();
+const roomLegendItems = buildRoomLegendItems();
 const monitorCells = computed(() => {
   const raw = buildMonitorCells(visibleVitals.value, monitorRows.value, monitorOrderCodes.value, {
     start: sheetStart.value,
@@ -1286,9 +1255,12 @@ const mapMedicationRow = (item: MedicationRecord, index: number, planeOffset: nu
 const activeMedicationRecords = computed(() => [...props.record.medications, ...templateMedicationSources.value].filter((item) => item.status !== 'voided'));
 const ivMedicationRecords = computed(() => activeMedicationRecords.value.filter((item) => !isInhaledMedication(item, props.drugs)));
 const inhaledMedicationRecords = computed(() => activeMedicationRecords.value.filter((item) => isInhaledMedication(item, props.drugs)));
+const allMedicationRecords = computed(() => [...props.record.medications, ...templateMedicationSources.value]);
+const tableIvMedications = computed(() => allMedicationRecords.value.filter((item) => !isInhaledMedication(item, props.drugs)));
+const tableInhaledMedications = computed(() => allMedicationRecords.value.filter((item) => isInhaledMedication(item, props.drugs)));
 const medicationRows = computed(() => ivMedicationRecords.value.map((item, index) => mapMedicationRow(item, index, planeRowOffset.value)));
 const inhaledMedicationRows = computed(() => inhaledMedicationRecords.value.map((item, index) => mapMedicationRow(item, index, 0)));
-const infusionRows = computed(() => props.record.fluids.filter((item) => isInfusionFluidCategory(item.category)).map((item, index) => ({
+const infusionRows = computed(() => props.record.fluids.filter((item) => isInfusionFluidCategory(item.category) && item.status !== 'voided').map((item, index) => ({
   key: item.id,
   label: item.name,
   amount: `${item.volume}${item.unit ?? 'ml'}`,
@@ -1297,7 +1269,7 @@ const infusionRows = computed(() => props.record.fluids.filter((item) => isInfus
   index,
   source: item,
 })));
-const autologousRows = computed(() => props.record.fluids.filter((item) => isAutologousFluidCategory(item.category)).map((item, index) => ({
+const autologousRows = computed(() => props.record.fluids.filter((item) => isAutologousFluidCategory(item.category) && item.status !== 'voided').map((item, index) => ({
   key: item.id,
   label: item.name,
   amount: `${item.volume}${item.unit ?? 'ml'}`,
@@ -1306,7 +1278,7 @@ const autologousRows = computed(() => props.record.fluids.filter((item) => isAut
   index,
   source: item,
 })));
-const transfusionRows = computed(() => props.record.fluids.filter((item) => isBloodProductCategory(item.category)).map((item, index) => {
+const transfusionRows = computed(() => props.record.fluids.filter((item) => isBloodProductCategory(item.category) && item.status !== 'voided').map((item, index) => {
   const dict = props.fluids.find((fluid) => fluid.name === item.name);
   return {
     key: item.id,
@@ -1320,7 +1292,7 @@ const transfusionRows = computed(() => props.record.fluids.filter((item) => isBl
 }));
 const outputRows = computed(() => {
   const records = props.record.outputRecords?.length
-    ? props.record.outputRecords
+    ? props.record.outputRecords.filter((row) => row.status !== 'voided')
     : [
       { id: 'summary-urine', time: props.record.surgeryEnd ?? props.record.leaveRoomTime ?? props.record.plannedStart, type: '尿量' as const, volume: props.record.outputs.urine },
       { id: 'summary-blood', time: props.record.surgeryEnd ?? props.record.leaveRoomTime ?? props.record.plannedStart, type: '出血量' as const, volume: props.record.outputs.bloodLoss },
@@ -1342,7 +1314,7 @@ const clockToIsoTime = (clock: string) => {
   const [hour, minute] = clock.split(':').map(Number);
   return dayjs(base).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
 };
-const symbolForEvent = (type: string) => (type.includes('入室') ? '>' : type.includes('麻醉开始') ? 'X' : type.includes('麻醉结束') ? '*' : type.includes('手术开始') ? '◎' : type.includes('手术结束') ? 'Ⓞ' : type.includes('插管') ? 'Φ' : type.includes('喉罩') ? '罩' : type.includes('穿刺') ? '针' : type.includes('平面') ? 'T' : type.includes('阻滞') ? 'B' : type.includes('拔管') ? 'Θ' : type.includes('离室') ? '▶' : '•');
+const symbolForEvent = (type: string) => resolveEventSymbol(type);
 const timelineKeyForEventType = (type: string) => {
   const nodes = getMethodTimelineNodes(props.methodKeys);
   const node = nodes.find((item) => item.eventType === type || type.includes(item.eventType ?? '') || (item.eventType && item.eventType.includes(type)));
@@ -1511,22 +1483,6 @@ const medicationDoseText = (row: MedicationRecord) => {
 };
 const fluidTimeText = (row: FluidRecord) => `${isoOrClockToClock(row.startTime ?? row.time) || '-'} - ${isoOrClockToClock(row.endTime) || '进行中'}`;
 const planeDirectionText = (direction?: AnesthesiaPlaneRecord['direction']) => direction === 'up' ? '↑' : direction === 'fixed' ? '－' : '↓';
-const topFor = (index: number, total: number) => `${((index + 0.5) / Math.max(total, 1)) * 100}%`;
-const leftFor = (time?: string) => `${timeToPercent(time, sheetStart.value, sheetEnd.value)}%`;
-const pointStyle = (time: string | undefined, index: number, total: number) => ({ left: leftFor(time), top: topFor(index, total) });
-const segmentStyle = (start: string | undefined, end: string | undefined, index: number, total: number): Record<string, string> => {
-  if (!start || !currentPage.value) return { display: 'none' };
-  const clipped = clipSegmentToPage(start, end, currentPage.value);
-  if (!clipped) return { display: 'none' };
-  const left = timeToPercent(clipped.start, sheetStart.value, sheetEnd.value);
-  const right = timeToPercent(clipped.end, sheetStart.value, sheetEnd.value);
-  return {
-    left: `${left}%`,
-    top: topFor(index, total),
-    width: `${Math.max(4, right - left)}%`,
-    opacity: String(clipped.continuesFromPrev || clipped.continuesToNext ? 0.92 : 1),
-  };
-};
 const previewSegmentTimes = (event: PointerEvent) => {
   if (!dragState.active || !dragState.source) return null;
   const deltaPercent = ((event.clientX - dragState.startX) / dragState.width) * 100;
@@ -1560,30 +1516,11 @@ const isAbnormal = (row: VitalSign, item: VitalSignDictItem) => {
   if (typeof value !== 'number') return false;
   return (typeof item.lowerLimit === 'number' && value < item.lowerLimit) || (typeof item.upperLimit === 'number' && value > item.upperLimit);
 };
-const chartY = (value: number, item?: VitalSignDictItem) => resolveChartY(value, item?.shortCode);
-const chartPoints = (item: VitalSignDictItem) => visibleVitals.value
-  .map((row) => ({ row, value: row[item.shortCode as keyof VitalSign] }))
-  .filter((entry): entry is { row: VitalSign; value: number } => typeof entry.value === 'number')
-  .map((entry) => ({
-    key: `${entry.row.id ?? entry.row.time}-${item.shortCode}`,
-    row: entry.row,
-    x: Math.min(1000, Math.max(0, timeToPercent(entry.row.time, sheetStart.value, sheetEnd.value) * 10)),
-    y: chartY(entry.value, item),
-  }));
-const chartLine = (item: VitalSignDictItem) => chartPoints(item).map((point) => `${point.x},${point.y}`).join(' ');
-const symbolText = (symbol?: string) => ({ 'triangle-down': '▽', 'triangle-up': '△', circle: '●', 'hollow-circle': '○', diamond: '◇', star: '★', square: '■', text: '•' }[symbol ?? 'text']);
-const markerPath = (item: VitalSignDictItem, x: number, y: number) => {
-  const marker = vitalMarkerShape(item);
-  if (marker.shape === 'triangle-down') return `M ${x - 5} ${y - 4} L ${x + 5} ${y - 4} L ${x} ${y + 6} Z`;
-  if (marker.shape === 'triangle-up') return `M ${x - 5} ${y + 5} L ${x + 5} ${y + 5} L ${x} ${y - 5} Z`;
-  if (marker.shape === 'square') return `M ${x - 5} ${y - 5} H ${x + 5} V ${y + 5} H ${x - 5} Z`;
-  if (marker.shape === 'diamond') return `M ${x} ${y - 6} L ${x + 6} ${y} L ${x} ${y + 6} L ${x - 6} ${y} Z`;
-  if (marker.shape === 'hollow-circle' || marker.shape === 'circle') {
-    return `M ${x} ${y - 5} A 5 5 0 1 1 ${x - 0.01} ${y - 5} Z`;
-  }
-  return `M ${x - 5} ${y} H ${x + 5} M ${x} ${y - 5} V ${y + 5}`;
-};
-const markerFill = (item: VitalSignDictItem) => vitalMarkerShape(item).fill ? (item.chartColor ?? '#2563eb') : '#fff';
+const { chartPoints, chartLine, symbolText, markerPath, markerFill } = useVitalChartDrawing(
+  () => visibleVitals.value,
+  () => sheetStart.value,
+  () => sheetEnd.value,
+);
 
 const eventClock = (event: MouseEvent) => {
   const element = event.currentTarget as HTMLElement;
@@ -1596,6 +1533,7 @@ const eventClock = (event: MouseEvent) => {
   return percentToTime(percent, sheetStart.value, sheetEnd.value);
 };
 const openMenu = (event: MouseEvent, type: MenuType, target: unknown = null) => {
+  pendingDelete.value = false;
   menu.visible = true;
   menu.x = Math.min(event.clientX, window.innerWidth - 260);
   menu.y = Math.min(event.clientY, window.innerHeight - 360);
@@ -1603,7 +1541,7 @@ const openMenu = (event: MouseEvent, type: MenuType, target: unknown = null) => 
   menu.target = target;
   menu.at = eventClock(event);
 };
-const closeMenu = () => { menu.visible = false; };
+const closeMenu = () => { menu.visible = false; pendingDelete.value = false; };
 
 const applyLineDraft = (draft: ReturnType<typeof createMedicationLineDraft> | ReturnType<typeof createFluidLineDraft>) => {
   lineForm.kind = draft.kind;
@@ -1796,15 +1734,20 @@ const continueTarget = () => {
     openFluidEditor({ ...source, id: '', startTime: isoOrClockToClock(source.endTime) || menu.at });
   }
 };
-const deleteTarget = () => {
+const menuTargetKind = (): 'medication' | 'fluid' | 'vital' | 'output' | 'plane' | null => {
+  if (menu.type === 'medication' || menu.type === 'inhaled') return 'medication';
+  if (menu.type === 'plane') return 'plane';
+  if (menu.type === 'infusion' || menu.type === 'autologous' || menu.type === 'transfusion') return 'fluid';
+  if (menu.type === 'vital') return 'vital';
+  if (menu.type === 'output') return 'output';
+  return null;
+};
+const voidTarget = () => {
   if (!hasLineTarget.value) return;
   const target = menu.target as { id?: string };
-  if (!target.id) return;
-  if (menu.type === 'medication' || menu.type === 'inhaled') emit('deleteRecord', 'medication', target.id);
-  if (menu.type === 'plane') emit('deleteRecord', 'plane', target.id);
-  if (menu.type === 'infusion' || menu.type === 'autologous' || menu.type === 'transfusion') emit('deleteRecord', 'fluid', target.id);
-  if (menu.type === 'vital') emit('deleteRecord', 'vital', target.id);
-  if (menu.type === 'output') emit('deleteRecord', 'output', target.id);
+  const kind = menuTargetKind();
+  if (!target.id || !kind) return;
+  emit('voidRecord', kind, target.id);
   closeMenu();
 };
 
@@ -2099,15 +2042,49 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .live-record-card {
+  /* 布局尺寸 */
   --sheet-side-col: 28px;
   --sheet-label-col: 112px;
   --sheet-left-total: 140px;
   --chart-status-row: 28px;
   --chart-scale-gutter: 54px;
+
+  /*
+   * 统一视觉规范（设计令牌）。麻醉记录单是正式医疗文书，配色应专业克制：
+   * 以墨色线框为骨架，仅在“用药/输液/输血/吸入/监测”等业务维度使用低饱和的区分色。
+   * 修改配色或线宽时只需调整此处，打印（彩色 / 黑白）与屏幕共用同一套令牌。
+   */
+  /* 文字与框线 */
+  --sheet-ink: #111827;
+  --sheet-ink-soft: #334155;
+  --sheet-muted: #64748b;
+  --sheet-frame: #111827;
+  --sheet-grid-minor: #94a3b8;
+  --sheet-grid-major: #111827;
+  --sheet-row-line: #aeb8c4;
+  --sheet-label-bg: #f8fafc;
+  /* 线宽 */
+  --sheet-segment-width: 3px;
+  /* 业务维度区分色（线 / 点）*/
+  --sheet-drug-ink: #111827;
+  --sheet-drug-fill: #fef08a;
+  --sheet-iv-fluid: #047857;
+  --sheet-blood: #dc2626;
+  --sheet-inhaled: #7c3aed;
+  --sheet-autologous: #b45309;
+  --sheet-monitor: #165dff;
+  --sheet-abnormal: #dc2626;
+  /* 状态色 */
+  --sheet-active: #2563eb;
+  --sheet-template: #165dff;
+  --sheet-locked: #d97706;
+  --sheet-rescue: #dc2626;
+  --sheet-recent: #00b42a;
+
   position: relative;
-  border: 2px solid #111827;
+  border: 2px solid var(--sheet-frame);
   background: #fff;
-  color: #111827;
+  color: var(--sheet-ink);
   font-family: "SimSun", "Microsoft YaHei", serif;
   overflow-x: hidden;
   overflow-y: visible;
@@ -2116,7 +2093,7 @@ onBeforeUnmount(() => {
 }
 
 .live-record-card.is-rescue {
-  border-color: #dc2626;
+  border-color: var(--sheet-rescue);
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12), 0 18px 48px rgba(15, 23, 42, 0.12);
 }
 
@@ -2487,11 +2464,11 @@ onBeforeUnmount(() => {
   top: 0;
   bottom: 0;
   width: 0;
-  border-left: 1px solid #94a3b8;
+  border-left: 1px solid var(--sheet-grid-minor);
 }
 
 :deep(.print-grid-lines span.major) {
-  border-left-color: #111827;
+  border-left-color: var(--sheet-grid-major);
 }
 
 :deep(.print-row-lines span),
@@ -2499,7 +2476,7 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   height: 0;
-  border-top: 1px solid #aeb8c4;
+  border-top: 1px solid var(--sheet-row-line);
 }
 
 .drug-point,
@@ -2519,20 +2496,20 @@ onBeforeUnmount(() => {
 
 .drug-point {
   padding: 0 4px;
-  border: 1px solid #111827;
-  background: #fef08a;
+  border: 1px solid var(--sheet-drug-ink);
+  background: var(--sheet-drug-fill);
   font-weight: 700;
 }
 
 .drug-point.is-template {
-  border-color: #165dff;
+  border-color: var(--sheet-template);
   background: #dbeafe;
   color: #0f3a8c;
 }
 
 .blood-point,
 .output-point {
-  color: #dc2626;
+  color: var(--sheet-blood);
   font-weight: 700;
 }
 
@@ -2554,7 +2531,7 @@ onBeforeUnmount(() => {
   text-align: center;
   text-overflow: ellipsis;
   background: rgba(255, 255, 255, 0.86);
-  color: #165dff;
+  color: var(--sheet-monitor);
   font-weight: 700;
   line-height: 1;
   pointer-events: auto;
@@ -2562,7 +2539,7 @@ onBeforeUnmount(() => {
 }
 
 .monitor-value.abnormal {
-  color: #dc2626;
+  color: var(--sheet-abnormal);
 }
 
 .line-segment {
@@ -2570,8 +2547,8 @@ onBeforeUnmount(() => {
   z-index: 3;
   transform: translateY(-4px);
   min-width: 24px;
-  border-top: 3px solid #165dff;
-  color: #165dff;
+  border-top: var(--sheet-segment-width) solid var(--sheet-monitor);
+  color: var(--sheet-monitor);
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
@@ -2580,7 +2557,7 @@ onBeforeUnmount(() => {
 }
 
 .line-segment.is-template {
-  border-top-color: #165dff;
+  border-top-color: var(--sheet-template);
   color: #0f3a8c;
 }
 
@@ -2657,28 +2634,28 @@ onBeforeUnmount(() => {
 }
 
 .inhaled-line {
-  border-top-color: #7c3aed;
-  color: #7c3aed;
+  border-top-color: var(--sheet-inhaled);
+  color: var(--sheet-inhaled);
 }
 
 .inhaled-point {
-  color: #7c3aed;
-  border-color: #7c3aed;
+  color: var(--sheet-inhaled);
+  border-color: var(--sheet-inhaled);
 }
 
 .autologous-line {
-  border-top-color: #b45309;
-  color: #b45309;
+  border-top-color: var(--sheet-autologous);
+  color: var(--sheet-autologous);
 }
 
 .fluid-line {
-  border-top-color: #047857;
-  color: #047857;
+  border-top-color: var(--sheet-iv-fluid);
+  color: var(--sheet-iv-fluid);
 }
 
 .blood-line {
-  border-top-color: #dc2626;
-  color: #dc2626;
+  border-top-color: var(--sheet-blood);
+  color: var(--sheet-blood);
 }
 
 .vital-chart {
@@ -2691,64 +2668,8 @@ onBeforeUnmount(() => {
   min-height: 300px;
 }
 
-.chart-legend-panel,
 .chart-area {
   min-height: 300px;
-}
-
-.chart-legend-panel {
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-  gap: 6px;
-  padding: 8px 6px;
-  border-right: 1px solid #111827;
-  background: #f8fafc;
-  font-size: 11px;
-}
-
-.event-legend-pairs {
-  display: grid;
-  gap: 4px;
-}
-
-.legend-pair-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px 8px;
-}
-
-.legend-pair-row span,
-.room-entry-legend span,
-.vital-symbol-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  min-height: 20px;
-  line-height: 1.35;
-  white-space: nowrap;
-}
-
-.legend-pair-row b,
-.room-entry-legend b,
-.vital-symbol-legend b {
-  min-width: 12px;
-  color: #111827;
-  font-weight: 700;
-}
-
-.room-entry-legend {
-  display: grid;
-  gap: 4px;
-  padding: 4px 0;
-  border-top: 1px solid #dbeafe;
-  border-bottom: 1px solid #dbeafe;
-}
-
-.vital-symbol-legend {
-  display: grid;
-  gap: 3px;
-  align-content: start;
-  padding-top: 2px;
 }
 
 .temp-scale-column {
@@ -2820,24 +2741,24 @@ onBeforeUnmount(() => {
 }
 
 .chart-status-symbol.is-active {
-  box-shadow: 0 0 0 2px #2563eb;
+  box-shadow: 0 0 0 2px var(--sheet-active);
   background: #eff6ff;
 }
 
 .chart-status-symbol.is-critical {
-  border-color: #dc2626;
-  color: #dc2626;
+  border-color: var(--sheet-rescue);
+  color: var(--sheet-rescue);
 }
 
 .chart-status-symbol.is-template {
-  border-color: #165dff;
+  border-color: var(--sheet-template);
   background: #e8f3ff;
   color: #0f3a8c;
   box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.12);
 }
 
 .chart-status-symbol.is-recent {
-  border-color: #00b42a;
+  border-color: var(--sheet-recent);
   background: #f0fff4;
   color: #15803d;
   box-shadow: 0 0 0 4px rgba(0, 180, 42, 0.14);
@@ -2967,7 +2888,7 @@ onBeforeUnmount(() => {
 }
 
 .sequence-marker.is-active {
-  box-shadow: 0 0 0 2px #2563eb;
+  box-shadow: 0 0 0 2px var(--sheet-active);
 }
 
 .sequence-marker.orange {
@@ -2993,33 +2914,6 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-.live-context-menu {
-  position: fixed;
-  z-index: 1200;
-  display: grid;
-  min-width: 240px;
-  max-height: 70vh;
-  overflow: auto;
-  padding: 5px;
-  border: 1px solid #cbd5e1;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
-}
-
-.menu-section {
-  display: grid;
-  padding: 4px 0;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.menu-section strong {
-  padding: 4px 10px;
-  color: #475569;
-  font-size: 12px;
-}
-
-.live-context-menu button,
 .live-data-table button {
   border: 0;
   border-radius: 5px;
@@ -3029,13 +2923,12 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.live-context-menu button:hover,
 .live-data-table button:hover {
   background: #e8f3ff;
 }
 
 .danger-menu {
-  color: #dc2626;
+  color: var(--sheet-blood, #dc2626);
 }
 
 .live-modal-body {
@@ -3349,6 +3242,16 @@ onBeforeUnmount(() => {
   color: #b91c1c;
 }
 
+.live-data-table tr.row-voided td {
+  color: #94a3b8;
+  text-decoration: line-through;
+  background: #f8fafc;
+}
+
+.live-data-table tr.row-voided td:last-child {
+  text-decoration: none;
+}
+
 .btn {
   border: 1px solid #cbd5e1;
   border-radius: 4px;
@@ -3369,6 +3272,14 @@ onBeforeUnmount(() => {
     border: 1px solid #111;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
+  }
+
+  /* 避免时间段、趋势图、底部汇总在物理分页处被拦腰截断 */
+  .sheet-ruler,
+  .sheet-band,
+  .vital-chart,
+  .reference-notes {
+    break-inside: avoid;
   }
 
   .is-print-mode .sequence-marker {

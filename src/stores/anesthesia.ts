@@ -45,6 +45,7 @@ import {
   buildRecordSummaryFields,
   runPrintPreflightChecks,
   resolveDefaultMonitorOrder,
+  isoOrClockToClock,
   DEFAULT_HOSPITAL_NAME,
 } from '@/services/anesthesiaRecordEngine';
 import { buildRecordPagination } from '@/services/recordPaginationEngine';
@@ -160,8 +161,8 @@ const initialRecordLocalState = (): RecordLocalState => {
 };
 
 const recalculateOutputs = (item: SurgeryCase) => {
-  const details = item.outputRecords ?? [];
-  if (!details.length) return;
+  const details = (item.outputRecords ?? []).filter((row) => row.status !== 'voided');
+  if (!(item.outputRecords ?? []).length) return;
   item.outputs = {
     urine: details.filter((row) => row.type === '尿量').reduce((sum, row) => sum + (Number(row.volume) || 0), 0),
     bloodLoss: details.filter((row) => row.type === '出血量').reduce((sum, row) => sum + (Number(row.volume) || 0), 0),
@@ -974,6 +975,65 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+    },
+    // 作废/撤销作废：医疗记录不做物理删除，统一以状态标记保留原始数据并留痕。
+    setRecordVoidState(
+      caseId: string,
+      kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane',
+      id: string,
+      voided: boolean,
+      reason = voided ? '右键作废' : '撤销作废',
+    ) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target || target.locked || !id) return;
+      const nextStatus: 'active' | 'voided' = voided ? 'voided' : 'active';
+      const stamp = (entry: { status?: string; voidReason?: string; voidedAt?: string }, label: string, name: string) => {
+        entry.status = nextStatus;
+        entry.voidReason = voided ? reason : undefined;
+        entry.voidedAt = voided ? dayjs().toISOString() : undefined;
+        this.recordFieldChange(caseId, label, name, voided ? '已作废' : '已撤销作废', reason);
+      };
+      if (kind === 'medication') {
+        const row = target.medications.find((item) => item.id === id);
+        if (!row) return;
+        stamp(row, '用药记录', `${row.drug}${row.dose ?? ''}${row.unit ?? ''}`);
+      } else if (kind === 'fluid') {
+        const row = target.fluids.find((item) => item.id === id);
+        if (!row) return;
+        stamp(row, row.category === '血液制品' ? '输血记录' : '输液记录', `${row.name}${row.volume}${row.unit ?? ''}`);
+      } else if (kind === 'vital') {
+        const row = target.vitals.find((item) => item.id === id);
+        if (!row) return;
+        stamp(row, '生命体征', isoOrClockToClock(row.time));
+      } else if (kind === 'output') {
+        const row = (target.outputRecords ?? []).find((item) => item.id === id);
+        if (!row) return;
+        stamp(row, '出入量', `${row.type}${row.volume}ml`);
+        recalculateOutputs(target);
+      } else if (kind === 'plane') {
+        const row = (target.anesthesiaPlanes ?? []).find((item) => item.id === id);
+        if (!row) return;
+        stamp(row, '麻醉平面', `${row.level}${row.direction}`);
+      }
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    voidRecord(
+      caseId: string,
+      kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane',
+      id: string,
+      reason = '右键作废',
+    ) {
+      this.setRecordVoidState(caseId, kind, id, true, reason);
+    },
+    restoreRecord(
+      caseId: string,
+      kind: 'medication' | 'fluid' | 'vital' | 'output' | 'plane',
+      id: string,
+      reason = '撤销作废',
+    ) {
+      this.setRecordVoidState(caseId, kind, id, false, reason);
     },
     setLayoutWarnings(caseId: string, warnings: LayoutWarning[]) {
       const target = this.cases.find((item) => item.id === caseId);
