@@ -810,6 +810,7 @@ import { buildRecordPagination, clipSegmentToPage, isSegmentCrossingPage, isTime
 import { buildMonitorLayoutObjects, mergeLayoutWarnings, resolveLayoutCollisions } from '@/services/recordLayoutEngine';
 import { buildMilestoneStatusEvents } from '@/services/methodTimelineEngine';
 import { buildEventLegendPairs, buildRoomLegendItems, resolveEventSymbol } from '@/config/recordEventSymbols';
+import { useRecordCoordinates } from '@/components/anesthesia/record/sheet/useRecordCoordinates';
 
 const GridLines = defineComponent({
   name: 'GridLines',
@@ -1062,37 +1063,28 @@ const vitalDragState = reactive<{
   top: 0,
 });
 
-const sheetStart = computed(() => currentPage.value?.pageStartTime ?? pagination.value.axisStart);
-const sheetEnd = computed(() => currentPage.value?.pageEndTime ?? pagination.value.axisEnd);
-const pagination = computed(() => {
-  const intervals = resolveTimeAxisIntervals(props.record);
-  return buildRecordPagination(props.record, {
-    minorInterval: intervals.minorInterval,
-    majorInterval: intervals.majorInterval,
-  });
-});
-const currentPage = computed(() => {
-  const pages = props.record.recordDocument?.timeAxisPages?.length
-    ? props.record.recordDocument.timeAxisPages
-    : pagination.value.pages;
-  const fallback = pages[0] ?? pagination.value.pages[0];
-  return pages.find((item) => item.pageNo === props.pageNo) ?? fallback;
-});
-const isLastPage = computed(() => currentPage.value ? currentPage.value.pageNo === currentPage.value.pageCount : true);
+const {
+  pagination,
+  currentPage,
+  isLastPage,
+  sheetStart,
+  sheetEnd,
+  timeScale,
+  gridBackgroundStyle,
+  bandGrid,
+  chartGrid,
+  leftFor,
+  topFor,
+  pointStyle,
+  segmentStyle,
+} = useRecordCoordinates(() => props.record, () => props.pageNo);
 const displaySnapshot = computed(() => props.record.recordSnapshot ?? buildRecordSnapshot(props.record, props.record.recordDocument?.hospitalName));
 const displaySummary = computed(() => buildRecordSummaryFields(props.record));
 const labResults = computed(() => (props.record.labResults ?? []).filter(
   (row) => !currentPage.value || isTimeOnPage(row.resultTime, currentPage.value),
 ));
-const timeScale = computed(() => {
-  const intervals = resolveTimeAxisIntervals(props.record);
-  return buildLiveTimeScale(sheetStart.value, sheetEnd.value, intervals.minorInterval, intervals.majorInterval);
-});
 const isPacuRecord = computed(() => props.record.recordDocument?.recordType === 'pacu');
 const sheetAnesthesiaMethod = computed(() => props.appliedMethodLabels.length ? props.appliedMethodLabels.join(' + ') : props.record.anesthesiaMethod);
-const gridBackgroundStyle = computed(() => ({ '--minor-count': Math.max(1, timeScale.value.minorTicks.length - 1) }));
-const bandGrid = (rows: number) => buildRecordBandGrid(timeScale.value, rows);
-const chartGrid = computed(() => buildRecordBandGrid(timeScale.value, 8));
 const professionalFieldKey = (group: string, label: string) => `${group}::${label}`;
 const professionalFieldGroups = computed(() => {
   const modules = props.methodKeys.length
@@ -1521,22 +1513,6 @@ const medicationDoseText = (row: MedicationRecord) => {
 };
 const fluidTimeText = (row: FluidRecord) => `${isoOrClockToClock(row.startTime ?? row.time) || '-'} - ${isoOrClockToClock(row.endTime) || '进行中'}`;
 const planeDirectionText = (direction?: AnesthesiaPlaneRecord['direction']) => direction === 'up' ? '↑' : direction === 'fixed' ? '－' : '↓';
-const topFor = (index: number, total: number) => `${((index + 0.5) / Math.max(total, 1)) * 100}%`;
-const leftFor = (time?: string) => `${timeToPercent(time, sheetStart.value, sheetEnd.value)}%`;
-const pointStyle = (time: string | undefined, index: number, total: number) => ({ left: leftFor(time), top: topFor(index, total) });
-const segmentStyle = (start: string | undefined, end: string | undefined, index: number, total: number): Record<string, string> => {
-  if (!start || !currentPage.value) return { display: 'none' };
-  const clipped = clipSegmentToPage(start, end, currentPage.value);
-  if (!clipped) return { display: 'none' };
-  const left = timeToPercent(clipped.start, sheetStart.value, sheetEnd.value);
-  const right = timeToPercent(clipped.end, sheetStart.value, sheetEnd.value);
-  return {
-    left: `${left}%`,
-    top: topFor(index, total),
-    width: `${Math.max(4, right - left)}%`,
-    opacity: String(clipped.continuesFromPrev || clipped.continuesToNext ? 0.92 : 1),
-  };
-};
 const previewSegmentTimes = (event: PointerEvent) => {
   if (!dragState.active || !dragState.source) return null;
   const deltaPercent = ((event.clientX - dragState.startX) / dragState.width) * 100;
