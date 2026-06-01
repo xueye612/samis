@@ -25,6 +25,26 @@ describe('navigation menu structure', () => {
     );
   });
 
+  it('groups surgery second-level entries by workflow responsibility', () => {
+    expect(secondaryMenus.surgery.map((item) => item.group)).toEqual([
+      'schedule',
+      'schedule',
+      'schedule',
+      'schedule',
+      'schedule',
+      'schedule',
+      'record',
+      'record',
+      'record',
+      'record',
+      'record',
+      'handover',
+      'handover',
+      'special',
+      'special',
+    ]);
+  });
+
   it('exposes audit logs clearly under system management', () => {
     expect(secondaryMenus.system).toEqual(
       expect.arrayContaining([

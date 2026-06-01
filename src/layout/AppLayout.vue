@@ -103,17 +103,20 @@
       </a-layout-header>
       <div v-if="secondaryNavItems.length" class="app-subnav">
         <div class="app-subnav-scroll" role="menubar" :aria-label="`${moduleLabel}二级导航`">
-          <button
-            v-for="item in secondaryNavItems"
-            :key="item.key"
-            class="subnav-item"
-            :class="{ active: item.key === activeSecondaryKey }"
-            type="button"
-            role="menuitem"
-            @click="goSecondary(item.key)"
-          >
-            {{ item.label }}
-          </button>
+          <template v-for="group in secondaryNavGroups" :key="group.key">
+            <span v-if="group.label" class="subnav-group-label">{{ group.label }}</span>
+            <button
+              v-for="item in group.items"
+              :key="item.key"
+              class="subnav-item"
+              :class="{ active: item.key === activeSecondaryKey }"
+              type="button"
+              role="menuitem"
+              @click="goSecondary(item.key)"
+            >
+              {{ item.label }}
+            </button>
+          </template>
         </div>
       </div>
       <a-layout-content class="app-content">
@@ -134,7 +137,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import NavIconBadge from '@/components/NavIconBadge.vue';
 import { menuIconFor } from '@/config/menuTheme';
-import { getPrimaryMenuLabel, matchSecondaryKey, primaryMenuMap, primaryMenus, secondaryMenus } from '@/config/navigation';
+import { getPrimaryMenuLabel, matchSecondaryKey, primaryMenuMap, primaryMenus, secondaryMenuGroupLabels, secondaryMenus } from '@/config/navigation';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
 const route = useRoute();
@@ -158,6 +161,21 @@ const activeMenu = computed(() => String(route.meta.menu ?? 'workbench'));
 const moduleLabel = computed(() => getPrimaryMenuLabel(activeMenu.value));
 const moduleDescription = computed(() => primaryMenuMap[activeMenu.value]?.description ?? '手术麻醉数字化管理');
 const secondaryNavItems = computed(() => secondaryMenus[activeMenu.value] ?? []);
+const secondaryNavGroups = computed(() => {
+  const items = secondaryNavItems.value;
+  if (activeMenu.value !== 'surgery') return [{ key: activeMenu.value, label: '', items }];
+  const groups: Array<{ key: string; label: string; items: typeof items }> = [];
+  items.forEach((item) => {
+    const key = item.group ?? 'default';
+    let group = groups.find((entry) => entry.key === key);
+    if (!group) {
+      group = { key, label: item.group ? secondaryMenuGroupLabels[item.group] : '', items: [] };
+      groups.push(group);
+    }
+    group.items.push(item);
+  });
+  return groups;
+});
 const activeSecondaryKey = computed(() => matchSecondaryKey(route.path, activeMenu.value) ?? '');
 const recordFocusMode = computed(() => route.name === 'record');
 const doctorCases = computed(() => store.myTodayCases);
@@ -195,6 +213,9 @@ const timeRange = (item: { scheduledStart?: string; plannedStart: string; schedu
 .header-subtitle { margin: 3px 0 0; color: var(--text-secondary); font-size: var(--font-size-xs); }
 .header-actions { flex-shrink: 0; }
 .header-search { width: 180px; cursor: pointer; }
+.subnav-group-label { display: inline-flex; align-items: center; align-self: stretch; margin-left: 8px; padding: 0 4px; color: var(--text-tertiary); font-size: var(--font-size-xs); font-weight: 700; white-space: nowrap; }
+.subnav-group-label:first-child { margin-left: 0; }
+.subnav-group-label::after { content: ''; width: 1px; height: 14px; margin-left: 8px; background: var(--border); }
 .search-popover { width: 300px; }
 .search-results { margin-top: 8px; max-height: 240px; overflow: auto; }
 .search-result-item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 9px 10px; border: 1px solid transparent; background: transparent; text-align: left; cursor: pointer; border-radius: var(--radius-sm); }
