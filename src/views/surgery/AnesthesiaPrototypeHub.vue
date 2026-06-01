@@ -593,6 +593,19 @@ const exportPrototype = () => {
 }
 
 @media print {
+  :global(.app-sider),
+  :global(.app-header),
+  :global(.app-subnav),
+  :global(.app-footer),
+  :global(.prototype-page .page-toolbar),
+  :global(.prototype-page button) {
+    display: none !important;
+  }
+
+  :global(.app-content) {
+    padding: 0;
+  }
+
   .prototype-aside,
   .case-selector,
   .prototype-tabs-card :deep(.arco-tabs-nav) {

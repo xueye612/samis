@@ -34,6 +34,8 @@
   --surface-muted: var(--color-neutral-50);
   --surface-raised: #ffffff;
   --surface-blue: #f6faff;
+  --surface-app-top: #f8fbff;
+  --surface-app-side: #fbfdff;
   --border: var(--color-neutral-200);
   --border-strong: var(--color-neutral-300);
   --primary: var(--color-brand-600);

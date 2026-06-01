@@ -101,6 +101,8 @@ interface RowItem {
   category: FluidRecord['category'];
   timeText: string;
   name: string;
+  volume: number;
+  unit: string;
   amountText: string;
   bloodType?: string;
   rh?: string;
@@ -123,6 +125,8 @@ const rows = computed<RowItem[]>(() => store.cases.flatMap((item) => item.fluids
   category: row.category,
   timeText: fluidTime(row),
   name: row.name,
+  volume: row.volume,
+  unit: row.unit ?? 'ml',
   amountText: `${row.volume}${row.unit ?? 'ml'}`,
   bloodType: row.bloodType,
   rh: row.rh,
@@ -138,8 +142,8 @@ const filteredRows = computed(() => {
   });
 });
 const fluidVolumeTotal = computed(() => rows.value
-  .filter((item) => item.category !== '血液制品')
-  .reduce((sum, item) => sum + (Number.parseFloat(item.amountText) || 0), 0));
+  .filter((item) => item.category !== '血液制品' && item.unit === 'ml')
+  .reduce((sum, item) => sum + (Number(item.volume) || 0), 0));
 const bloodProductCount = computed(() => rows.value.filter((item) => item.category === '血液制品').length);
 const uncheckedBloodProductCount = computed(() => rows.value.filter((item) => item.category === '血液制品' && !item.doubleCheck).length);
 const uncheckedBloodRows = computed(() => rows.value.filter((item) => item.category === '血液制品' && !item.doubleCheck).slice(0, 6));
