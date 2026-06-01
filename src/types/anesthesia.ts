@@ -34,6 +34,9 @@ export interface VitalSign {
   rescue?: boolean;
   abnormalHandled?: Record<string, string>;
   monitorExtras?: Record<string, string | number>;
+  status?: 'active' | 'voided';
+  voidReason?: string;
+  voidedAt?: string;
 }
 
 export interface AnesthesiaEvent {
@@ -56,6 +59,9 @@ export interface AnesthesiaPlaneRecord {
   level: string;
   direction: 'up' | 'down' | 'fixed';
   remark?: string;
+  status?: 'active' | 'voided';
+  voidReason?: string;
+  voidedAt?: string;
 }
 
 export interface RescueRecord {
@@ -95,6 +101,7 @@ export interface MedicationRecord {
   rowIndex?: number;
   status?: 'active' | 'paused' | 'voided';
   voidReason?: string;
+  voidedAt?: string;
 }
 
 export interface FluidRecord {
@@ -115,6 +122,9 @@ export interface FluidRecord {
   anesthesiaConfirm?: string;
   circulatingConfirm?: string;
   doubleCheck?: boolean;
+  status?: 'active' | 'voided';
+  voidReason?: string;
+  voidedAt?: string;
 }
 
 export interface OutputRecord {
@@ -129,6 +139,9 @@ export interface OutputDetailRecord {
   type: '尿量' | '出血量' | '引流量' | '其他';
   volume: number;
   remark?: string;
+  status?: 'active' | 'voided';
+  voidReason?: string;
+  voidedAt?: string;
 }
 
 export interface PreVisit {

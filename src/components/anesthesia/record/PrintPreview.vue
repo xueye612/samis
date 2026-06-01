@@ -26,6 +26,8 @@ const props = defineProps<{
   templateImpact?: TemplateImpact;
   methodKeys?: AnesthesiaMethodKey[];
   showAnesthesiaPlane?: boolean;
+  sectionVisibility?: import('@/config/recordSections').RecordSectionVisibility;
+  includeProfessionalAppendix?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -80,6 +82,8 @@ const hasBlockingIssue = computed(() =>
         :page-no="pageNo"
         :print-mode="true"
         :show-anesthesia-plane="showAnesthesiaPlane"
+        :section-visibility="sectionVisibility"
+        :include-professional-appendix="includeProfessionalAppendix"
         :applied-template-name="appliedTemplateName"
         :applied-method-labels="appliedMethodLabels"
         :applied-modules="appliedModules"

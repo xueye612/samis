@@ -241,6 +241,8 @@ watch(() => props.highlightIndexes, (indexes) => {
   color: #111827;
   font-size: 11px;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .numbered-note-list li + li {
