@@ -66,7 +66,7 @@ describe('recordPaginationEngine', () => {
     const record = baseCase();
     record.surgeryEnd = '2026-05-30T16:10:00';
     const { pages, axisStart } = buildRecordPagination(record, { pageDurationMinutes: 210 });
-    expect(axisStart).toBe('07:30');
+    expect(axisStart).toBe('07:52');
     expect(pages.length).toBeGreaterThan(1);
     expect(pages[1].pageStartTime).toBe(pages[0].pageEndTime);
   });
@@ -85,7 +85,7 @@ describe('recordPaginationEngine', () => {
     expect(isTimeOnPage('12:00', pages[0])).toBe(false);
   });
 
-  it('uses room in time for axis start', () => {
-    expect(resolveRecordAxisStart(baseCase())).toBe('07:30');
+  it('uses the exact room in time for axis start', () => {
+    expect(resolveRecordAxisStart(baseCase())).toBe('07:52');
   });
 });

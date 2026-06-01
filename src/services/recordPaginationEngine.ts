@@ -5,7 +5,6 @@ import {
   collectRecordTimes,
   isoOrClockToClock,
   minutesToClock,
-  roundAxisStartTime,
 } from '@/services/anesthesiaRecordEngine';
 import type { SurgeryCase } from '@/types/anesthesia';
 
@@ -21,7 +20,7 @@ export interface PaginationOptions {
 
 export function resolveRecordAxisStart(record: SurgeryCase): string {
   const raw = isoOrClockToClock(record.roomInTime ?? record.anesthesiaStart ?? record.actualStart ?? record.plannedStart) || '08:00';
-  return roundAxisStartTime(raw);
+  return raw;
 }
 
 export function resolveRecordAxisEnd(record: SurgeryCase, axisStart: string, options: PaginationOptions = {}): string {

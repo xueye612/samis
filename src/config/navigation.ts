@@ -13,13 +13,13 @@ export interface SecondaryMenuItem {
   label: string;
   path: string;
   icon?: AppIconName;
-  group?: 'schedule' | 'record' | 'handover' | 'special';
+  group?: 'schedule' | 'preparation' | 'record' | 'monitoring' | 'handover' | 'special';
 }
 
 export const primaryMenus: PrimaryMenuItem[] = [
   { key: 'workbench', label: '工作台', icon: 'IconDashboard', defaultPath: '/workbench/overview', description: '今日手术与待办' },
   { key: 'preoperative', label: '术前管理', icon: 'IconCompass', defaultPath: '/preoperative/requests', description: '访视与核查' },
-  { key: 'surgery', label: '手术麻醉', icon: 'IconExperiment', defaultPath: '/surgery/schedule', description: '排班与记录' },
+  { key: 'surgery', label: '手术麻醉', icon: 'IconExperiment', defaultPath: '/surgery/schedule', description: '排班、术前、术中与交接' },
   { key: 'pacu', label: 'PACU恢复室', icon: 'IconHeart', defaultPath: '/pacu/list', description: '恢复与转出' },
   { key: 'postoperative', label: '术后管理', icon: 'IconBookmark', defaultPath: '/postoperative/analgesia', description: '镇痛与随访' },
   { key: 'quality', label: '麻醉质控', icon: 'IconBarChart', defaultPath: '/quality/overview', description: '指标与缺陷' },
@@ -47,14 +47,15 @@ export const secondaryMenus: Record<string, SecondaryMenuItem[]> = {
     { key: 'schedule', label: '手术排班', path: '/surgery/schedule', icon: 'IconCalendar', group: 'schedule' },
     { key: 'duty', label: '值班排班', path: '/surgery/duty', icon: 'IconList', group: 'schedule' },
     { key: 'detail', label: '患者麻醉详情', path: '/surgery/detail', icon: 'IconList', group: 'schedule' },
-    { key: 'prototype', label: '原型优化框架', path: '/surgery/prototype', icon: 'IconDashboard', group: 'schedule' },
-    { key: 'preVisit', label: '术前访视', path: '/surgery/pre-visit', icon: 'IconFile', group: 'schedule' },
-    { key: 'plan', label: '麻醉计划', path: '/surgery/plan', icon: 'IconFile', group: 'schedule' },
+    { key: 'preVisit', label: '术前访视', path: '/surgery/pre-visit', icon: 'IconFile', group: 'preparation' },
+    { key: 'plan', label: '麻醉计划', path: '/surgery/plan', icon: 'IconFile', group: 'preparation' },
     { key: 'record', label: '麻醉记录单', path: '/surgery/record', icon: 'IconExperiment', group: 'record' },
     { key: 'medications', label: '术中用药', path: '/surgery/medications', icon: 'IconExperiment', group: 'record' },
     { key: 'fluids', label: '输液输血', path: '/surgery/fluids', icon: 'IconSwap', group: 'record' },
     { key: 'events', label: '特殊事件/抢救', path: '/surgery/events', icon: 'IconExclamationCircle', group: 'record' },
-    { key: 'intraopMonitor', label: '术中实时监测', path: '/monitor/dashboard', icon: 'IconDesktop', group: 'record' },
+    { key: 'intraopMonitor', label: '术中实时监测', path: '/monitor/dashboard', icon: 'IconDesktop', group: 'monitoring' },
+    { key: 'monitorDevices', label: '设备数据采集', path: '/monitor/devices', icon: 'IconDesktop', group: 'monitoring' },
+    { key: 'monitorAlerts', label: '实时告警', path: '/monitor/alerts', icon: 'IconExclamationCircle', group: 'monitoring' },
     { key: 'handover', label: '麻醉交班', path: '/surgery/handover', icon: 'IconSwap', group: 'handover' },
     { key: 'summary', label: '麻醉小结', path: '/surgery/summary', icon: 'IconFile', group: 'handover' },
     { key: 'nonOr', label: '非手术室麻醉', path: '/special/non-or', icon: 'IconExperiment', group: 'special' },
@@ -109,9 +110,11 @@ export const secondaryMenus: Record<string, SecondaryMenuItem[]> = {
 };
 
 export const secondaryMenuGroupLabels: Record<NonNullable<SecondaryMenuItem['group']>, string> = {
-  schedule: '排班/计划',
+  schedule: '排班患者',
+  preparation: '术前准备',
   record: '术中记录',
-  handover: '术后交接',
+  monitoring: '监测设备',
+  handover: '交接小结',
   special: '专项麻醉',
 };
 

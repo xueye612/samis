@@ -224,6 +224,16 @@ describe('anesthesiaRecordMethodEngine', () => {
     expect(getStageQuickEvents('术中', ['nerveBlock']).map((item) => item.name)).toEqual(expect.arrayContaining(['阻滞评估']));
   });
 
+  it('includes inhalation quick events for general anesthesia workflow', () => {
+    const intraopNames = getStageQuickEvents('术中', ['general']).map((item) => item.name);
+    const inductionNames = getStageQuickEvents('诱导期', ['general']).map((item) => item.name);
+    const recoveryNames = getStageQuickEvents('苏醒期', ['general']).map((item) => item.name);
+
+    expect(intraopNames).toEqual(expect.arrayContaining(['调整浓度']));
+    expect(inductionNames).toEqual(expect.arrayContaining(['开始吸入']));
+    expect(recoveryNames).toEqual(expect.arrayContaining(['停止吸入']));
+  });
+
   it('builds completion gaps from selected methods, events, and confirmed landing items', () => {
     const generalCase = baseCase('全身麻醉');
     generalCase.events = [{ ...buildQuickEventPayload('插管', generalCase, '2026-05-27T08:15:00.000Z'), id: 'evt-intubation' }];

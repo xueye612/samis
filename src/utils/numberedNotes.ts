@@ -93,9 +93,11 @@ export function upsertTimedKeyOperationLine(
 ): string {
   const lines = parseNumberedNoteLines(notes);
   const content = `${clock} ${label}`;
-  const existingIndex = lines.findIndex(
-    (line) => (line.displayContent || line.content).includes(label) || line.content.includes(label),
-  );
+  const normalizedLabel = label.trim();
+  const existingIndex = lines.findIndex((line) => {
+    const existingLabel = (line.displayContent || line.content).trim();
+    return existingLabel === normalizedLabel || existingLabel.includes(normalizedLabel) || normalizedLabel.includes(existingLabel);
+  });
   if (existingIndex >= 0) {
     const existing = lines[existingIndex];
     lines[existingIndex] = {
@@ -115,5 +117,14 @@ export function upsertTimedKeyOperationLine(
       raw: `${nextIndex}. ${content}`,
     });
   }
-  return lines.map((line) => `${line.index}. ${line.content}`).join('\n');
+  const seen = new Set<string>();
+  return lines
+    .filter((line) => {
+      const key = (line.displayContent || line.content).trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((line, index) => `${index + 1}. ${line.content}`)
+    .join('\n');
 }

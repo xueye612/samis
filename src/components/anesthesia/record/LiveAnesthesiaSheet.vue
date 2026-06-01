@@ -49,7 +49,7 @@
 
     <div v-if="record.printedAt" class="sheet-print-watermark">已打印 {{ formatDate(record.printedAt) }}</div>
 
-    <RecordTimeAxis :time-scale="timeScale" :grid="bandGrid(1)" :page="currentPage" />
+    <RecordTimeAxis :time-scale="timeScale" :grid="bandGrid(1)" />
 
     <div v-if="!isPacuRecord" class="sheet-band medication-band" :style="{ '--rows': medicationRowCount }">
       <div class="band-side">麻醉用药</div>
@@ -263,15 +263,6 @@
           :reference-legend-items="referenceLegendItems"
         />
         <div ref="chartAreaRef" class="chart-area" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'chart')">
-          <div class="temp-scale-column" aria-hidden="true">
-            <span
-              v-for="tick in tempScaleTicks"
-              :key="`temp-${tick.value}`"
-              class="temp-scale-tick"
-              :style="{ top: `${tick.top}%` }"
-            >{{ tick.value }}</span>
-            <em class="temp-scale-label">体温</em>
-          </div>
           <div class="chart-status-overlay">
             <button
               v-for="event in statusEvents"
@@ -286,9 +277,15 @@
             >{{ event.symbol }}</button>
           </div>
           <div class="chart-scale">
+            <span
+              v-for="tick in tempScaleTicks"
+              :key="`temp-${tick.value}`"
+              class="temp-scale-tick"
+              :style="{ top: `${tick.top}%` }"
+            >{{ tick.value }}</span>
             <span v-for="tick in chartTicks" :key="tick.value" :style="{ top: `${tick.top}%` }">{{ tick.value }}</span>
             <em v-for="tick in respiratoryTicks" :key="`rr-${tick.value}`" :style="{ top: `${tick.top}%` }">{{ tick.value }}</em>
-            <small>mmHg</small>
+            <small>体温 / mmHg</small>
           </div>
           <GridLines :grid="chartGrid" chart />
           <svg viewBox="0 0 1000 300" preserveAspectRatio="none">
@@ -690,7 +687,7 @@
           <table v-else-if="activeDataList === 'autologous'" class="live-data-table">
             <thead><tr><th>时间</th><th>名称</th><th>容量</th><th>执行人</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="row in record.fluids.filter((item) => isAutologousFluidCategory(item.category))" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openFluidEditor(row)">
+              <tr v-for="row in record.fluids.filter((item) => isAutologousFluidCategory(item.category, item.name))" :key="row.id" :class="{ 'row-voided': row.status === 'voided' }" @dblclick="openFluidEditor(row)">
                 <td>{{ fluidTimeText(row) }}</td><td>{{ row.name }}</td><td>{{ row.volume }}{{ row.unit ?? 'ml' }}</td><td>{{ row.executor || '-' }}</td>
                 <td><button @click="openFluidEditor(row)">编辑</button><button v-if="row.status === 'voided'" :disabled="readOnly" @click="emit('restoreRecord', 'fluid', row.id)">撤销</button><button v-else class="danger-menu" :disabled="readOnly" @click="emit('voidRecord', 'fluid', row.id)">作废</button></td>
               </tr>
@@ -782,6 +779,8 @@ import {
   resolveTimeAxisIntervals,
   resolveDefaultMonitorOrder,
   isInhaledMedication,
+  hasInhaledEventHint,
+  hasInhaledMethodHint,
   isAutologousFluidCategory,
   isBloodProductCategory,
   isInfusionFluidCategory,
@@ -886,6 +885,7 @@ const emit = defineEmits<{
   saveSummaryField: [patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryFields>];
   saveSummaryNotes: [patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryNotes>];
   stopMedicationPump: [medicationId: string];
+  sectionVisibilityReason: [payload: { section: 'inhaled' | 'autologous'; visible: boolean; reason: string }];
 }>();
 
 const activeTimelineKey = ref('');
@@ -1114,7 +1114,7 @@ const chartTicks = computed(() => [220, 200, 180, 160, 140, 120, 100, 80, 60, 40
 })));
 const respiratoryTicks = computed(() => [26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2].map((value) => ({ value, top: (chartYWithPadding(value, { min: 2, max: 26, height: 300, padding: 18 }) / 300) * 100 })));
 const infusionCatalog = computed(() => props.fluids.filter((item) => item.enabled && isInfusionFluidCategory(item.subCategory)));
-const autologousCatalog = computed(() => props.fluids.filter((item) => item.enabled && item.subCategory === '自体血回输'));
+const autologousCatalog = computed(() => props.fluids.filter((item) => item.enabled && isAutologousFluidCategory(item.subCategory, item.name)));
 const bloodCatalog = computed(() => props.fluids.filter((item) => item.enabled && item.subCategory === '血液制品'));
 const inhaledDrugCatalog = computed(() => props.drugs.filter((item) => item.enabled && item.defaultRoute?.includes('吸入')));
 const ivCommonDrugs = computed(() => props.drugs.filter((item) => item.enabled && item.common && !item.defaultRoute?.includes('吸入')).slice(0, 8));
@@ -1123,12 +1123,22 @@ const commonDrugs = ivCommonDrugs;
 const otherDrugs = ivOtherDrugs;
 const fluidCatalogForForm = computed(() => {
   if (lineForm.kind === 'transfusion') return bloodCatalog.value;
-  if (lineForm.category === '自体血回输') return autologousCatalog.value;
+  if (isAutologousFluidCategory(lineForm.category)) return autologousCatalog.value;
   return infusionCatalog.value;
 });
+const hasInhaledMethodSignal = computed(() => hasInhaledMethodHint([
+  props.record.anesthesiaMethod,
+  ...props.methodLabels,
+  ...props.appliedMethodLabels,
+]));
+const hasInhaledEventSignal = computed(() => hasInhaledEventHint(props.record.events.map((item) => item.type)));
 const showInhaledBand = computed(() => resolveSectionVisible(
   props.sectionVisibility.inhaled,
-  !isPacuRecord.value && (inhaledMedicationRows.value.length > 0 || props.methodKeys.includes('general')),
+  !isPacuRecord.value && (
+    inhaledMedicationRows.value.length > 0
+    || hasInhaledMethodSignal.value
+    || hasInhaledEventSignal.value
+  ),
 ));
 const showAutologousBand = computed(() => resolveSectionVisible(
   props.sectionVisibility.autologous,
@@ -1269,7 +1279,7 @@ const infusionRows = computed(() => props.record.fluids.filter((item) => isInfus
   index,
   source: item,
 })));
-const autologousRows = computed(() => props.record.fluids.filter((item) => isAutologousFluidCategory(item.category) && item.status !== 'voided').map((item, index) => ({
+const autologousRows = computed(() => props.record.fluids.filter((item) => isAutologousFluidCategory(item.category, item.name) && item.status !== 'voided').map((item, index) => ({
   key: item.id,
   label: item.name,
   amount: `${item.volume}${item.unit ?? 'ml'}`,
@@ -1290,14 +1300,40 @@ const transfusionRows = computed(() => props.record.fluids.filter((item) => isBl
     source: item,
   };
 }));
+const inhaledVisibilityReason = computed(() => {
+  if (isPacuRecord.value) return 'PACU 页面不显示吸入麻醉带';
+  if (inhaledMedicationRows.value.length > 0) return '已存在吸入麻醉药记录';
+  if (hasInhaledEventSignal.value) return '已记录吸入相关事件';
+  if (hasInhaledMethodSignal.value) return '麻醉方式包含吸入相关子类型';
+  return '无吸入相关方法/事件/药物记录';
+});
+
+const autologousVisibilityReason = computed(() => {
+  if (isPacuRecord.value) return 'PACU 页面不显示自体血带';
+  if (autologousRows.value.length > 0) return '已存在自体血/回收血记录';
+  if (props.record.autologousBlood) return '病例标记了自体血回输';
+  return '无自体血相关标记和记录';
+});
+
+const sectionReasonSignature = ref<{ inhaled: string; autologous: string }>({ inhaled: '', autologous: '' });
+
+watch([showInhaledBand, inhaledVisibilityReason], ([visible, reason]) => {
+  const signature = `${visible ? 1 : 0}|${reason}`;
+  if (sectionReasonSignature.value.inhaled === signature) return;
+  sectionReasonSignature.value.inhaled = signature;
+  emit('sectionVisibilityReason', { section: 'inhaled', visible, reason });
+}, { immediate: true });
+
+watch([showAutologousBand, autologousVisibilityReason], ([visible, reason]) => {
+  const signature = `${visible ? 1 : 0}|${reason}`;
+  if (sectionReasonSignature.value.autologous === signature) return;
+  sectionReasonSignature.value.autologous = signature;
+  emit('sectionVisibilityReason', { section: 'autologous', visible, reason });
+}, { immediate: true });
+
 const outputRows = computed(() => {
-  const records = props.record.outputRecords?.length
-    ? props.record.outputRecords.filter((row) => row.status !== 'voided')
-    : [
-      { id: 'summary-urine', time: props.record.surgeryEnd ?? props.record.leaveRoomTime ?? props.record.plannedStart, type: '尿量' as const, volume: props.record.outputs.urine },
-      { id: 'summary-blood', time: props.record.surgeryEnd ?? props.record.leaveRoomTime ?? props.record.plannedStart, type: '出血量' as const, volume: props.record.outputs.bloodLoss },
-      { id: 'summary-drainage', time: props.record.surgeryEnd ?? props.record.leaveRoomTime ?? props.record.plannedStart, type: '引流量' as const, volume: props.record.outputs.drainage },
-    ];
+  const records = (props.record.outputRecords ?? [])
+    .filter((row) => row.status !== 'voided' && (!currentPage.value || isTimeOnPage(row.time, currentPage.value)));
   const indexByType: Record<OutputDetailRecord['type'], number> = { 尿量: 0, 出血量: 1, 引流量: 2, 其他: 3 };
   return records.map((row) => ({
     id: row.id,
@@ -1453,7 +1489,7 @@ const isSequenceMarkerActive = (marker: { noteKey: 'specialMeds' | 'keyOperation
   highlightedSequence.value?.noteKey === marker.noteKey && highlightedSequence.value.index === marker.number
 );
 const highlightSequenceMarker = (marker: { noteKey: 'specialMeds' | 'keyOperations'; number: number }) => {
-  focusSequenceMarker(marker.noteKey, marker.number);
+  highlightedSequence.value = { noteKey: marker.noteKey, index: marker.number };
 };
 const focusSequenceMarker = (noteKey: 'specialMeds' | 'keyOperations', index: number) => {
   if (highlightedSequence.value?.noteKey === noteKey && highlightedSequence.value.index === index) {
@@ -2043,11 +2079,12 @@ onBeforeUnmount(() => {
 <style scoped>
 .live-record-card {
   /* 布局尺寸 */
-  --sheet-side-col: 28px;
-  --sheet-label-col: 112px;
-  --sheet-left-total: 140px;
-  --chart-status-row: 28px;
-  --chart-scale-gutter: 54px;
+  --sheet-side-col: 24px;
+  --sheet-label-col: 96px;
+  --sheet-left-total: 120px;
+  --chart-status-row: 24px;
+  --chart-scale-gutter: 62px;
+  --chart-plot-offset: var(--chart-scale-gutter);
 
   /*
    * 统一视觉规范（设计令牌）。麻醉记录单是正式医疗文书，配色应专业克制：
@@ -2082,10 +2119,12 @@ onBeforeUnmount(() => {
   --sheet-recent: #00b42a;
 
   position: relative;
+  width: 100%;
   border: 2px solid var(--sheet-frame);
   background: #fff;
   color: var(--sheet-ink);
   font-family: "SimSun", "Microsoft YaHei", serif;
+  letter-spacing: 0;
   overflow-x: hidden;
   overflow-y: visible;
   min-width: 0;
@@ -2099,6 +2138,60 @@ onBeforeUnmount(() => {
 
 .live-record-card.is-locked {
   box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.18), 0 18px 48px rgba(15, 23, 42, 0.12);
+}
+
+.live-record-card.is-print-mode {
+  --sheet-side-col: 16px;
+  --sheet-label-col: 70px;
+  --sheet-left-total: 86px;
+  --chart-status-row: 15px;
+  --chart-scale-gutter: 46px;
+  font-size: 8.5px;
+  box-shadow: none;
+}
+
+.live-record-card.is-print-mode :deep(.record-header) {
+  padding: 1px 5px 0;
+}
+
+.live-record-card.is-print-mode :deep(.record-header .print-heading) {
+  margin-bottom: 0;
+}
+
+.live-record-card.is-print-mode :deep(.record-header .print-heading h2) {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.live-record-card.is-print-mode :deep(.record-header .doc-meta),
+.live-record-card.is-print-mode :deep(.paper-field-label),
+.live-record-card.is-print-mode :deep(.paper-picker-label),
+.live-record-card.is-print-mode :deep(.paper-field-value),
+.live-record-card.is-print-mode :deep(.paper-picker-readonly) {
+  font-size: 9px;
+  line-height: 1.05;
+}
+
+.live-record-card.is-print-mode :deep(.paper-field-value),
+.live-record-card.is-print-mode :deep(.paper-picker-readonly) {
+  min-height: 10px;
+  padding-bottom: 0;
+}
+
+.live-record-card.is-print-mode :deep(.patient-grid),
+.live-record-card.is-print-mode :deep(.block-grid) {
+  gap: 0 4px;
+  padding: 0;
+}
+
+.live-record-card.is-print-mode :deep(.block-title) {
+  padding: 1px 0;
+  font-size: 9px;
+  line-height: 1.1;
+}
+
+.live-record-card.is-print-mode :deep(.header-block:last-child) {
+  padding-bottom: 2px;
 }
 
 .sheet-lock-banner {
@@ -2119,7 +2212,7 @@ onBeforeUnmount(() => {
   color: #b45309;
   font-size: 13px;
   font-weight: 800;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .sheet-lock-icon {
@@ -2139,7 +2232,7 @@ onBeforeUnmount(() => {
   z-index: 2;
   color: rgba(148, 163, 184, 0.85);
   font-size: 11px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   pointer-events: none;
 }
 
@@ -2246,7 +2339,7 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
-  max-height: min(220px, 32vh);
+  max-height: min(180px, 28vh);
   overflow: auto;
   padding-right: 2px;
 }
@@ -2361,6 +2454,34 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+.live-record-card.is-print-mode .sheet-ruler {
+  margin: 2px 0 0;
+}
+
+.live-record-card.is-print-mode .sheet-band {
+  min-height: calc(var(--rows, 3) * 10.5px);
+}
+
+.live-record-card.is-print-mode .band-track,
+.live-record-card.is-print-mode .medication-band,
+.live-record-card.is-print-mode .monitor-band {
+  min-height: calc(var(--rows, 3) * 10.5px);
+}
+
+.live-record-card.is-print-mode .band-side {
+  padding: 2px 1px;
+  font-size: 9px;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+.live-record-card.is-print-mode .band-labels span {
+  min-height: 10.5px;
+  padding: 1px 2px;
+  font-size: 8.5px;
+  line-height: 1.05;
+}
+
 .ruler-track,
 .band-track,
 .chart-area {
@@ -2400,15 +2521,15 @@ onBeforeUnmount(() => {
 
 .sheet-band {
   grid-template-columns: var(--sheet-side-col) var(--sheet-label-col) 1fr;
-  min-height: calc(var(--rows, 3) * 26px);
+  min-height: calc(var(--rows, 3) * 24px);
 }
 
 .band-side {
   writing-mode: vertical-rl;
-  letter-spacing: 2px;
+  letter-spacing: 0;
   padding: 6px 2px;
   line-height: 1.35;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .band-labels {
@@ -2421,8 +2542,10 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 26px;
-  padding: 4px 6px;
+  min-height: 24px;
+  padding: 3px 4px;
+  font-size: 11px;
+  line-height: 1.25;
   border-bottom: 1px solid #b8c0cc;
   font-size: 12px;
   line-height: 1.35;
@@ -2556,6 +2679,25 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 
+.line-segment::before,
+.line-segment::after {
+  content: '';
+  position: absolute;
+  top: calc(-1 * var(--sheet-segment-width) - 4px);
+  width: 0;
+  height: 11px;
+  border-left: var(--sheet-segment-width) solid currentColor;
+  pointer-events: none;
+}
+
+.line-segment::before {
+  left: 0;
+}
+
+.line-segment::after {
+  right: 0;
+}
+
 .line-segment.is-template {
   border-top-color: var(--sheet-template);
   color: #0f3a8c;
@@ -2659,50 +2801,62 @@ onBeforeUnmount(() => {
 }
 
 .vital-chart {
-  min-height: 300px;
+  min-height: 280px;
+}
+
+.live-record-card.is-print-mode .vital-chart,
+.live-record-card.is-print-mode .chart-layout,
+.live-record-card.is-print-mode .chart-area {
+  min-height: 140px;
+}
+
+.live-record-card.is-print-mode :deep(.chart-legend-panel) {
+  gap: 2px;
+  min-height: 140px;
+  padding: 3px 4px;
+  font-size: 8px;
+}
+
+.live-record-card.is-print-mode :deep(.event-legend-pairs),
+.live-record-card.is-print-mode :deep(.room-entry-legend),
+.live-record-card.is-print-mode :deep(.vital-symbol-legend) {
+  gap: 1px;
+}
+
+.live-record-card.is-print-mode :deep(.legend-pair-row span),
+.live-record-card.is-print-mode :deep(.room-entry-legend span),
+.live-record-card.is-print-mode :deep(.vital-symbol-legend span) {
+  min-height: 12px;
+  line-height: 1.05;
+}
+
+.live-record-card.is-print-mode .chart-status-symbol {
+  min-width: 16px;
+  height: 16px;
+  font-size: 10px;
+}
+
+.live-record-card.is-print-mode .chart-status-overlay {
+  top: 1px;
+  height: 16px;
 }
 
 .chart-layout {
   display: grid;
   grid-template-columns: var(--sheet-left-total) 1fr;
-  min-height: 300px;
+  min-height: 280px;
 }
 
 .chart-area {
-  min-height: 300px;
-}
-
-.temp-scale-column {
-  position: absolute;
-  left: 0;
-  top: var(--chart-status-row);
-  bottom: 0;
-  width: 28px;
-  z-index: 4;
-  border-right: 1px solid #111827;
-  background: rgba(255, 255, 255, 0.92);
-  pointer-events: none;
+  min-height: 280px;
 }
 
 .temp-scale-tick {
   position: absolute;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateY(-50%);
   color: #166534;
   font-size: 11px;
   font-weight: 600;
-}
-
-.temp-scale-label {
-  position: absolute;
-  right: 2px;
-  top: 50%;
-  transform: translateY(-50%);
-  writing-mode: vertical-rl;
-  font-style: normal;
-  color: #166534;
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .chart-area {
@@ -2714,7 +2868,7 @@ onBeforeUnmount(() => {
 .chart-status-overlay {
   position: absolute;
   top: 4px;
-  left: 0;
+  left: var(--chart-plot-offset);
   right: 0;
   z-index: 5;
   height: 22px;
@@ -2767,9 +2921,9 @@ onBeforeUnmount(() => {
 .chart-area .chart-scale {
   position: absolute;
   left: 0;
-  top: 28px;
+  top: var(--chart-status-row);
   bottom: 0;
-  width: 54px;
+  width: var(--chart-scale-gutter);
   border-right: 1px solid #111827;
   background: #f8fafc;
   z-index: 2;
@@ -2782,9 +2936,15 @@ onBeforeUnmount(() => {
 
 .chart-scale span {
   position: absolute;
-  left: 3px;
+  left: 25px;
   transform: translateY(-50%);
-  font-size: 12px;
+  font-size: 11px;
+}
+
+.chart-scale .temp-scale-tick {
+  left: 4px;
+  color: #166534;
+  font-weight: 700;
 }
 
 .chart-scale em {
@@ -2792,7 +2952,7 @@ onBeforeUnmount(() => {
   right: 3px;
   transform: translateY(-50%);
   color: #475569;
-  font-size: 12px;
+  font-size: 11px;
   font-style: normal;
 }
 
@@ -2801,7 +2961,7 @@ onBeforeUnmount(() => {
   left: 4px;
   bottom: 2px;
   color: #475569;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .chart-scale .kpa-label {
@@ -2811,9 +2971,12 @@ onBeforeUnmount(() => {
 
 .chart-area svg {
   position: absolute;
-  inset: var(--chart-status-row) 0 0 0;
+  top: var(--chart-status-row);
+  right: 0;
+  bottom: 0;
+  left: var(--chart-plot-offset);
   z-index: 2;
-  width: 100%;
+  width: calc(100% - var(--chart-plot-offset));
   height: 100%;
   overflow: visible;
 }
@@ -2853,8 +3016,8 @@ onBeforeUnmount(() => {
 }
 
 .sheet-notes div {
-  min-height: 76px;
-  padding: 8px;
+  min-height: 0;
+  padding: 0;
   border-right: 1px solid #111827;
 }
 
@@ -2867,7 +3030,84 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0;
+  border-top: 1px solid #111827;
   border-bottom: 1px solid #111827;
+}
+
+.chart-area :deep(.print-grid-lines),
+.chart-area :deep(.print-row-lines),
+.chart-area :deep(.print-chart-horizontal-lines) {
+  left: var(--chart-plot-offset);
+}
+
+.live-record-card.is-print-mode .reference-notes {
+  min-height: 0;
+}
+
+.live-record-card.is-print-mode :deep(.numbered-note-column) {
+  padding: 3px 5px;
+}
+
+.live-record-card.is-print-mode :deep(.numbered-note-label),
+.live-record-card.is-print-mode :deep(.numbered-note-list),
+.live-record-card.is-print-mode :deep(.numbered-note-empty) {
+  font-size: 9px;
+  line-height: 1.18;
+}
+
+.live-record-card.is-print-mode :deep(.numbered-note-label) {
+  margin-bottom: 2px;
+}
+
+.live-record-card.is-print-mode :deep(.numbered-note-list li + li) {
+  margin-top: 1px;
+}
+
+.live-record-card.is-print-mode :deep(.record-footer-summary.is-print) {
+  gap: 2px;
+  padding-top: 1px;
+  font-size: 8.5px;
+}
+
+.live-record-card.is-print-mode :deep(.footer-io-print-table table) {
+  font-size: 8.5px;
+}
+
+.live-record-card.is-print-mode :deep(.footer-io-print-table th),
+.live-record-card.is-print-mode :deep(.footer-io-print-table td) {
+  padding: 0 3px;
+}
+
+.live-record-card.is-print-mode :deep(.record-footer-summary.is-print .footer-fields) {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.live-record-card.is-print-mode :deep(.record-footer-summary.is-print .footer-field) {
+  gap: 1px;
+  padding: 1px 3px;
+}
+
+.live-record-card.is-print-mode :deep(.footer-field label),
+.live-record-card.is-print-mode :deep(.footer-value),
+.live-record-card.is-print-mode :deep(.footer-signature > strong),
+.live-record-card.is-print-mode :deep(.footer-completed strong) {
+  font-size: 9px;
+  line-height: 1.05;
+}
+
+.live-record-card.is-print-mode :deep(.footer-value) {
+  min-height: 10px;
+  padding: 0 2px;
+}
+
+.live-record-card.is-print-mode :deep(.record-footer-summary.is-print .footer-meta) {
+  padding: 2px 4px;
+  gap: 4px 8px;
+}
+
+.live-record-card.is-print-mode :deep(.footer-signature) {
+  gap: 4px 8px;
 }
 
 .sequence-marker {
@@ -3266,8 +3506,72 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 
+.live-record-card.is-print-mode :deep(.sheet-ruler) {
+  margin: 2px 0 0;
+  font-size: 9px;
+}
+
+.live-record-card.is-print-mode :deep(.ruler-label) {
+  min-height: 20px;
+  padding: 1px 3px;
+}
+
+.live-record-card.is-print-mode :deep(.ruler-kind),
+.live-record-card.is-print-mode :deep(.ruler-page),
+.live-record-card.is-print-mode :deep(.ruler-track .tick-label) {
+  font-size: 9px;
+  line-height: 1.05;
+}
+
+.live-record-card.is-print-mode :deep(.ruler-track) {
+  height: 20px;
+}
+
+.live-record-card.is-print-mode .sheet-band {
+  min-height: calc(var(--rows, 3) * 10.5px);
+}
+
+.live-record-card.is-print-mode .band-side {
+  padding: 2px 1px;
+  font-size: 9px;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+.live-record-card.is-print-mode .band-labels span {
+  min-height: 10.5px;
+  padding: 1px 2px;
+  font-size: 8.5px;
+  line-height: 1.05;
+}
+
+.live-record-card.is-print-mode .vital-chart,
+.live-record-card.is-print-mode .chart-layout,
+.live-record-card.is-print-mode .chart-area {
+  min-height: 140px;
+}
+
+.live-record-card.is-print-mode .chart-status-symbol {
+  min-width: 16px;
+  height: 16px;
+  font-size: 10px;
+}
+
+.live-record-card.is-print-mode .chart-status-overlay {
+  top: 1px;
+  height: 16px;
+}
+
+.live-record-card.is-print-mode .chart-scale span,
+.live-record-card.is-print-mode .chart-scale em,
+.live-record-card.is-print-mode .chart-scale small {
+  font-size: 9px;
+}
+
 @media print {
   .live-record-card {
+    width: 100%;
+    max-width: 100%;
     overflow: visible;
     border: 1px solid #111;
     print-color-adjust: exact;

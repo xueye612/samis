@@ -69,8 +69,15 @@ export function buildTimedKeyOperationNoteLines(
   record: SurgeryCase,
   methods: AnesthesiaMethodKey[],
 ): NumberedNoteLine[] {
+  const seen = new Set<string>();
   return buildTimelineNodeStates(record, methods)
     .filter((node) => node.recorded && node.time)
+    .filter((node) => {
+      const key = node.label.trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map((node, offset) => {
       const clock = formatTimelineClock(node.time);
       const content = `${clock} ${node.label}`;
@@ -91,7 +98,18 @@ export function resolveKeyOperationsDisplayText(
   fallbackPlain = '无',
 ): string {
   const fromNotes = parseNumberedNoteLines(stored ?? '');
-  if (fromNotes.some((line) => line.clock)) return stored ?? '';
+  if (fromNotes.some((line) => line.clock)) {
+    const seen = new Set<string>();
+    return fromNotes
+      .filter((line) => {
+        const key = (line.displayContent || line.content).trim();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((line, index) => `${index + 1}. ${line.content}`)
+      .join('\n');
+  }
   const fromTimeline = buildTimedKeyOperationNoteLines(record, methods);
   if (fromTimeline.length) {
     return fromTimeline.map((line) => `${line.index}. ${line.content}`).join('\n');

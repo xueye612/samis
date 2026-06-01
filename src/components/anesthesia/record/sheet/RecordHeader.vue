@@ -48,48 +48,39 @@ const emit = defineEmits<{
     </div>
 
     <div class="patient-grid">
-      <PaperFormField compact label="科别" :model-value="snapshot.department" readonly :print-mode="printMode" />
-      <PaperFormField compact label="床号" :model-value="snapshot.bedNo ?? '-'" readonly :print-mode="printMode" />
-      <PaperFormField compact label="住院号" :model-value="snapshot.inpatientNo" readonly :print-mode="printMode" />
-      <PaperFormField compact label="手术日期" :model-value="snapshot.surgeryDate" readonly :print-mode="printMode" />
-      <PaperFormField compact label="付费方式" :model-value="snapshot.paymentMethod ?? '未记录'" readonly :print-mode="printMode" />
-      <PaperFormField compact label="ASA" :model-value="snapshot.asa" readonly :print-mode="printMode" />
+      <PaperFormField compact label="科别" :model-value="snapshot.department" readonly :print-mode="printMode" :span="4" />
+      <PaperFormField compact label="床号" :model-value="snapshot.bedNo ?? '-'" readonly :print-mode="printMode" :span="4" />
+      <PaperFormField compact label="住院号" :model-value="snapshot.inpatientNo" readonly :print-mode="printMode" :span="8" />
+      <PaperFormField compact label="手术日期" :model-value="snapshot.surgeryDate" readonly :print-mode="printMode" :span="8" />
 
-      <PaperFormField compact label="姓名" :model-value="snapshot.patientName" readonly :print-mode="printMode" />
-      <PaperFormField compact label="性别" :model-value="snapshot.gender" readonly :print-mode="printMode" />
-      <PaperFormField compact label="年龄" :model-value="`${snapshot.age}岁`" readonly :print-mode="printMode" />
-      <PaperFormField compact label="体重" :model-value="`${snapshot.weight}kg`" readonly :print-mode="printMode" />
-      <PaperFormField compact label="身高" :model-value="`${snapshot.height ?? '-'}cm`" readonly :print-mode="printMode" />
-      <PaperFormField compact label="血型" :model-value="snapshot.bloodType ?? '-'" readonly :print-mode="printMode" />
+      <PaperFormField compact label="姓名" :model-value="snapshot.patientName" readonly :print-mode="printMode" :span="5" />
+      <PaperFormField compact label="性别" :model-value="snapshot.gender" readonly :print-mode="printMode" :span="3" />
+      <PaperFormField compact label="年龄" :model-value="`${snapshot.age}岁`" readonly :print-mode="printMode" :span="4" />
+      <PaperFormField compact label="体重" :model-value="`${snapshot.weight}kg`" readonly :print-mode="printMode" :span="4" />
+      <PaperFormField compact label="身高" :model-value="`${snapshot.height ?? '-'}cm`" readonly :print-mode="printMode" :span="5" />
+      <PaperFormField compact label="血型" :model-value="snapshot.bloodType ?? '-'" readonly :print-mode="printMode" :span="3" />
+
+      <PaperFormField compact label="付费方式" :model-value="snapshot.paymentMethod ?? '未记录'" readonly :print-mode="printMode" :span="8" />
+      <PaperFormField compact label="ASA" :model-value="snapshot.asa" readonly :print-mode="printMode" :span="4" />
     </div>
 
     <section class="header-block preop-block">
-      <div class="block-title">术前信息</div>
       <div class="block-grid">
         <PaperFormField
-          class="field-full"
           compact
           label="术前诊断"
           :model-value="snapshot.diagnosisPreop"
           readonly
           :print-mode="printMode"
-          :span="6"
+          :span="12"
         />
         <PaperFormField
           compact
-          label="术前用药"
-          :model-value="snapshot.preMedication || '未记录'"
+          label="术前用药/禁食"
+          :model-value="`${snapshot.preMedication || '未记录'}；${snapshot.fasting || '未记录'}`"
           readonly
           :print-mode="printMode"
-          :span="4"
-        />
-        <PaperFormField
-          compact
-          label="术前禁食"
-          :model-value="snapshot.fasting || '未记录'"
-          readonly
-          :print-mode="printMode"
-          :span="2"
+          :span="12"
         />
       </div>
     </section>
@@ -102,7 +93,7 @@ const emit = defineEmits<{
           :model-value="snapshot.surgeryPlanned"
           readonly
           :print-mode="printMode"
-          :span="3"
+          :span="12"
         />
         <PaperPickerField
           compact
@@ -115,7 +106,7 @@ const emit = defineEmits<{
           :options="surgeryOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
-          :span="3"
+          :span="12"
           placeholder="点击选择，多项用+连接"
           @update:model-value="emit('update:actualSurgeryName', $event)"
         />
@@ -127,7 +118,7 @@ const emit = defineEmits<{
           :options="positionOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
-          :span="2"
+          :span="8"
           placeholder="点击选择体位"
           :allow-custom="false"
           @update:model-value="emit('update:surgicalPosition', $event)"
@@ -138,7 +129,7 @@ const emit = defineEmits<{
           :auxiliary="methodAuxiliary ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
-          :span="4"
+          :span="16"
           @apply="emit('applyMethodSelection', $event)"
         />
 
@@ -151,6 +142,7 @@ const emit = defineEmits<{
           :options="anesthesiologistOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
+          :span="6"
           placeholder="点击选择"
           :allow-custom="false"
           @update:model-value="emit('update:anesthesiologist', $event)"
@@ -164,6 +156,7 @@ const emit = defineEmits<{
           :options="surgeonOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
+          :span="6"
           placeholder="点击选择"
           :allow-custom="false"
           @update:model-value="emit('update:surgeon', $event)"
@@ -177,6 +170,7 @@ const emit = defineEmits<{
           :options="nurseOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
+          :span="6"
           placeholder="点击选择"
           :allow-custom="false"
           @update:model-value="emit('update:circulatingNurses', $event)"
@@ -190,6 +184,7 @@ const emit = defineEmits<{
           :options="nurseOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
+          :span="6"
           placeholder="点击选择"
           :allow-custom="false"
           @update:model-value="emit('update:scrubNurses', $event)"
@@ -201,21 +196,22 @@ const emit = defineEmits<{
 
 <style scoped>
 .record-header {
-  padding: 4px 8px 0;
+  padding: 6px 10px 0;
 }
 
 .record-header .print-heading {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
 .record-header .print-heading h2 {
   margin: 0;
   text-align: center;
-  font-size: 16px;
-  line-height: 1.2;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.25;
 }
 
 .record-header .doc-meta {
@@ -223,7 +219,9 @@ const emit = defineEmits<{
   display: flex;
   align-items: baseline;
   gap: 4px;
-  font-size: 11px;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .record-header .doc-meta i {
@@ -235,13 +233,13 @@ const emit = defineEmits<{
 .patient-grid,
 .block-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 3px 6px;
-  font-size: 11px;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 5px 10px;
+  font-size: 12px;
 }
 
 .patient-grid {
-  padding: 4px 0;
+  padding: 7px 0 6px;
   border-top: 1px solid #111827;
 }
 
@@ -255,23 +253,23 @@ const emit = defineEmits<{
 }
 
 .block-title {
-  padding: 4px 0 2px;
-  color: #334155;
-  font-size: 11px;
+  padding: 5px 0 3px;
+  color: #111827;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .preop-block {
   background: #fafafa;
 }
 
-.preop-block .block-title {
-  padding-left: 2px;
+.preop-block .block-grid {
+  padding-top: 6px;
 }
 
 .block-grid {
-  padding-bottom: 4px;
+  padding-bottom: 6px;
 }
 
 .block-grid :deep(.field-full) {
@@ -279,6 +277,28 @@ const emit = defineEmits<{
 }
 
 .intraop-block .block-grid {
-  padding-top: 4px;
+  padding-top: 6px;
+}
+
+.record-header :deep(.paper-field-label),
+.record-header :deep(.paper-picker-label),
+.record-header :deep(.paper-field-value),
+.record-header :deep(.paper-picker-readonly),
+.record-header :deep(.paper-picker-trigger) {
+  font-size: 12px;
+}
+
+.record-header :deep(.paper-field-label),
+.record-header :deep(.paper-picker-label) {
+  color: #111827;
+  font-weight: 700;
+}
+
+.record-header :deep(.paper-field-value),
+.record-header :deep(.paper-picker-readonly) {
+  min-height: 20px;
+  color: #0f172a;
+  font-weight: 600;
+  border-bottom-color: #94a3b8;
 }
 </style>

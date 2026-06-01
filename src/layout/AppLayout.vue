@@ -101,8 +101,37 @@
           </a-dropdown>
         </a-space>
       </a-layout-header>
-      <div v-if="secondaryNavItems.length" class="app-subnav">
-        <div class="app-subnav-scroll" role="menubar" :aria-label="`${moduleLabel}二级导航`">
+      <div v-if="secondaryNavItems.length" class="app-subnav" :class="{ 'app-subnav--workflow': activeMenu === 'surgery' }">
+        <div v-if="activeMenu === 'surgery'" class="surgery-subnav" :aria-label="`${moduleLabel}二级导航`">
+          <div class="surgery-subnav-groups" role="tablist" aria-label="手术麻醉流程">
+            <button
+              v-for="group in secondaryNavGroups"
+              :key="group.key"
+              type="button"
+              class="surgery-subnav-group"
+              :class="{ active: group.key === activeSecondaryGroupKey }"
+              role="tab"
+              :aria-selected="group.key === activeSecondaryGroupKey"
+              @click="goSecondaryGroup(group.key)"
+            >
+              {{ group.label }}
+            </button>
+          </div>
+          <div class="surgery-subnav-items" role="menubar" :aria-label="`${activeSecondaryGroupLabel}菜单`">
+            <button
+              v-for="item in activeSecondaryGroupItems"
+              :key="item.key"
+              class="subnav-item"
+              :class="{ active: item.key === activeSecondaryKey }"
+              type="button"
+              role="menuitem"
+              @click="goSecondary(item.key)"
+            >
+              {{ item.label }}
+            </button>
+          </div>
+        </div>
+        <div v-else class="app-subnav-scroll" role="menubar" :aria-label="`${moduleLabel}二级导航`">
           <template v-for="group in secondaryNavGroups" :key="group.key">
             <span v-if="group.label" class="subnav-group-label">{{ group.label }}</span>
             <button
@@ -177,6 +206,11 @@ const secondaryNavGroups = computed(() => {
   return groups;
 });
 const activeSecondaryKey = computed(() => matchSecondaryKey(route.path, activeMenu.value) ?? '');
+const activeSecondaryItem = computed(() => secondaryNavItems.value.find((item) => item.key === activeSecondaryKey.value));
+const activeSecondaryGroupKey = computed(() => activeSecondaryItem.value?.group ?? secondaryNavGroups.value[0]?.key ?? '');
+const activeSecondaryGroup = computed(() => secondaryNavGroups.value.find((group) => group.key === activeSecondaryGroupKey.value) ?? secondaryNavGroups.value[0]);
+const activeSecondaryGroupLabel = computed(() => activeSecondaryGroup.value?.label || moduleLabel.value);
+const activeSecondaryGroupItems = computed(() => activeSecondaryGroup.value?.items ?? []);
 const recordFocusMode = computed(() => route.name === 'record');
 const doctorCases = computed(() => store.myTodayCases);
 const activeDoctorCase = computed(() => store.currentDoctorActiveCase);
@@ -193,6 +227,10 @@ const onCollapse = (value: boolean) => { collapsed.value = value; };
 const goMenu = (key: string) => router.push(menuPath[key] ?? '/workbench');
 const goSecondary = (key: string) => {
   const target = secondaryNavItems.value.find((item) => item.key === key);
+  if (target) router.push(target.path);
+};
+const goSecondaryGroup = (key: string) => {
+  const target = secondaryNavGroups.value.find((group) => group.key === key)?.items[0];
   if (target) router.push(target.path);
 };
 const openPatient = (id: string) => router.push(`/surgery/detail/${id}`);
@@ -216,6 +254,14 @@ const timeRange = (item: { scheduledStart?: string; plannedStart: string; schedu
 .subnav-group-label { display: inline-flex; align-items: center; align-self: stretch; margin-left: 8px; padding: 0 4px; color: var(--text-tertiary); font-size: var(--font-size-xs); font-weight: 700; white-space: nowrap; }
 .subnav-group-label:first-child { margin-left: 0; }
 .subnav-group-label::after { content: ''; width: 1px; height: 14px; margin-left: 8px; background: var(--border); }
+.app-subnav--workflow { padding-top: 6px; padding-bottom: 6px; }
+.surgery-subnav { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.surgery-subnav-groups { display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding-right: 12px; border-right: 1px solid var(--border); }
+.surgery-subnav-group { height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-tertiary); font-size: var(--font-size-xs); font-weight: 600; white-space: nowrap; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+.surgery-subnav-group:hover { border-color: var(--border); background: var(--surface-muted); color: var(--text-primary); }
+.surgery-subnav-group.active { border-color: var(--color-brand-100); background: var(--primary-soft); color: var(--primary); }
+.surgery-subnav-items { display: flex; align-items: stretch; min-width: 0; height: 32px; overflow-x: auto; }
+.surgery-subnav-items .subnav-item { padding: 0 12px; }
 .search-popover { width: 300px; }
 .search-results { margin-top: 8px; max-height: 240px; overflow: auto; }
 .search-result-item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 9px 10px; border: 1px solid transparent; background: transparent; text-align: left; cursor: pointer; border-radius: var(--radius-sm); }

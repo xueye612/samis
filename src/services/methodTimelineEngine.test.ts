@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { anesthesiaCases } from '@/mock/anesthesiaCases';
+import type { AnesthesiaEvent } from '@/types/anesthesia';
 import {
   buildMilestoneStatusEvents,
+  buildTimedKeyOperationNoteLines,
   buildTimelineNodeStates,
   getMethodTimelineNodes,
+  resolveKeyOperationsDisplayText,
 } from '@/services/methodTimelineEngine';
 
 describe('methodTimelineEngine', () => {
@@ -41,5 +44,27 @@ describe('methodTimelineEngine', () => {
     expect(general).toContain('intubation');
     expect(neuraxial).toContain('puncture');
     expect(neuraxial).not.toContain('intubation');
+  });
+
+  it('deduplicates timed key operation lines from stored notes and timeline nodes', () => {
+    const duplicateSurgeryStart: AnesthesiaEvent = {
+      id: 'duplicate-surgery-start',
+      type: '手术开始',
+      time: '2026-05-26T08:48:00.000Z',
+      stage: '术中',
+      severity: '轻度',
+      treatment: '',
+      staff: [],
+      reported: false,
+      qualityIncluded: false,
+    };
+    const item = {
+      ...anesthesiaCases[0],
+      surgeryStart: '2026-05-26T08:48:00.000Z',
+      events: [...anesthesiaCases[0].events, duplicateSurgeryStart],
+    };
+
+    expect(buildTimedKeyOperationNoteLines(item, ['general']).filter((line) => line.displayContent === '手术开始')).toHaveLength(1);
+    expect(resolveKeyOperationsDisplayText(item, ['general'], '1. 08:48 手术开始\n2. 08:48 手术开始\n3. 09:46 手术结束')).toBe('1. 08:48 手术开始\n2. 09:46 手术结束');
   });
 });

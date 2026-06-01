@@ -15,6 +15,16 @@ export const LIVE_TIME_STEP_MINUTES = 1;
 export const LIVE_DEFAULT_SEGMENT_MINUTES = 10;
 export const RECORD_LOCAL_STATE_KEY = 'samis.anesthesiaRecord.localState.v1';
 export const DEFAULT_SHEET_MONITOR_ORDER = ['HR', 'SBP', 'DBP', 'SpO2', 'EtCO2', 'TEMP'] as const;
+const INHALED_METHOD_HINTS = ['inhalation', 'balanced', 'inhaled', '静吸复合', '吸入麻醉', '吸入诱导', '吸入维持'] as const;
+const INHALED_EVENT_HINTS = ['开始吸入', '开始吸入麻醉', '调整浓度', '调整吸入浓度', '停止吸入', '停止吸入麻醉'] as const;
+const INHALED_DRUG_HINTS = ['七氟烷', '地氟烷', '异氟烷', '恩氟烷', '氧化亚氮', '笑气', 'sevoflurane', 'desflurane', 'isoflurane', 'nitrous oxide'] as const;
+const AUTOLOGOUS_HINTS = ['自体血', '自体血回输', '回收血', '术中回收血', '洗涤回收血'] as const;
+
+function hasTextHint(text: string | undefined, hints: readonly string[]) {
+  if (!text) return false;
+  const source = text.toLowerCase();
+  return hints.some((hint) => source.includes(hint.toLowerCase()));
+}
 
 export interface LiveTick {
   time: string;
@@ -177,12 +187,21 @@ export function isInhaledMedication(
 ) {
   if (record.route?.includes('吸入')) return true;
   const drugName = record.drug || record.name;
+  if (hasTextHint(drugName, INHALED_DRUG_HINTS)) return true;
   const dict = drugs.find((item) => item.name === drugName);
-  return Boolean(dict?.defaultRoute?.includes('吸入'));
+  return Boolean(dict?.defaultRoute?.includes('吸入') || hasTextHint(dict?.name, INHALED_DRUG_HINTS));
 }
 
-export function isAutologousFluidCategory(category: FluidRecord['category']) {
-  return category === '自体血回输';
+export function hasInhaledMethodHint(labels: Array<string | undefined> = []) {
+  return labels.some((label) => hasTextHint(label, INHALED_METHOD_HINTS));
+}
+
+export function hasInhaledEventHint(eventTypes: Array<string | undefined> = []) {
+  return eventTypes.some((eventType) => hasTextHint(eventType, INHALED_EVENT_HINTS));
+}
+
+export function isAutologousFluidCategory(category?: string, name?: string) {
+  return hasTextHint(category, AUTOLOGOUS_HINTS) || hasTextHint(name, AUTOLOGOUS_HINTS);
 }
 
 export function isBloodProductCategory(category: FluidRecord['category']) {
@@ -257,7 +276,7 @@ export function createFluidLineDraft(
   const normalized = normalizeFluidFromDict(fluid, options.executor);
   const time = options.at ?? isoOrClockToClock(new Date().toISOString());
   const isBlood = fluid.subCategory === '血液制品';
-  const isAutologous = fluid.subCategory === '自体血回输';
+  const isAutologous = isAutologousFluidCategory(fluid.subCategory, fluid.name);
   return {
     kind: isBlood ? 'transfusion' : 'infusion',
     id: options.id,
@@ -339,7 +358,7 @@ export function calculateLiveSheetEnd(start = '08:00', times: Array<string | und
     .filter((value): value is number => value !== null);
   const latest = Math.max(startMinutes + minimumMinutes, ...values);
   const step = Math.max(1, roundMinutes);
-  return minutesToClock(Math.ceil(latest / step) * step);
+  return minutesToClock(startMinutes + Math.ceil((latest - startMinutes) / step) * step);
 }
 
 export function buildLiveTimeScale(start = '08:00', end = '11:30', minorInterval = 5, majorInterval = 30): LiveTimeScale {

@@ -5,6 +5,7 @@ import {
   parseClockFromNoteContent,
   parseNumberedNoteLines,
   stripClockFromNoteContent,
+  upsertTimedKeyOperationLine,
 } from '@/utils/numberedNotes';
 
 describe('numberedNotes', () => {
@@ -42,5 +43,10 @@ describe('numberedNotes', () => {
     expect(markers.map((item) => item.number)).toEqual([1, 3]);
     expect(markers[0].content).toBe('盐酸昂丹司琼 8mg');
     expect(markers[1].content).toBe('纳布啡 10mg');
+  });
+
+  it('updates and renumbers duplicate timed key operation notes', () => {
+    expect(upsertTimedKeyOperationLine('1. 08:48 手术开始\n2. 08:48 手术开始\n3. 10:05 离室', '手术开始', '09:00'))
+      .toBe('1. 09:00 手术开始\n2. 10:05 离室');
   });
 });

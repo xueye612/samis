@@ -74,6 +74,7 @@ const onInput = (event: Event) => {
   gap: 4px 8px;
   align-items: center;
   min-width: 0;
+  letter-spacing: 0;
 }
 
 .paper-field.compact {
@@ -81,9 +82,9 @@ const onInput = (event: Event) => {
 }
 
 .paper-field-label {
-  color: #334155;
-  font-size: 11px;
-  font-weight: 500;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
   line-height: 1.3;
 }
@@ -99,10 +100,11 @@ const onInput = (event: Event) => {
   border-radius: 0;
   background: transparent;
   color: #111827;
-  font-size: 11px;
-  font-weight: 400;
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1.35;
   font-family: inherit;
+  letter-spacing: 0;
 }
 
 .paper-field-input:focus {
@@ -117,7 +119,7 @@ const onInput = (event: Event) => {
 }
 
 .paper-field.is-readonly .paper-field-value {
-  color: #475569;
+  color: #111827;
   border-bottom-color: #e2e8f0;
   background: transparent;
 }

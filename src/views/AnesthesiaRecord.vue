@@ -35,6 +35,7 @@
             <span>质控/打印</span>
             <a-button size="small" @click="runQuality">完整性检查</a-button>
             <a-button size="small" @click="printCurrent">打印预览</a-button>
+            <a-button v-if="current.locked" size="small" status="warning" @click="unlockCurrent">解锁修改</a-button>
             <a-button size="small" type="primary" status="success" :disabled="current.locked" @click="submitSignature">提交签名</a-button>
           </div>
           <a-dropdown trigger="click">
@@ -191,6 +192,7 @@
                 @save-lab="saveLab"
                 @layout-warnings="updateLayoutWarnings"
                 @stop-medication-pump="stopPump"
+                @section-visibility-reason="handleSectionVisibilityReason"
               />
             </div>
           </section>
@@ -515,6 +517,7 @@ const selectedEventName = ref('');
 const manualStage = ref<IntraopStage | ''>('');
 const selectedScenario = ref<SurgeryScenarioKey>('generalSurgery');
 const sectionVisibility = ref<RecordSectionVisibility>({});
+const sectionReasonLogState = ref<{ inhaled: string; autologous: string }>({ inhaled: '', autologous: '' });
 const sectionSettingsVisible = ref(false);
 const sectionOptions = OPTIONAL_RECORD_SECTIONS;
 const setSectionMode = (key: RecordSectionKey, mode: SectionVisibilityMode) => {
@@ -922,6 +925,14 @@ const locateRecentEntry = (entry: RecordRecentEntry) => {
 const scrollToStatusRow = () => {
   activeTab.value = 'anesthesia';
   liveSheetRef.value?.scrollStatusRowIntoView();
+};
+const handleSectionVisibilityReason = (payload: { section: 'inhaled' | 'autologous'; visible: boolean; reason: string }) => {
+  if (!current.value) return;
+  const sectionLabel = payload.section === 'inhaled' ? '吸入麻醉' : '自体血';
+  const message = `${sectionLabel}区块${payload.visible ? '显示' : '隐藏'}：${payload.reason}`;
+  if (sectionReasonLogState.value[payload.section] === message) return;
+  sectionReasonLogState.value = { ...sectionReasonLogState.value, [payload.section]: message };
+  current.value.operationLogs = [message, ...(current.value.operationLogs ?? [])].slice(0, 8);
 };
 const addEvent = (type: string) => {
   if (!current.value) return;
@@ -1557,7 +1568,7 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 @page {
   size: A4 landscape;
-  margin: 8mm;
+  margin: 4mm;
 }
 
 @media print {
@@ -1608,6 +1619,11 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
     box-shadow: none !important;
     background: #fff !important;
     overflow: visible !important;
+  }
+
+  .sheet-zoom-frame {
+    zoom: 1 !important;
+    transform: none !important;
   }
 
   .anesthesia-record-workstation.print-preview-active .sheet-workbench .live-record-card {

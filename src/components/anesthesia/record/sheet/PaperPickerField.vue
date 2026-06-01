@@ -227,12 +227,13 @@ watch(visible, (open) => {
   gap: 4px 8px;
   align-items: center;
   min-width: 0;
+  letter-spacing: 0;
 }
 
 .paper-picker-label {
-  color: #334155;
-  font-size: 11px;
-  font-weight: 500;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -249,9 +250,10 @@ watch(visible, (open) => {
   background: #f0f7ff;
   color: #111827;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
+  letter-spacing: 0;
 }
 
 .paper-picker-field.compact .paper-picker-trigger {
@@ -283,7 +285,7 @@ watch(visible, (open) => {
 .paper-picker-action {
   flex-shrink: 0;
   font-style: normal;
-  font-size: 10px;
+  font-size: 11px;
   color: #2563eb;
   font-weight: 600;
 }
@@ -292,9 +294,13 @@ watch(visible, (open) => {
   min-height: 18px;
   padding: 0 2px 2px;
   border-bottom: 1px solid #cbd5e1;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: 0;
 }
 
 .picker-panel {

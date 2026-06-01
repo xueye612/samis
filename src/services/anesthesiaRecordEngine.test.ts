@@ -13,6 +13,8 @@ import {
   roundAxisStartTime,
   resolveDefaultMonitorOrder,
   isInhaledMedication,
+  hasInhaledMethodHint,
+  hasInhaledEventHint,
   isAutologousFluidCategory,
   isBloodProductCategory,
   isInfusionFluidCategory,
@@ -245,6 +247,7 @@ describe('anesthesiaRecordEngine dictionary linkage', () => {
 describe('anesthesiaRecordEngine time axis', () => {
   it('extends and maps the live sheet timeline with draggable one-minute precision', () => {
     expect(calculateLiveSheetEnd('08:00', ['10:20', '11:31'])).toBe('12:00');
+    expect(calculateLiveSheetEnd('10:05', ['10:20'])).toBe('13:35');
     const scale = buildLiveTimeScale('08:00', '11:30');
     expect(scale.majorTicks.map((tick) => tick.label)).toContain('09:30');
     expect(timeToPercent('09:45', '08:00', '11:30')).toBe(50);
@@ -416,14 +419,25 @@ describe('anesthesiaRecordEngine band helpers', () => {
   it('detects inhaled medication by route or drug dictionary', () => {
     expect(isInhaledMedication({ drug: '七氟烷', name: '七氟烷', route: '吸入' }, [sevoflurane])).toBe(true);
     expect(isInhaledMedication({ drug: '七氟烷', name: '七氟烷', route: '' }, [sevoflurane])).toBe(true);
+    expect(isInhaledMedication({ drug: 'Sevoflurane', name: 'Sevoflurane', route: '' }, [])).toBe(true);
     expect(isInhaledMedication({ drug: '丙泊酚', name: '丙泊酚', route: '静脉' }, drugs)).toBe(false);
+  });
+
+  it('detects inhaled display hints by method text and events', () => {
+    expect(hasInhaledMethodHint(['全麻-静吸复合'])).toBe(true);
+    expect(hasInhaledMethodHint(['全麻-全凭静脉'])).toBe(false);
+    expect(hasInhaledEventHint(['开始吸入', '低血压'])).toBe(true);
+    expect(hasInhaledEventHint(['给药', '低血压'])).toBe(false);
   });
 
   it('splits fluid categories for sheet bands', () => {
     expect(isInfusionFluidCategory('晶体液')).toBe(true);
     expect(isInfusionFluidCategory('胶体液')).toBe(true);
     expect(isAutologousFluidCategory('自体血回输')).toBe(true);
+    expect(isAutologousFluidCategory('血液制品', '术中回收血')).toBe(true);
+    expect(isAutologousFluidCategory('血液制品', '洗涤回收血')).toBe(true);
     expect(isBloodProductCategory('血液制品')).toBe(true);
+    expect(isAutologousFluidCategory('血液制品', '悬浮红细胞')).toBe(false);
     expect(isInfusionFluidCategory('自体血回输')).toBe(false);
   });
 

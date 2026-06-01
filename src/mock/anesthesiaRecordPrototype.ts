@@ -497,6 +497,12 @@ export const quickEventOptions: QuickEventOption[] = [
   { name: '穿刺', stage: '诱导期', severity: '轻度' },
   { name: '置管', stage: '诱导期', severity: '轻度' },
   { name: '给药', stage: '术中', severity: '轻度' },
+  { name: '开始吸入', stage: '术中', severity: '轻度' },
+  { name: '开始吸入麻醉', stage: '术中', severity: '轻度' },
+  { name: '调整浓度', stage: '术中', severity: '轻度' },
+  { name: '调整吸入浓度', stage: '术中', severity: '轻度' },
+  { name: '停止吸入', stage: '术中', severity: '轻度' },
+  { name: '停止吸入麻醉', stage: '苏醒期', severity: '轻度' },
   { name: '平面测定', stage: '术中', severity: '轻度' },
   { name: '阻滞评估', stage: '术中', severity: '轻度' },
   { name: '镇静开始', stage: '诱导期', severity: '轻度' },
@@ -525,9 +531,9 @@ export const quickEventOptions: QuickEventOption[] = [
 export const stageQuickActionsByMethod: Record<AnesthesiaMethodKey, Partial<Record<IntraopStage, string[]>>> = {
   general: {
     入室后: ['麻醉开始', '诱导开始', '给药'],
-    诱导期: ['诱导开始', '给药', '插管', '接麻醉机', '手术开始'],
-    术中: ['给药', '低血压', '升压药', '手术开始'],
-    苏醒期: ['拔管', '麻醉结束', '离室'],
+    诱导期: ['诱导开始', '给药', '插管', '接麻醉机', '手术开始', '开始吸入'],
+    术中: ['给药', '低血压', '升压药', '手术开始', '调整浓度'],
+    苏醒期: ['拔管', '麻醉结束', '停止吸入', '离室'],
     离室: ['离室'],
   },
   neuraxial: {

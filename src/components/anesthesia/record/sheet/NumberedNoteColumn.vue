@@ -61,7 +61,6 @@ const onSelectLine = (index: number, hasClock: boolean) => {
   if (!props.timelineEnabled || !hasClock) return;
   activeLineIndex.value = index;
   emit('select-line', index);
-  void focusTextareaLine(index);
 };
 
 const onTextareaClick = () => {
@@ -77,7 +76,7 @@ const onTextareaClick = () => {
 watch(() => props.highlightIndexes, (indexes) => {
   const index = indexes[0];
   if (!index || !props.timelineEnabled) return;
-  void focusTextareaLine(index);
+  activeLineIndex.value = index;
 }, { deep: true });
 </script>
 
@@ -94,8 +93,6 @@ watch(() => props.highlightIndexes, (indexes) => {
       rows="7"
       @input="onInput"
       @blur="onBlur"
-      @click="onTextareaClick"
-      @keyup="onTextareaClick"
     />
     <p v-if="timelineEnabled && timedLines.length && !readonly && !printMode" class="timeline-link-hint">
       与时间轴序号关联 · 点击行或标签定位出入量标记
@@ -135,7 +132,7 @@ watch(() => props.highlightIndexes, (indexes) => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 8px 10px;
+  padding: 0;
   border-right: 1px solid #111827;
   background: #fff;
 }
@@ -149,26 +146,29 @@ watch(() => props.highlightIndexes, (indexes) => {
 }
 
 .numbered-note-label {
-  margin-bottom: 6px;
+  margin: 0;
+  padding: 5px 7px 4px;
+  border-bottom: 1px solid #111827;
   color: #0f172a;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
 .numbered-note-input {
   flex: 1;
   width: 100%;
-  min-height: 120px;
+  min-height: 72px;
   margin: 0;
-  padding: 6px 8px;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 0;
   background: #fff;
   color: #111827;
-  font-size: 11px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.5;
   font-family: inherit;
-  resize: vertical;
+  resize: none;
 }
 
 .numbered-note-input.has-active-line {
@@ -178,31 +178,33 @@ watch(() => props.highlightIndexes, (indexes) => {
 
 .numbered-note-input:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgb(37 99 235 / 12%);
+  background: #f8fbff;
+  box-shadow: inset 0 0 0 2px rgb(37 99 235 / 18%);
 }
 
 .timeline-link-hint {
-  margin: 4px 0 0;
+  display: none;
+  margin: 3px 0 0;
   color: #9a3412;
   font-size: 10px;
   line-height: 1.4;
 }
 
 .timeline-preview {
-  display: grid;
-  gap: 4px;
-  margin: 6px 0 0;
+  display: none;
+  gap: 3px;
+  margin: 4px 0 0;
   padding: 0;
   list-style: none;
 }
+
 
 .timeline-preview li {
   display: grid;
   grid-template-columns: auto auto 1fr;
   gap: 6px;
   align-items: baseline;
-  padding: 4px 6px;
+  padding: 3px 5px;
   border: 1px dashed #fdba74;
   border-radius: 4px;
   background: #fff7ed;
@@ -237,16 +239,16 @@ watch(() => props.highlightIndexes, (indexes) => {
 
 .numbered-note-list {
   margin: 0;
-  padding-left: 1.35em;
+  padding: 7px 8px 7px 1.65em;
   color: #111827;
-  font-size: 11px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .numbered-note-list li + li {
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .numbered-note-list li.has-timeline-marker {
@@ -266,7 +268,8 @@ watch(() => props.highlightIndexes, (indexes) => {
 
 .numbered-note-empty {
   margin: 0;
+  padding: 7px 8px;
   color: #64748b;
-  font-size: 11px;
+  font-size: 12px;
 }
 </style>

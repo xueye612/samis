@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import type { LiveTimeScale, RecordBandGrid } from '@/services/anesthesiaRecordEngine';
-import type { TimeAxisPageConfig } from '@/types/anesthesiaRecord';
-
 defineProps<{
   timeScale: LiveTimeScale;
   grid: RecordBandGrid;
-  page?: TimeAxisPageConfig;
 }>();
 </script>
 
@@ -13,7 +10,6 @@ defineProps<{
   <div class="sheet-ruler">
     <div class="ruler-label">
       <span class="ruler-kind">项目</span>
-      <span v-if="page" class="ruler-page">第{{ page.pageNo }}/{{ page.pageCount }}页</span>
     </div>
     <div class="ruler-track">
       <span
@@ -55,14 +51,6 @@ defineProps<{
   font-size: 12px;
   font-weight: 700;
   line-height: 1.2;
-}
-
-.ruler-page {
-  color: #1d4ed8;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.2;
-  white-space: nowrap;
 }
 
 .ruler-track {

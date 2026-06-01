@@ -21,7 +21,7 @@ describe('navigation menu structure', () => {
     expect(primaryMenus.map((item) => item.key)).not.toContain('special');
 
     expect(secondaryMenus.surgery.map((item) => item.path)).toEqual(
-      expect.arrayContaining(['/monitor/dashboard', '/special/non-or', '/special/obstetric']),
+      expect.arrayContaining(['/monitor/dashboard', '/monitor/devices', '/monitor/alerts', '/special/non-or', '/special/obstetric']),
     );
   });
 
@@ -30,19 +30,24 @@ describe('navigation menu structure', () => {
       'schedule',
       'schedule',
       'schedule',
-      'schedule',
-      'schedule',
-      'schedule',
+      'preparation',
+      'preparation',
       'record',
       'record',
       'record',
       'record',
-      'record',
+      'monitoring',
+      'monitoring',
+      'monitoring',
       'handover',
       'handover',
       'special',
       'special',
     ]);
+  });
+
+  it('keeps prototype tooling out of the clinical surgery menu', () => {
+    expect(secondaryMenus.surgery.map((item) => item.key)).not.toContain('prototype');
   });
 
   it('exposes audit logs clearly under system management', () => {

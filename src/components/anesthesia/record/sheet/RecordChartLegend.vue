@@ -31,12 +31,12 @@ defineProps<{
 .chart-legend-panel {
   display: grid;
   grid-template-rows: auto auto 1fr;
-  gap: 6px;
+  gap: 4px;
   min-height: 300px;
-  padding: 8px 6px;
+  padding: 7px 5px;
   border-right: 1px solid #111827;
   background: #f8fafc;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .event-legend-pairs {
@@ -46,8 +46,8 @@ defineProps<{
 
 .legend-pair-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px 8px;
+  grid-template-columns: 1fr;
+  gap: 2px;
 }
 
 .legend-pair-row span,
@@ -55,31 +55,31 @@ defineProps<{
 .vital-symbol-legend span {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  min-height: 20px;
-  line-height: 1.35;
-  white-space: nowrap;
+  gap: 2px;
+  min-height: 16px;
+  line-height: 1.2;
+  white-space: normal;
 }
 
 .legend-pair-row b,
 .room-entry-legend b,
 .vital-symbol-legend b {
-  min-width: 12px;
+  min-width: 10px;
   color: #111827;
   font-weight: 700;
 }
 
 .room-entry-legend {
   display: grid;
-  gap: 4px;
-  padding: 4px 0;
+  gap: 2px;
+  padding: 3px 0;
   border-top: 1px solid #dbeafe;
   border-bottom: 1px solid #dbeafe;
 }
 
 .vital-symbol-legend {
   display: grid;
-  gap: 3px;
+  gap: 2px;
   align-content: start;
   padding-top: 2px;
 }
