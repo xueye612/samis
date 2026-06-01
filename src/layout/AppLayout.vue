@@ -17,7 +17,7 @@
           v-for="item in primaryMenus"
           :key="item.key"
           type="button"
-          class="sider-nav-item"
+          class="sider-nav-item arco-menu-item"
           :class="{ active: activeMenu === item.key }"
           @click="goMenu(item.key)"
         >
