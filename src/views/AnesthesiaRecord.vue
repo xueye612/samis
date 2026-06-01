@@ -16,25 +16,35 @@
         <div class="top-context">
           <span class="workflow-route">{{ returnTarget.contextLabel }} / 麻醉记录单</span>
           <a-tag :color="current.locked ? 'orangered' : current.rescue ? 'red' : 'green'">{{ current.locked ? '🔒 已锁定' : current.rescue ? '抢救中' : current.recordStatus ?? '记录中' }}</a-tag>
-          <span>采集：{{ current.device?.collectStatus ?? current.collectStatus ?? '未连接' }}</span>
+          <span class="device-state" :class="deviceStateClass(current.device?.collectStatus ?? current.collectStatus)">采集：{{ current.device?.collectStatus ?? current.collectStatus ?? '未连接' }}</span>
         </div>
 
-        <a-space wrap>
-          <a-button type="primary" :disabled="current.locked" @click="startRecord">启动记录</a-button>
-          <a-button :disabled="current.locked" @click="importVitals">设备采集</a-button>
-          <a-button status="danger" :disabled="current.locked" @click="enterRescue">抢救模式</a-button>
-          <a-button v-if="current.rescue" status="warning" :disabled="current.locked" @click="exitRescue">退出抢救</a-button>
-          <a-button @click="runQuality">完整性检查</a-button>
+        <div class="top-action-groups">
+          <div class="action-group">
+            <span>记录操作</span>
+            <a-button type="primary" size="small" :disabled="current.locked" @click="startRecord">启动记录</a-button>
+            <a-button size="small" @click="saveDraft()">保存草稿</a-button>
+          </div>
+          <div class="action-group">
+            <span>设备采集</span>
+            <a-button size="small" :disabled="current.locked" @click="importVitals">同步设备</a-button>
+            <a-button size="small" status="danger" :disabled="current.locked" @click="enterRescue">抢救模式</a-button>
+            <a-button v-if="current.rescue" size="small" status="warning" :disabled="current.locked" @click="exitRescue">退出抢救</a-button>
+          </div>
+          <div class="action-group">
+            <span>质控/打印</span>
+            <a-button size="small" @click="runQuality">完整性检查</a-button>
+            <a-button size="small" @click="printCurrent">打印预览</a-button>
+            <a-button size="small" type="primary" status="success" :disabled="current.locked" @click="submitSignature">提交签名</a-button>
+          </div>
           <a-dropdown trigger="click">
-            <a-button>更多</a-button>
+            <a-button size="small">更多</a-button>
             <template #content>
-              <a-doption @click="saveDraft()">保存草稿</a-doption>
               <a-doption v-if="current.locked" @click="unlockCurrent">解锁修改</a-doption>
-              <a-doption @click="printCurrent">打印预览</a-doption>
+              <a-doption @click="sectionSettingsVisible = true">纸面显示设置</a-doption>
             </template>
           </a-dropdown>
-          <a-button type="primary" status="success" :disabled="current.locked" @click="submitSignature">提交签名</a-button>
-        </a-space>
+        </div>
       </div>
 
       <div class="topbar-footer">
@@ -42,6 +52,12 @@
           <a-button size="small" @click="patientPanelOpen = !patientPanelOpen">{{ patientPanelOpen ? '隐藏患者队列' : '展开患者队列' }}</a-button>
           <a-button size="small" @click="qualityPanelOpen = !qualityPanelOpen">{{ qualityPanelOpen ? '隐藏质控侧栏' : '展开质控侧栏' }}</a-button>
           <a-button size="small" @click="sectionSettingsVisible = true">纸面显示</a-button>
+          <a-button-group size="small">
+            <a-button @click="decreaseSheetZoom">缩小</a-button>
+            <a-button disabled>{{ sheetZoomPercent }}%</a-button>
+            <a-button @click="increaseSheetZoom">放大</a-button>
+            <a-button @click="fitSheetWidth">适宽</a-button>
+          </a-button-group>
           <a-select
             :model-value="selectedId"
             size="small"
@@ -50,6 +66,7 @@
             @change="(value) => selectCase(String(value))"
           />
           <span v-if="livePageCount > 1" class="topbar-chip">记录 {{ livePageCount }} 页</span>
+          <span class="topbar-chip">A4横向 · {{ sheetZoomPercent }}%</span>
           <a-button
             v-for="event in topQuickEvents"
             :key="event.name"
@@ -66,9 +83,32 @@
       <aside v-show="patientPanelOpen" class="patient-queue">
         <div class="queue-head">
           <strong>手术间患者</strong>
-          <span>{{ sortedCases.length }}人</span>
+          <span>{{ filteredCases.length }}/{{ sortedCases.length }}人</span>
         </div>
         <a-input-search v-model="keyword" placeholder="搜索患者/手术间" allow-clear />
+        <div class="queue-filters">
+          <a-select
+            v-model="queueRoomFilter"
+            size="mini"
+            placeholder="手术间"
+            allow-clear
+            :options="queueRoomOptions"
+          />
+          <a-select
+            v-model="queueStatusFilter"
+            size="mini"
+            placeholder="状态"
+            allow-clear
+            :options="queueStatusOptions"
+          />
+          <a-select
+            v-model="queueRiskFilter"
+            size="mini"
+            placeholder="风险"
+            allow-clear
+            :options="queueRiskOptions"
+          />
+        </div>
         <div class="queue-list">
           <button
             v-for="item in filteredCases"
@@ -84,7 +124,10 @@
             </div>
             <p>{{ item.room }} · {{ item.department }}</p>
             <p>{{ item.surgeryName }}</p>
-            <span class="card-status">{{ item.recordStatus ?? item.status }}</span>
+            <div class="patient-card-tags">
+              <span class="card-status">{{ item.recordStatus ?? item.status }}</span>
+              <span v-for="risk in patientRiskTags(item)" :key="risk" class="risk-tag">{{ risk }}</span>
+            </div>
           </button>
         </div>
       </aside>
@@ -104,50 +147,52 @@
               <span class="sheet-page-badge">第 {{ livePageNo }}/{{ livePageCount }} 页</span>
               <span v-if="livePageRange" class="sheet-page-range">{{ livePageRange }}</span>
             </div>
-            <LiveAnesthesiaSheet
-              ref="liveSheetRef"
-              :record="current"
-              :vitals="vitalCatalog"
-              :drugs="drugCatalog"
-              :fluids="fluidCatalog"
-              :blood-types="store.configGenericDicts.bloodTypes"
-              :rh-types="store.configGenericDicts.rhTypes"
-              :transfusion-reactions="store.configGenericDicts.transfusionReactions"
-              :monitor-order="monitorOrder"
-              :read-only="current.locked"
-              :page-no="livePageNo"
-              :show-anesthesia-plane="sheetShowAnesthesiaPlane"
-              :section-visibility="sectionVisibility"
-              :applied-template-name="sheetTemplateName"
-              :applied-method-labels="sheetAppliedMethodLabels"
-              :applied-modules="sheetAppliedModules"
-              :template-impact="confirmedTemplateImpact"
-              :recent-event-label="recentEventLabel"
-              :method-keys="sheetMethodKeys"
-              :method-labels="sheetAppliedMethodLabels"
-              :method-primary="primaryMethod"
-              :method-auxiliary="auxiliaryMethods"
-              :header-picker-options="headerPickerOptions"
-              @select-event="selectSheetEvent"
-              @save-medication="saveMedication"
-              @save-fluid="saveFluid"
-              @save-vital="saveVital"
-              @save-output="saveOutput"
-              @save-plane="savePlane"
-              @save-monitor-order="saveMonitorOrder"
-              @delete-record="deleteRecord"
-              @void-record="voidRecord"
-              @restore-record="restoreRecord"
-              @save-professional-field="saveProfessionalField"
-              @save-timeline="saveTimelineNode"
-              @save-header-field="saveHeaderField"
-              @save-method-selection="applyMethodSelection"
-              @save-summary-field="saveSummaryField"
-              @save-summary-notes="saveSummaryNotes"
-              @save-lab="saveLab"
-              @layout-warnings="updateLayoutWarnings"
-              @stop-medication-pump="stopPump"
-            />
+            <div class="sheet-zoom-frame" :style="{ '--sheet-zoom': String(sheetZoom) }">
+              <LiveAnesthesiaSheet
+                ref="liveSheetRef"
+                :record="current"
+                :vitals="vitalCatalog"
+                :drugs="drugCatalog"
+                :fluids="fluidCatalog"
+                :blood-types="store.configGenericDicts.bloodTypes"
+                :rh-types="store.configGenericDicts.rhTypes"
+                :transfusion-reactions="store.configGenericDicts.transfusionReactions"
+                :monitor-order="monitorOrder"
+                :read-only="current.locked"
+                :page-no="livePageNo"
+                :show-anesthesia-plane="sheetShowAnesthesiaPlane"
+                :section-visibility="sectionVisibility"
+                :applied-template-name="sheetTemplateName"
+                :applied-method-labels="sheetAppliedMethodLabels"
+                :applied-modules="sheetAppliedModules"
+                :template-impact="confirmedTemplateImpact"
+                :recent-event-label="recentEventLabel"
+                :method-keys="sheetMethodKeys"
+                :method-labels="sheetAppliedMethodLabels"
+                :method-primary="primaryMethod"
+                :method-auxiliary="auxiliaryMethods"
+                :header-picker-options="headerPickerOptions"
+                @select-event="selectSheetEvent"
+                @save-medication="saveMedication"
+                @save-fluid="saveFluid"
+                @save-vital="saveVital"
+                @save-output="saveOutput"
+                @save-plane="savePlane"
+                @save-monitor-order="saveMonitorOrder"
+                @delete-record="deleteRecord"
+                @void-record="voidRecord"
+                @restore-record="restoreRecord"
+                @save-professional-field="saveProfessionalField"
+                @save-timeline="saveTimelineNode"
+                @save-header-field="saveHeaderField"
+                @save-method-selection="applyMethodSelection"
+                @save-summary-field="saveSummaryField"
+                @save-summary-notes="saveSummaryNotes"
+                @save-lab="saveLab"
+                @layout-warnings="updateLayoutWarnings"
+                @stop-medication-pump="stopPump"
+              />
+            </div>
           </section>
 
           <aside ref="toolboxRef" class="record-toolbox">
@@ -449,6 +494,9 @@ const store = useAnesthesiaStore();
 const selectedId = ref(String(route.params.id || store.currentDoctorActiveCase?.id || store.myTodayCases[0]?.id || store.cases[0]?.id || ''));
 const activeTab = ref(String((store.recordDrafts[selectedId.value] as { selectedTab?: string } | undefined)?.selectedTab ?? 'patient'));
 const keyword = ref('');
+const queueRoomFilter = ref('');
+const queueStatusFilter = ref('');
+const queueRiskFilter = ref('');
 const qualityVisible = ref(false);
 const patientPanelOpen = ref(false);
 const qualityPanelOpen = ref(true);
@@ -483,6 +531,7 @@ const abnormalTarget = ref<AbnormalVitalByDictionary | null>(null);
 const abnormalTreatment = ref('');
 const printPreviewVisible = ref(false);
 const livePageNo = ref(1);
+const sheetZoom = ref(1);
 const toolboxRef = ref<HTMLElement | null>(null);
 const toolboxCollapseKeys = ref<Array<string | number>>(['templates']);
 
@@ -517,12 +566,25 @@ watch(toolboxCollapseKeys, (keys, previous) => {
 }, { deep: true });
 
 const sortedCases = computed(() => sortCasesByClinicalPriority(store.cases));
+const queueRoomOptions = computed(() => [...new Set(sortedCases.value.map((item) => item.room))].map((room) => ({ label: room, value: room })));
+const queueStatusOptions = computed(() => [...new Set(sortedCases.value.map((item) => item.recordStatus ?? item.status))].map((status) => ({ label: status, value: status })));
+const queueRiskOptions = [
+  { label: '抢救', value: '抢救' },
+  { label: '缺体温', value: '缺体温' },
+  { label: '未签名', value: '未签名' },
+  { label: 'PACU待转出', value: 'PACU待转出' },
+];
 const recordEntrySource = computed(() => normalizeRecordEntrySource(route.query.from));
 const returnTarget = computed(() => buildRecordReturnTarget(recordEntrySource.value, selectedId.value));
 const filteredCases = computed(() => {
   const text = keyword.value.trim();
-  if (!text) return sortedCases.value;
-  return sortedCases.value.filter((item) => [item.patientName, item.room, item.surgeryName, item.department].some((value) => value.includes(text)));
+  return sortedCases.value.filter((item) => {
+    const matchesKeyword = !text || [item.patientName, item.room, item.surgeryName, item.department].some((value) => value.includes(text));
+    const matchesRoom = !queueRoomFilter.value || item.room === queueRoomFilter.value;
+    const matchesStatus = !queueStatusFilter.value || (item.recordStatus ?? item.status) === queueStatusFilter.value;
+    const matchesRisk = !queueRiskFilter.value || patientRiskTags(item).includes(queueRiskFilter.value);
+    return matchesKeyword && matchesRoom && matchesStatus && matchesRisk;
+  });
 });
 const current = computed(() => store.cases.find((item) => item.id === selectedId.value));
 const livePagination = computed(() => (current.value ? buildRecordPagination(current.value) : null));
@@ -607,6 +669,7 @@ const scenarioContext = computed(() => current.value
   }));
 
 const topQuickEvents = computed(() => scenarioContext.value.quickEvents.slice(0, 4));
+const sheetZoomPercent = computed(() => Math.round(sheetZoom.value * 100));
 
 const headerPickerOptions = computed(() => {
   const cases = store.cases;
@@ -685,6 +748,23 @@ onMounted(() => {
 });
 const goBackToSource = () => router.push(returnTarget.value.path);
 const requireCurrent = (): SurgeryCase | undefined => current.value;
+const deviceStateClass = (status?: string) => ({
+  collecting: status === '采集中',
+  warning: status === '采集暂停' || status === '采集异常',
+  offline: !status || status === '未连接',
+});
+const patientRiskTags = (item: SurgeryCase) => {
+  const tags: string[] = [];
+  if (item.rescue) tags.push('抢救');
+  if (!item.vitals.some((vital) => typeof vital.TEMP === 'number')) tags.push('缺体温');
+  if (item.signatures?.status !== '已签名') tags.push('未签名');
+  if (item.status === 'PACU' || item.transferTo === 'PACU') tags.push('PACU待转出');
+  return tags;
+};
+const clampZoom = (value: number) => Math.min(1.2, Math.max(0.75, Number(value.toFixed(2))));
+const increaseSheetZoom = () => { sheetZoom.value = clampZoom(sheetZoom.value + 0.05); };
+const decreaseSheetZoom = () => { sheetZoom.value = clampZoom(sheetZoom.value - 0.05); };
+const fitSheetWidth = () => { sheetZoom.value = 0.9; };
 const startRecord = () => {
   if (!requireCurrent()) return;
   store.startAnesthesiaRecord(selectedId.value);
@@ -1034,10 +1114,10 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   display: grid;
   gap: 10px;
   padding: 12px;
-  border: 1px solid #e5edf5;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-sm);
 }
 
 .topbar-main {
@@ -1053,7 +1133,7 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   gap: 8px;
   align-items: center;
   padding-top: 8px;
-  border-top: 1px solid #eef2f7;
+  border-top: 1px solid var(--border);
 }
 
 .work-mode-bar {
@@ -1073,8 +1153,8 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 .return-button {
   flex: 0 0 auto;
-  color: #165dff;
-  background: #eef6ff;
+  color: var(--primary);
+  background: var(--primary-soft);
 }
 
 .brand-mark {
@@ -1083,9 +1163,9 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   display: grid;
   place-items: center;
   border-radius: 7px;
-  color: #fff;
+  color: var(--surface);
   font-weight: 800;
-  background: linear-gradient(135deg, #165dff, #0f9f9a);
+  background: var(--primary);
 }
 
 .brand-block h1,
@@ -1099,8 +1179,8 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 .brand-block p,
 .top-context {
-  color: #64748b;
-  font-size: 12px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
 }
 
 .top-context {
@@ -1113,16 +1193,62 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 .workflow-route {
   padding: 2px 8px;
   border-radius: 999px;
-  background: #eef6ff;
-  color: #165dff;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.device-state {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.device-state.collecting {
+  background: var(--color-success-50);
+  color: var(--color-success-600);
+}
+
+.device-state.warning {
+  background: var(--color-warning-100);
+  color: var(--warning);
+}
+
+.device-state.offline {
+  background: var(--color-danger-100);
+  color: var(--danger);
+}
+
+.top-action-groups {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+.action-group > span {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
 }
 
 .topbar-chip {
   padding: 2px 8px;
   border-radius: 999px;
-  background: #f1f5f9;
-  color: #475569;
-  font-size: 12px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
 }
 
 .record-layout {
@@ -1152,9 +1278,9 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   max-height: calc(100vh - 110px);
   overflow: auto;
   padding: 12px;
-  border: 1px solid #e5edf5;
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
 
 .queue-head {
@@ -1168,30 +1294,36 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   gap: 8px;
 }
 
+.queue-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .patient-card {
   display: grid;
   gap: 5px;
   width: 100%;
   padding: 10px;
-  border: 1px solid #e5edf5;
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   color: inherit;
   text-align: left;
 }
 
 .patient-card:hover,
 .patient-card.active {
-  border-color: #165dff;
-  background: #f6fbff;
+  border-color: var(--primary);
+  background: var(--primary-soft);
 }
 
 .patient-card.active {
-  box-shadow: inset 3px 0 0 #165dff;
+  box-shadow: inset 3px 0 0 var(--primary);
 }
 
 .patient-card.rescue {
-  border-color: #fecaca;
+  border-color: var(--color-danger-100);
   background: #fff7f7;
 }
 
@@ -1203,18 +1335,33 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 .patient-card p {
   margin: 0;
-  color: #64748b;
-  font-size: 12px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
   line-height: 1.35;
+}
+
+.patient-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 .card-status {
   width: fit-content;
   padding: 2px 6px;
   border-radius: 999px;
-  background: #eef6ff;
-  color: #165dff;
-  font-size: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: var(--font-size-xs);
+}
+
+.risk-tag {
+  width: fit-content;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--color-warning-100);
+  color: var(--warning);
+  font-size: var(--font-size-xs);
 }
 
 .record-center {
@@ -1245,10 +1392,15 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   min-width: 0;
   overflow: auto;
   padding: 10px;
-  border: 1px solid #dbe6f3;
-  border-radius: 8px;
-  background: #f8fbff;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-blue);
+  box-shadow: var(--shadow-sm);
+}
+
+.sheet-zoom-frame {
+  transform-origin: top left;
+  zoom: var(--sheet-zoom);
 }
 
 .sheet-page-nav {
