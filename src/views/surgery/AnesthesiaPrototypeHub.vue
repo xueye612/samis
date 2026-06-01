@@ -36,6 +36,14 @@
       />
     </template>
 
+    <section class="design-direction-band">
+      <article v-for="item in designDirections" :key="item.title" class="design-direction-card">
+        <span>{{ item.eyebrow }}</span>
+        <strong>{{ item.title }}</strong>
+        <p>{{ item.description }}</p>
+      </article>
+    </section>
+
     <section class="prototype-grid">
       <div class="prototype-main">
         <a-card class="section-card" :bordered="false">
@@ -301,6 +309,11 @@ const currentCase = computed(() => store.cases.find((item) => item.id === select
 const currentSnapshot = computed(() => intraopRows.value.find((item) => item.caseId === currentCase.value?.id));
 const dictionarySummary = computed(() => buildDictionarySummary(store.configDrugs, store.configFluids, store.configVitals, store.configEvents));
 const componentMap = computed(() => new Map(prototypeComponentPlans.map((item) => [item.key, item.title])));
+const designDirections = [
+  { eyebrow: '视觉', title: '医疗蓝绿灰白', description: '减少装饰性渐变和重阴影，通过边界、留白和状态色建立层级。' },
+  { eyebrow: '交互', title: '短路径操作', description: '主操作置于工具条，病例上下文与待处理事项保留在右侧面板。' },
+  { eyebrow: '数据', title: '字典驱动原型', description: '药品、液体、事件、体征字段结构化，直接服务统计和质控。' },
+];
 
 const metricCards = computed<Array<{ label: string; value: string | number; hint: string; tag?: string; variant?: 'default' | 'warn' | 'danger'; icon: AppIconName }>>(() => [
   { label: '病例总数', value: metrics.value.caseCount, hint: '当前 Mock 临床数据', icon: 'IconList' },
@@ -356,6 +369,40 @@ const exportPrototype = () => {
   align-items: start;
 }
 
+.design-direction-band {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: var(--space-4);
+}
+
+.design-direction-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, var(--surface-blue), var(--surface));
+  box-shadow: var(--shadow-xs);
+}
+
+.design-direction-card span {
+  color: var(--primary);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+
+.design-direction-card strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+}
+
+.design-direction-card p {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
 .prototype-main,
 .prototype-aside,
 .quick-action-list,
@@ -375,7 +422,8 @@ const exportPrototype = () => {
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--surface-muted);
+  background: linear-gradient(180deg, var(--surface), var(--surface-muted));
+  box-shadow: var(--shadow-xs);
 }
 
 .workflow-node__index {
@@ -528,6 +576,7 @@ const exportPrototype = () => {
   }
 
   .workflow-strip,
+  .design-direction-band,
   .dictionary-summary,
   .print-profile-grid {
     grid-template-columns: repeat(2, minmax(160px, 1fr));
@@ -536,6 +585,7 @@ const exportPrototype = () => {
 
 @media (max-width: 720px) {
   .workflow-strip,
+  .design-direction-band,
   .dictionary-summary,
   .print-profile-grid {
     grid-template-columns: 1fr;

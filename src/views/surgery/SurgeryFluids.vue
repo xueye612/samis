@@ -1,12 +1,37 @@
 <template>
-  <div class="page-stack">
-    <a-card class="section-card" :bordered="false" title="输液输血">
-      <a-table :data="rows" :pagination="{ pageSize: 8 }" row-key="id" :scroll="{ x: 980 }">
+  <ModulePageShell title="输液输血" description="汇总术中晶体液、胶体液、血制品和自体血回输，突出容量、核对与不良反应风险。">
+    <template #chips>
+      <a-tag color="green">入量 {{ fluidVolumeTotal }} ml</a-tag>
+      <a-tag color="red">血制品 {{ bloodProductCount }}</a-tag>
+      <a-tag :color="uncheckedBloodProductCount ? 'red' : 'green'">未核对 {{ uncheckedBloodProductCount }}</a-tag>
+    </template>
+
+    <template #toolbar>
+      <a-space wrap>
+        <a-input-search v-model="keyword" class="toolbar-search" placeholder="搜索患者/液体/血制品" allow-clear />
+        <a-select v-model="categoryFilter" class="filter-select" :options="categoryOptions" />
+        <a-button type="primary" @click="router.push('/config/fluids')">维护液体/血制品字典</a-button>
+      </a-space>
+    </template>
+
+    <template #stats>
+      <MetricCard label="输注记录" :value="rows.length" hint="液体与血制品合计" icon="IconSwap" />
+      <MetricCard label="液体入量" :value="`${fluidVolumeTotal}ml`" hint="不含血制品单位折算" icon="IconBarChart" />
+      <MetricCard label="血制品" :value="bloodProductCount" hint="需双人核对" :variant="uncheckedBloodProductCount ? 'warn' : 'default'" icon="IconHeart" />
+      <MetricCard label="未双核" :value="uncheckedBloodProductCount" hint="质控待处理" :variant="uncheckedBloodProductCount ? 'danger' : 'default'" icon="IconExclamationCircle" />
+    </template>
+
+    <section class="clinical-page-grid">
+      <div class="clinical-panel">
+        <a-card class="section-card" :bordered="false" title="输液输血明细">
+          <a-table :data="filteredRows" :pagination="{ pageSize: 8 }" row-key="id" :scroll="{ x: 1080 }" class="compact-table">
         <template #columns>
-          <a-table-column title="患者/手术" :width="210">
+          <a-table-column title="患者/手术" :width="230">
             <template #cell="{ record }">
-              <strong>{{ record.patientName }}</strong>
-              <p class="row-sub">{{ record.room }} · {{ record.surgeryName }}</p>
+              <div class="clinical-row-title">
+                <strong>{{ record.patientName }}</strong>
+                <span>{{ record.room }} · {{ record.surgeryName }}</span>
+              </div>
             </template>
           </a-table-column>
           <a-table-column title="类别" :width="100">
@@ -28,14 +53,42 @@
           </a-table-column>
         </template>
       </a-table>
-    </a-card>
-  </div>
+        </a-card>
+      </div>
+
+      <aside class="clinical-side-panel">
+        <a-card class="section-card" :bordered="false" title="输血核对提醒">
+          <div class="clinical-mini-list">
+            <div v-for="item in uncheckedBloodRows" :key="item.id" class="clinical-mini-item">
+              <strong>{{ item.name }} · {{ item.amountText }}</strong>
+              <span>{{ item.patientName }} / {{ item.bloodType || '-' }} {{ item.rh || '' }} / {{ item.timeText }}</span>
+            </div>
+            <a-empty v-if="!uncheckedBloodRows.length" description="血制品均已核对" />
+          </div>
+        </a-card>
+        <a-card class="section-card" :bordered="false" title="统计口径">
+          <div class="clinical-mini-list">
+            <div class="clinical-mini-item">
+              <strong>液体入量</strong>
+              <span>晶体液、胶体液、自体血回输按 ml 汇总</span>
+            </div>
+            <div class="clinical-mini-item">
+              <strong>血制品</strong>
+              <span>保留 U、ml、治疗量等原单位，重点核对双签</span>
+            </div>
+          </div>
+        </a-card>
+      </aside>
+    </section>
+  </ModulePageShell>
 </template>
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import MetricCard from '@/components/MetricCard.vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 import type { FluidRecord } from '@/types/anesthesia';
 
@@ -57,6 +110,9 @@ interface RowItem {
 
 const store = useAnesthesiaStore();
 const router = useRouter();
+const keyword = ref('');
+const categoryFilter = ref('全部');
+const categoryOptions = ['全部', '晶体液', '胶体液', '血液制品', '自体血回输'];
 
 const rows = computed<RowItem[]>(() => store.cases.flatMap((item) => item.fluids.map((row) => ({
   id: `${item.id}-${row.id}`,
@@ -73,6 +129,20 @@ const rows = computed<RowItem[]>(() => store.cases.flatMap((item) => item.fluids
   doubleCheck: row.doubleCheck,
   executor: row.executor,
 }))));
+const filteredRows = computed(() => {
+  const q = keyword.value.trim();
+  return rows.value.filter((item) => {
+    const matchKeyword = !q || [item.patientName, item.room, item.surgeryName, item.name].some((value) => value.includes(q));
+    const matchCategory = categoryFilter.value === '全部' || item.category === categoryFilter.value;
+    return matchKeyword && matchCategory;
+  });
+});
+const fluidVolumeTotal = computed(() => rows.value
+  .filter((item) => item.category !== '血液制品')
+  .reduce((sum, item) => sum + (Number.parseFloat(item.amountText) || 0), 0));
+const bloodProductCount = computed(() => rows.value.filter((item) => item.category === '血液制品').length);
+const uncheckedBloodProductCount = computed(() => rows.value.filter((item) => item.category === '血液制品' && !item.doubleCheck).length);
+const uncheckedBloodRows = computed(() => rows.value.filter((item) => item.category === '血液制品' && !item.doubleCheck).slice(0, 6));
 
 const formatTime = (value?: string) => (value ? dayjs(value).format('HH:mm') : '');
 const fluidTime = (row: FluidRecord) => `${formatTime(row.startTime ?? row.time) || '-'} - ${formatTime(row.endTime) || '进行中'}`;
@@ -80,9 +150,7 @@ const go = (id: string) => router.push(`/surgery/record/${id}`);
 </script>
 
 <style scoped>
-.row-sub {
-  margin: 2px 0 0;
-  color: #64748b;
-  font-size: 12px;
+.filter-select {
+  width: 150px;
 }
 </style>

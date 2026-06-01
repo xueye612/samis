@@ -53,33 +53,46 @@ const tagColor = computed(() => {
 .metric-card {
   display: flex;
   gap: 12px;
-  padding: 14px 16px;
-  border-radius: var(--radius-md);
+  min-height: 112px;
+  padding: 16px;
+  border-radius: 16px;
   background: var(--surface);
   border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  box-shadow: var(--shadow-xs);
 }
 
 .metric-card--warn {
   border-color: var(--color-warning-100);
-  background: rgb(255 247 237);
+  border-left-color: var(--warning);
+  background: linear-gradient(180deg, rgb(255 247 237), var(--surface));
 }
 
 .metric-card--danger {
   border-color: var(--color-danger-100);
-  background: rgb(254 242 242);
+  border-left-color: var(--danger);
+  background: linear-gradient(180deg, rgb(254 242 242), var(--surface));
 }
 
 .metric-card__icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--primary-soft);
   color: var(--primary);
   opacity: 0.9;
-  padding-top: 2px;
+  padding-top: 0;
 }
 
 .metric-card--warn .metric-card__icon {
+  background: var(--color-warning-100);
   color: var(--warning);
 }
 
 .metric-card--danger .metric-card__icon {
+  background: var(--color-danger-100);
   color: var(--danger);
 }
 
@@ -91,6 +104,7 @@ const tagColor = computed(() => {
 .metric-card__label {
   font-size: 13px;
   color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .metric-card__row {
@@ -102,10 +116,11 @@ const tagColor = computed(() => {
 }
 
 .metric-card__value {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 .metric-card__hint {

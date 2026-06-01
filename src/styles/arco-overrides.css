@@ -6,16 +6,18 @@
 
 .arco-card-header {
   border-bottom-color: var(--border);
+  font-weight: 600;
 }
 
 .arco-table-th {
-  background: var(--surface-muted);
+  background: linear-gradient(180deg, var(--surface-blue), var(--surface-muted));
   color: var(--text-secondary);
   font-weight: 600;
 }
 
 .arco-table-td {
   color: var(--text-primary);
+  border-bottom-color: var(--border);
 }
 
 .arco-table-tr:hover .arco-table-td {
@@ -24,20 +26,29 @@
 
 .arco-btn-primary {
   background: var(--primary);
+  border-color: var(--primary);
 }
 
 .arco-btn-primary:hover {
   background: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
 .arco-btn {
   border-radius: var(--radius-sm);
+  box-shadow: none;
 }
 
 .arco-input-wrapper,
 .arco-select-view,
 .arco-picker {
   border-radius: var(--radius-sm);
+}
+
+.arco-input-wrapper:focus-within,
+.arco-select-view-focus,
+.arco-picker-focused {
+  box-shadow: var(--focus-ring);
 }
 
 .arco-tag {
