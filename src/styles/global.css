@@ -21,12 +21,13 @@ body {
 .app-shell {
   min-height: 100vh;
   background:
-    radial-gradient(circle at top right, rgb(37 99 235 / 6%), transparent 45%),
+    radial-gradient(circle at top right, rgb(37 99 235 / 6%), transparent 42%),
+    linear-gradient(180deg, var(--surface-app-top) 0%, var(--medical-bg) 260px),
     var(--medical-bg);
 }
 
 .app-sider {
-  background: var(--surface);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-app-side) 100%);
   border-right: 1px solid var(--border);
   box-shadow: var(--shadow-xs);
 }
@@ -43,7 +44,7 @@ body {
 }
 
 .brand {
-  height: 56px;
+  height: 64px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -52,9 +53,9 @@ body {
 }
 
 .brand-mark {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
   display: grid;
   place-items: center;
   color: var(--color-neutral-0);
@@ -78,6 +79,7 @@ body {
 .brand-subtitle {
   color: var(--text-tertiary);
   font-size: var(--font-size-xs);
+  letter-spacing: 0.08em;
 }
 
 .page-desc,
@@ -87,10 +89,10 @@ body {
 }
 
 .app-header {
-  height: 72px;
-  padding: 0 var(--space-5);
+  height: 76px;
+  padding: 0 var(--space-6);
   background:
-    linear-gradient(100deg, rgb(37 99 235 / 8%), transparent 32%),
+    linear-gradient(100deg, rgb(37 99 235 / 7%), transparent 30%),
     var(--surface);
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -111,9 +113,10 @@ body {
 
 .app-subnav {
   padding: 0 var(--space-5);
-  background: rgb(255 255 255 / 95%);
+  background: rgb(255 255 255 / 96%);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  backdrop-filter: blur(8px);
 }
 
 .app-subnav-scroll {
@@ -156,7 +159,7 @@ body {
 }
 
 .app-content {
-  padding: var(--space-5) var(--space-6) 36px;
+  padding: var(--space-6) var(--space-6) 40px;
   min-width: 0;
 }
 
@@ -166,6 +169,11 @@ body {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgb(255 255 255 / 76%);
+  box-shadow: var(--shadow-xs);
 }
 
 .toolbar-end {
@@ -178,7 +186,7 @@ body {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 14px;
 }
 
@@ -219,32 +227,39 @@ body {
 .page-stack {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
 }
 
 .module-hero {
+  position: relative;
+  overflow: hidden;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-6);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-left: 4px solid var(--primary);
+  border-radius: 18px;
   background:
-    linear-gradient(90deg, rgb(37 99 235 / 5%), transparent 40%),
+    radial-gradient(circle at 88% 14%, rgb(20 184 166 / 10%), transparent 26%),
+    linear-gradient(90deg, rgb(37 99 235 / 6%), transparent 44%),
     var(--surface);
+  box-shadow: var(--shadow-xs);
 }
 
 .module-hero__title {
   margin: 0;
   color: var(--text-primary);
-  font-size: 18px;
+  font-size: 20px;
+  letter-spacing: -0.01em;
 }
 
 .module-hero__desc {
-  margin: var(--space-1) 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
+  line-height: 1.7;
 }
 
 .module-hero__chips {
@@ -290,20 +305,20 @@ body {
 
 .section-card {
   border: 1px solid var(--border);
-  border-radius: var(--card-radius);
+  border-radius: 16px;
   box-shadow: var(--shadow-card);
   background: var(--surface);
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .section-card:hover {
+  border-color: var(--color-brand-100);
   box-shadow: var(--shadow-sm);
-  transform: translateY(-1px);
 }
 
 .section-card :deep(.arco-card-header) {
   border-bottom: 1px solid var(--border);
-  min-height: 48px;
+  min-height: 52px;
 }
 
 .section-card .arco-card-body {
@@ -377,6 +392,69 @@ body {
 
 .compact-table .arco-table-cell {
   padding: 9px 10px;
+}
+
+.clinical-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.clinical-panel {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.clinical-side-panel {
+  position: sticky;
+  top: 16px;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.clinical-row-title {
+  display: grid;
+  gap: 4px;
+}
+
+.clinical-row-title strong {
+  color: var(--text-primary);
+}
+
+.clinical-row-title span,
+.row-sub {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.clinical-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.clinical-mini-list {
+  display: grid;
+  gap: 10px;
+}
+
+.clinical-mini-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+.clinical-mini-item strong,
+.clinical-mini-item span {
+  display: block;
+}
+
+.clinical-mini-item span {
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
 }
 
 .doctor-select {
@@ -746,8 +824,13 @@ body {
   .room-schedule-grid,
   .doctor-workbench-grid,
   .clinical-record,
+  .clinical-page-grid,
   .config-grid {
     grid-template-columns: 1fr;
+  }
+
+  .clinical-side-panel {
+    position: static;
   }
 
 }

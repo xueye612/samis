@@ -12,6 +12,7 @@ export const corePages: CorePage[] = [
   { name: '登录页', path: '/login', screenshot: '01-login.png', keywords: ['手术麻醉管理系统', '进入系统'] },
   { name: '麻醉工作台首页', path: '/workbench', screenshot: '02-workbench.png', keywords: ['工作台', 'OR-01', '质控'] },
   { name: '手术排班页面', path: '/surgery/schedule', screenshot: '03-surgery-schedule.png', keywords: ['手术', '排班', 'OR-01'] },
+  { name: '麻醉原型优化框架', path: '/surgery/prototype', screenshot: '03b-anesthesia-prototype.png', keywords: ['原型优化框架', '组件规划', '质控'] },
   { name: '术前访视/麻醉评估页面', path: '/surgery/pre-visit', screenshot: '04-pre-visit.png', keywords: ['术前', '访视', 'ASA'] },
   { name: '麻醉记录单页面', path: '/surgery/record/case-or01', screenshot: '05-anesthesia-record.png', keywords: ['麻醉', '记录', 'HR'] },
   { name: 'PACU恢复室列表', path: '/pacu/list', screenshot: '06-pacu-list.png', keywords: ['PACU', 'Aldrete', 'VAS'] },
