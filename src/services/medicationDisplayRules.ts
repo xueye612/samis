@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import type { MedicationRecord } from '@/types/anesthesia';
+import type { MedicationRecord, SurgeryCase } from '@/types/anesthesia';
 import {
   clockToMinutes,
   isoOrClockToClock,
@@ -85,6 +85,75 @@ export function shouldRenderAsPoint(record: Pick<MedicationRecord, 'mode' | 'tim
 /** 是否进入下方特殊用药说明区（仅 is_special=true） */
 export function shouldRenderInSpecialMedication(record: Pick<MedicationRecord, 'isSpecial'>): boolean {
   return Boolean(record.isSpecial);
+}
+
+/** 诱导期结束事件（首次出现即视为诱导结束） */
+const INDUCTION_END_EVENT_KEYS = ['插管', '喉罩', '手术开始', '切皮', '阻滞评估', '单肺通气', '内镜开始', '置管'];
+
+/** 解析诱导用药时间窗：入室/麻醉开始 → 插管/手术开始等 */
+export function resolveInductionWindow(
+  record: Pick<SurgeryCase, 'roomInTime' | 'anesthesiaStart' | 'surgeryStart' | 'events'>,
+): { startIso?: string; endIso?: string } {
+  const events = (record.events ?? []).filter((item) => item.status !== 'voided');
+  const startCandidates = [
+    record.roomInTime,
+    record.anesthesiaStart,
+    ...events
+      .filter((item) => ['诱导开始', '镇静开始'].some((key) => item.type.includes(key)))
+      .map((item) => item.time),
+  ].filter(Boolean) as string[];
+  const endCandidates = [
+    record.surgeryStart,
+    ...events
+      .filter((item) => INDUCTION_END_EVENT_KEYS.some((key) => item.type.includes(key)))
+      .map((item) => item.time),
+  ].filter(Boolean) as string[];
+  const pickEarliest = (list: string[]) => list.reduce((earliest, current) => (
+    new Date(current).getTime() < new Date(earliest).getTime() ? current : earliest
+  ));
+  return {
+    startIso: startCandidates.length ? pickEarliest(startCandidates) : undefined,
+    endIso: endCandidates.length ? pickEarliest(endCandidates) : undefined,
+  };
+}
+
+function medicationEventIso(record: MedicationRecord): string | undefined {
+  return medicationStartTime(record) ?? medicationEventTime(record) ?? record.time;
+}
+
+/** 是否写入「麻醉诱导用药」说明区：非特殊用药，且给药时间在诱导时间窗内 */
+export function shouldRenderInInductionMedication(
+  record: MedicationRecord,
+  context: Pick<SurgeryCase, 'roomInTime' | 'anesthesiaStart' | 'surgeryStart' | 'events'>,
+): boolean {
+  if (record.status === 'voided' || shouldRenderInSpecialMedication(record)) return false;
+  const eventIso = medicationEventIso(record);
+  if (!eventIso) return false;
+  const eventMs = new Date(eventIso).getTime();
+  if (Number.isNaN(eventMs)) return false;
+  const { startIso, endIso } = resolveInductionWindow(context);
+  if (!startIso && !endIso) return false;
+  if (startIso && eventMs < new Date(startIso).getTime()) return false;
+  if (endIso && eventMs >= new Date(endIso).getTime()) return false;
+  return true;
+}
+
+export function formatInductionMedicationNoteLine(record: MedicationRecord, index: number): string {
+  const dose = `${record.dose ?? ''}${record.unit ?? ''}`.trim();
+  const route = record.route?.trim() || '静注';
+  const clock = isoOrClockToClock(medicationEventTime(record) ?? record.time ?? record.startTime);
+  const drugPart = `${record.drug}${dose ? ` ${dose}` : ''} ${route}`.trim();
+  return clock ? `${index}. ${clock} ${drugPart}` : `${index}. ${drugPart}`;
+}
+
+export function buildInductionMedicationSummaryText(
+  records: MedicationRecord[],
+  context: Pick<SurgeryCase, 'roomInTime' | 'anesthesiaStart' | 'surgeryStart' | 'events'>,
+): string {
+  const rows = records
+    .filter((row) => shouldRenderInInductionMedication(row, context))
+    .sort((a, b) => medicationSortMinutes(a) - medicationSortMinutes(b));
+  return rows.map((row, index) => formatInductionMedicationNoteLine(row, index + 1)).join('\n');
 }
 
 const CIRCLE_NUMBERS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
@@ -311,21 +380,21 @@ export function buildMedicationDisplayModel(
   };
 }
 
+function medicationSortMinutes(record: MedicationRecord): number {
+  const clock = isoOrClockToClock(
+    medicationStartTime(record) ?? medicationEventTime(record) ?? record.time,
+  );
+  return clockToMinutes(clock) ?? Number.MAX_SAFE_INTEGER;
+}
+
+/** 按给药时间严格连续分配 1…n；忽略历史 specialNo，避免序号与时间轴不一致 */
 export function assignSpecialNumbers(records: MedicationRecord[]): Map<string, number> {
   const special = records
     .filter((row) => row.status !== 'voided' && shouldRenderInSpecialMedication(row))
-    .sort((a, b) => String(medicationEventTime(a) ?? medicationStartTime(a)).localeCompare(String(medicationEventTime(b) ?? medicationStartTime(b))));
+    .sort((a, b) => medicationSortMinutes(a) - medicationSortMinutes(b));
   const map = new Map<string, number>();
-  let next = 1;
-  special.forEach((row) => {
-    const existing = row.specialNo ?? parseSpecialNoFromDisplay(String(row.specialNo ?? ''));
-    if (existing) {
-      map.set(row.id, existing);
-      next = Math.max(next, existing + 1);
-      return;
-    }
-    map.set(row.id, next);
-    next += 1;
+  special.forEach((row, index) => {
+    map.set(row.id, index + 1);
   });
   return map;
 }
@@ -350,29 +419,53 @@ export function formatMedicationSpecialNoteLine(record: MedicationRecord, specia
 }
 
 export function buildSpecialMedicationSummaryText(records: MedicationRecord[]): string {
-  const active = records.filter((row) => row.status !== 'voided' && shouldRenderInSpecialMedication(row));
-  if (!active.length) return '';
   const numbers = assignSpecialNumbers(records);
+  const active = records
+    .filter((row) => row.status !== 'voided' && shouldRenderInSpecialMedication(row))
+    .sort((a, b) => (numbers.get(a.id) ?? 0) - (numbers.get(b.id) ?? 0));
+  if (!active.length) return '';
   return active
-    .map((row) => formatMedicationSpecialNoteLine(row, numbers.get(row.id) ?? row.specialNo ?? 1))
+    .map((row) => formatMedicationSpecialNoteLine(row, numbers.get(row.id) ?? 1))
     .join('\n');
+}
+
+function extractDrugTokenFromNoteLine(line: string): string {
+  const body = line.replace(/^\s*[①②③④⑤⑥⑦⑧⑨⑩\d]+[.、)\s]*/, '').trim();
+  const withoutClock = body.replace(/^\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?\s*/, '').trim();
+  return withoutClock.split(/\s+/)[0] ?? '';
+}
+
+/** 按时间顺序回写 specialNo，保证时间轴圈号与说明区序号一致 */
+export function applySpecialNumbersToMedications(medications: MedicationRecord[]): void {
+  const map = assignSpecialNumbers(medications);
+  medications.forEach((row) => {
+    if (row.status === 'voided' || !shouldRenderInSpecialMedication(row)) return;
+    const no = map.get(row.id);
+    if (no) row.specialNo = no;
+  });
 }
 
 export function mergeSpecialMedicationNotes(manualNotes: string | undefined, records: MedicationRecord[]): string {
   const auto = buildSpecialMedicationSummaryText(records);
   const manual = manualNotes?.trim();
-  if (manual && auto) {
-    const manualLines = manual.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    const autoLines = auto.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    const seen = new Set(manualLines.map((line) => line.replace(/^\s*[①②③④⑤⑥⑦⑧⑨⑩\d]+[.、)\s]*/, '')));
-    const merged = [...manualLines];
-    autoLines.forEach((line) => {
-      const key = line.replace(/^\s*[①②③④⑤⑥⑦⑧⑨⑩\d]+[.、)\s]*/, '');
-      if (!seen.has(key)) merged.push(line);
+  if (!auto) return manual || '';
+  if (!manual) return auto;
+  const autoDrugs = new Set(
+    records
+      .filter((row) => row.status !== 'voided' && shouldRenderInSpecialMedication(row))
+      .map((row) => row.drug.trim()),
+  );
+  const extraManual = manual
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => {
+      const mentionsAutoDrug = Array.from(autoDrugs).some((drug) => drug && line.includes(drug));
+      if (mentionsAutoDrug) return false;
+      const token = extractDrugTokenFromNoteLine(line);
+      return Boolean(token && !autoDrugs.has(token));
     });
-    return merged.join('\n');
-  }
-  return manual || auto || '';
+  return extraManual.length ? `${auto}\n${extraManual.join('\n')}` : auto;
 }
 
 /** 录入归一化：持续泵入补默认结束时间；is_special 仅以 payload 或显式字典推荐为准 */

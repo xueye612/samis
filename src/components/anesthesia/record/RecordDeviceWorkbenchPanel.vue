@@ -1,12 +1,39 @@
 <template>
-  <a-collapse-item key="device" header="设备与同步" class="toolbox-collapse-item device-sync-collapse no-print">
+  <a-collapse-item key="device" header="设备与同步（详情）" class="toolbox-collapse-item device-sync-collapse no-print">
     <div class="device-workbench device-workbench-compact">
+      <a-alert
+        v-if="deviceSimRescueMismatch"
+        type="warning"
+        show-icon
+        banner
+        class="device-rescue-mismatch-alert"
+      >
+        设备模拟仍处于抢救频率，请切换为「正常」采集。
+      </a-alert>
+      <a-alert
+        v-if="monitoringView?.sessionOnOtherCase"
+        type="info"
+        show-icon
+        banner
+        class="device-session-alert"
+      >
+        其他患者（{{ monitoringView.sessionOwnerLabel }}）监护会话仍在进行，数据不会写入当前记录单。
+      </a-alert>
+      <a-alert
+        v-if="monitoringView?.monitoringPaused && !monitoringView.sessionOnOtherCase"
+        type="warning"
+        show-icon
+        banner
+        class="device-session-alert"
+      >
+        监护会话已暂停模拟采集，已采集数据仍归属本记录单。可点击「恢复」或重新启动。
+      </a-alert>
       <div class="device-core">
         <div class="device-status-lines">
           <div class="device-line" data-device="monitor">
             <span class="device-name">监护仪</span>
-            <strong :class="syncState.monitorRunning ? 'status-running' : 'status-stopped'">
-              {{ syncState.monitorRunning ? '运行中' : '已停止' }}
+            <strong :class="monitorStatusClass">
+              {{ monitorStatusLabel }}
             </strong>
             <a-button
               v-if="!locked"
@@ -14,13 +41,13 @@
               type="text"
               @click="emit('toggle-monitor')"
             >
-              {{ syncState.monitorRunning ? '停止' : '启动' }}
+              {{ monitorActionLabel }}
             </a-button>
           </div>
           <div class="device-line" data-device="ventilator">
             <span class="device-name">呼吸机</span>
-            <strong :class="syncState.ventilatorRunning ? 'status-running' : 'status-stopped'">
-              {{ syncState.ventilatorRunning ? '运行中' : '已停止' }}
+            <strong :class="ventilatorStatusClass">
+              {{ ventilatorStatusLabel }}
             </strong>
             <a-button
               v-if="!locked"
@@ -28,7 +55,7 @@
               type="text"
               @click="emit('toggle-ventilator')"
             >
-              {{ syncState.ventilatorRunning ? '停止' : '启动' }}
+              {{ ventilatorActionLabel }}
             </a-button>
           </div>
         </div>
@@ -41,12 +68,30 @@
         <div class="device-actions-compact">
           <a-button size="mini" :disabled="locked" @click="emit('import-vitals')">同步设备</a-button>
           <a-button
-            v-if="anyDeviceRunning && !locked"
+            v-if="anyDeviceSession && !locked"
             size="mini"
             status="warning"
             @click="emit('stop-all-devices')"
           >
-            停止全部
+            停止监护
+          </a-button>
+        </div>
+
+        <div v-if="!locked && anyDeviceSession" class="device-revoke-row">
+          <a-input
+            v-model="revokeReasonDraft"
+            size="mini"
+            placeholder="撤销原因（误绑定/误采集）"
+            allow-clear
+          />
+          <a-button
+            size="mini"
+            type="outline"
+            status="danger"
+            :disabled="!revokeReasonDraft.trim()"
+            @click="emit('revoke-monitoring', revokeReasonDraft.trim())"
+          >
+            撤销监护
           </a-button>
         </div>
 
@@ -129,8 +174,9 @@
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { AnesthesiaSyncState } from '@/types/anesthesiaLocalDb';
+import type { MonitoringViewUi } from '@/services/anesthesia/monitoringSessionService';
 import {
   ABNORMAL_SIMULATION_OPTIONS,
   type AbnormalSimulationType,
@@ -147,6 +193,7 @@ const props = defineProps<{
   rescueModeActive?: boolean;
   showDevConflictButton?: boolean;
   monitorIntervalOptions: Array<{ label: string; value: number }>;
+  monitoringView?: MonitoringViewUi;
 }>();
 
 const emit = defineEmits<{
@@ -157,10 +204,13 @@ const emit = defineEmits<{
   'toggle-monitor': [];
   'toggle-ventilator': [];
   'stop-all-devices': [];
+  'revoke-monitoring': [reason: string];
   'inject-test-conflict': [];
   'open-sync-detail': [];
   'open-conflicts': [];
 }>();
+
+const revokeReasonDraft = ref('');
 
 const abnormalOptions = ABNORMAL_SIMULATION_OPTIONS;
 
@@ -168,9 +218,48 @@ const lastCollectLabel = computed(() => (
   props.syncState.lastCollectTime ? dayjs(props.syncState.lastCollectTime).format('HH:mm:ss') : '—'
 ));
 
-const anyDeviceRunning = computed(() => (
+const anyDeviceRunning = computed(() => props.monitoringView?.mockTicking ?? (
   props.syncState.monitorRunning || props.syncState.ventilatorRunning
 ));
+
+const anyDeviceSession = computed(() => (
+  props.monitoringView?.hasMonitorSession
+  || props.monitoringView?.hasVentilatorSession
+  || anyDeviceRunning.value
+));
+
+const monitorStatusLabel = computed(() => {
+  if (props.monitoringView?.mockTicking && props.monitoringView.hasMonitorSession) return '运行中';
+  if (props.monitoringView?.monitoringPaused && props.monitoringView.hasMonitorSession) return '已暂停';
+  if (props.monitoringView?.hasMonitorSession) return '会话中';
+  return props.syncState.monitorRunning ? '运行中' : '已停止';
+});
+
+const ventilatorStatusLabel = computed(() => {
+  if (props.monitoringView?.mockTicking && props.monitoringView.hasVentilatorSession) return '运行中';
+  if (props.monitoringView?.monitoringPaused && props.monitoringView.hasVentilatorSession) return '已暂停';
+  if (props.monitoringView?.hasVentilatorSession) return '会话中';
+  return props.syncState.ventilatorRunning ? '运行中' : '已停止';
+});
+
+const monitorStatusClass = computed(() => (
+  monitorStatusLabel.value === '运行中' ? 'status-running' : 'status-stopped'
+));
+const ventilatorStatusClass = computed(() => (
+  ventilatorStatusLabel.value === '运行中' ? 'status-running' : 'status-stopped'
+));
+
+const monitorActionLabel = computed(() => {
+  if (props.monitoringView?.mockTicking && props.monitoringView.hasMonitorSession) return '停止';
+  if (props.monitoringView?.monitoringPaused && props.monitoringView.hasMonitorSession) return '恢复';
+  return props.monitoringView?.hasMonitorSession ? '启动' : '启动';
+});
+
+const ventilatorActionLabel = computed(() => {
+  if (props.monitoringView?.mockTicking && props.monitoringView.hasVentilatorSession) return '停止';
+  if (props.monitoringView?.monitoringPaused && props.monitoringView.hasVentilatorSession) return '恢复';
+  return '启动';
+});
 
 const intervalEditable = computed(() => (
   !props.locked
@@ -178,6 +267,10 @@ const intervalEditable = computed(() => (
   && !props.syncState.ventilatorRunning
   && !props.rescueModeActive
   && props.simulationMode !== 'rescue'
+));
+
+const deviceSimRescueMismatch = computed(() => (
+  !props.rescueModeActive && props.simulationMode === 'rescue'
 ));
 </script>
 
@@ -232,6 +325,16 @@ const intervalEditable = computed(() => (
   gap: 8px;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.device-session-alert {
+  margin-bottom: 8px;
+}
+
+.device-revoke-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .meta-item strong {

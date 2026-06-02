@@ -54,7 +54,7 @@
 
     <RecordTimeAxis :time-scale="timeScale" :grid="bandGrid(1)" />
 
-    <div v-if="!isPacuRecord" class="sheet-band medication-band" :style="{ '--rows': medicationRowCount }">
+    <div v-if="!isPacuRecord" ref="medicationBandRef" class="sheet-band medication-band" :style="{ '--rows': medicationRowCount }">
       <div class="band-side">麻醉用药</div>
       <div class="band-labels">
         <span v-if="showAnesthesiaPlane">麻醉平面</span>
@@ -94,9 +94,15 @@
             @dblclick="openMedicationEditor(row.source)"
             @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'move', row.index, medicationRowCount)"
           >
-            <i class="segment-handle segment-handle-start" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'start', row.index, medicationRowCount)"></i>
+            <span
+              class="segment-edge segment-edge-start"
+              @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'start', row.index, medicationRowCount)"
+            />
             <span v-if="row.lineLabel" class="segment-label">{{ row.lineLabel }}</span>
-            <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'end', row.index, medicationRowCount)"></i>
+            <span
+              class="segment-edge segment-edge-end"
+              @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'end', row.index, medicationRowCount)"
+            />
           </span>
         </template>
         <template v-if="segmentDragPreview.active && segmentDragPreview.band === 'medication'">
@@ -148,9 +154,15 @@
             @dblclick="openMedicationEditor(row.source)"
             @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'move', row.index, inhaledRowCount)"
           >
-            <i class="segment-handle segment-handle-start" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'start', row.index, inhaledRowCount)"></i>
+            <span
+              class="segment-edge segment-edge-start"
+              @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'start', row.index, inhaledRowCount)"
+            />
             <span v-if="row.lineLabel" class="segment-label">{{ row.lineLabel }}</span>
-            <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'end', row.index, inhaledRowCount)"></i>
+            <span
+              class="segment-edge segment-edge-end"
+              @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'end', row.index, inhaledRowCount)"
+            />
           </span>
         </template>
         <template v-if="segmentDragPreview.active && segmentDragPreview.band === 'inhaled'">
@@ -186,9 +198,9 @@
           @dblclick="openFluidEditor(row.source)"
           @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'move', row.index, infusionRowCount)"
         >
-          <i class="segment-handle segment-handle-start" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'start', row.index, infusionRowCount)"></i>
+          <span class="segment-edge segment-edge-start" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'start', row.index, infusionRowCount)" />
           <span class="segment-label">{{ row.amount }}</span>
-          <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'end', row.index, infusionRowCount)"></i>
+          <span class="segment-edge segment-edge-end" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'end', row.index, infusionRowCount)" />
         </span>
         <template v-if="segmentDragPreview.active && segmentDragPreview.band === 'infusion'">
           <span class="line-segment drag-preview fluid-line" :style="segmentDragPreview.style">
@@ -218,9 +230,9 @@
           @dblclick="openFluidEditor(row.source)"
           @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'move', row.index, autologousRowCount)"
         >
-          <i class="segment-handle segment-handle-start" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'start', row.index, autologousRowCount)"></i>
+          <span class="segment-edge segment-edge-start" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'start', row.index, autologousRowCount)" />
           <span class="segment-label">{{ row.amount }}</span>
-          <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'end', row.index, autologousRowCount)"></i>
+          <span class="segment-edge segment-edge-end" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'end', row.index, autologousRowCount)" />
         </span>
         <template v-if="segmentDragPreview.active && segmentDragPreview.band === 'autologous'">
           <span class="line-segment drag-preview autologous-line" :style="segmentDragPreview.style">
@@ -250,9 +262,9 @@
           @dblclick="openFluidEditor(row.source)"
           @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'move', row.index, transfusionRowCount)"
         >
-          <i class="segment-handle segment-handle-start" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'start', row.index, transfusionRowCount)"></i>
+          <span class="segment-edge segment-edge-start" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'start', row.index, transfusionRowCount)" />
           <span class="segment-label">{{ row.amount }}</span>
-          <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'end', row.index, transfusionRowCount)"></i>
+          <span class="segment-edge segment-edge-end" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'end', row.index, transfusionRowCount)" />
         </span>
         <template v-if="segmentDragPreview.active && segmentDragPreview.band === 'transfusion'">
           <span class="line-segment drag-preview blood-line" :style="segmentDragPreview.style">
@@ -294,7 +306,7 @@
       @select="openLabEditor"
     />
 
-    <div class="vital-chart">
+    <div ref="statusBandRef" class="vital-chart">
       <div class="chart-layout">
         <RecordChartLegend
           :event-legend-pairs="eventLegendPairs"
@@ -794,10 +806,15 @@ import type { LabResultRecord } from '@/types/anesthesiaRecord';
 import { buildSequenceMarkersFromNotes, parseNumberedNoteLines } from '@/utils/numberedNotes';
 import {
   assignSpecialNumbers,
+  buildInductionMedicationSummaryText,
   buildMedicationDisplayModel,
-  buildSpecialMedicationSummaryText,
   buildFluidMarkerTooltip,
+  formatMedicationSpecialNoteLine,
   formatSegmentDurationLabel,
+  medicationEventTime,
+  medicationStartTime,
+  mergeSpecialMedicationNotes,
+  shouldRenderAsLine,
   shouldRenderInSpecialMedication,
 } from '@/services/medicationDisplayRules';
 import {
@@ -997,6 +1014,7 @@ const monitorEndTime = ref('');
 const monitorInterval = ref(5);
 const draggedMonitorCode = ref('');
 const chartAreaRef = ref<HTMLElement | null>(null);
+const statusBandRef = ref<HTMLElement | null>(null);
 const ioBandRef = ref<HTMLElement | null>(null);
 const notesSectionRef = ref<HTMLElement | null>(null);
 const planeLevels = ['C8', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', 'L1', 'L2'];
@@ -1078,6 +1096,7 @@ const dragState = reactive<{
   width: number;
   rowIndex: number;
   rowTotal: number;
+  captureEl: HTMLElement | null;
 }>({
   active: false,
   isPoint: false,
@@ -1090,7 +1109,17 @@ const dragState = reactive<{
   width: 1,
   rowIndex: 0,
   rowTotal: 1,
+  captureEl: null,
 });
+const releaseSegmentPointer = (event: PointerEvent) => {
+  if (!dragState.captureEl?.releasePointerCapture) return;
+  try {
+    dragState.captureEl.releasePointerCapture(event.pointerId);
+  } catch {
+    /* ignore */
+  }
+  dragState.captureEl = null;
+};
 const segmentDragPreview = reactive<{
   active: boolean;
   isPoint: boolean;
@@ -1508,24 +1537,27 @@ const registerStatusSymbol = (eventId: string, element: HTMLElement | null) => {
   else statusSymbolRefs.delete(eventId);
 };
 const isStatusEventActive = (event: { type: string; id: string }) => highlightedEventType.value === event.type || Boolean(highlightedEventType.value && event.type.includes(highlightedEventType.value));
-const focusTimelineNode = (node: MethodTimelineNode) => {
+const focusTimelineNode = (node: MethodTimelineNode, options?: { scrollChart?: boolean }) => {
   activeTimelineKey.value = node.key;
   highlightedEventType.value = node.eventType ?? node.label;
-  scrollStatusRowIntoView();
   const match = [...statusSymbolRefs.entries()].find(([id]) => id.includes(node.key) || props.record.events.some((event) => event.id === id && (event.type === node.eventType || event.type.includes(node.eventType ?? ''))));
-  match?.[1]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  if (options?.scrollChart) {
+    scrollStatusRowIntoView();
+    match?.[1]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }
 };
 const selectStatusEvent = (event: AnesthesiaEvent & { type: string }) => {
   highlightedEventType.value = event.type;
   activeTimelineKey.value = timelineKeyForEventType(event.type);
   emit('selectEvent', event);
-  scrollStatusRowIntoView();
 };
-const scrollStatusRowIntoView = () => chartAreaRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-const flashEventType = (type: string) => {
+const scrollStatusRowIntoView = () => {
+  statusBandRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+};
+const flashEventType = (type: string, options?: { scrollChart?: boolean }) => {
   highlightedEventType.value = type;
   activeTimelineKey.value = timelineKeyForEventType(type);
-  scrollStatusRowIntoView();
+  if (options?.scrollChart) scrollStatusRowIntoView();
   window.setTimeout(() => {
     if (highlightedEventType.value === type) highlightedEventType.value = '';
   }, 2000);
@@ -1562,25 +1594,24 @@ const statusEvents = computed(() => {
   return [...eventRows, ...milestones, ...templateStatusEvents.value]
     .filter((item) => !currentPage.value || isTimeOnPage(item.time, currentPage.value));
 });
+const autoInductionMedsSummary = computed(() => (
+  buildInductionMedicationSummaryText(activeMedicationsForSummary.value, props.record)
+));
 const inductionMedSummary = computed(() => {
-  const inductionMeds = [...props.record.medications, ...templateMedicationSources.value]
-    .filter((item) => item.status !== 'voided')
-    .filter((item) => !item.endTime && !item.stopTime)
-    .slice(0, 6);
-  if (inductionMeds.length) {
-    return inductionMeds.map((item) => `${item.drug}${item.dose ?? ''}${item.unit ?? ''}`).join('、');
-  }
-  return medicationRows.value.slice(0, 4).map((item) => `${item.label}${item.amount}`).join('、') || '';
+  const manual = props.record.recordSummary?.notes?.inductionMeds?.trim();
+  if (manual) return manual;
+  return autoInductionMedsSummary.value;
 });
 const medSummary = computed(() => medicationRows.value.slice(0, 6).map((item) => `${item.label}${item.amount}`).join('、') || '');
 const activeMedicationsForSummary = computed(() => (
   [...props.record.medications, ...templateMedicationSources.value].filter((item) => item.status !== 'voided')
 ));
-const autoSpecialMedsSummary = computed(() => {
-  const manual = props.record.recordSummary?.notes?.specialMeds?.trim();
-  if (manual) return manual;
-  return buildSpecialMedicationSummaryText(activeMedicationsForSummary.value);
-});
+const autoSpecialMedsSummary = computed(() => (
+  mergeSpecialMedicationNotes(
+    props.record.recordSummary?.notes?.specialMeds,
+    activeMedicationsForSummary.value,
+  )
+));
 const eventSummary = computed(() => {
   const hasSpecial = activeMedicationsForSummary.value.some((item) => shouldRenderInSpecialMedication(item));
   return hasSpecial ? autoSpecialMedsSummary.value : '无';
@@ -1610,17 +1641,31 @@ const keyOperationsText = computed(() => resolveKeyOperationsDisplayText(
   operationSummary.value,
 ));
 const keyOperationLines = computed(() => parseNumberedNoteLines(keyOperationsText.value));
+const specialMedicationSequenceMarkers = computed(() => {
+  const numbers = specialNumberByMedId.value;
+  return activeMedicationRecords.value
+    .filter((row) => shouldRenderInSpecialMedication(row))
+    .map((row) => {
+      const no = numbers.get(row.id);
+      if (!no) return null;
+      const clock = isoOrClockToClock(medicationStartTime(row) ?? medicationEventTime(row) ?? row.time);
+      if (!clock) return null;
+      return {
+        id: `special-med-${row.id}`,
+        number: no,
+        time: clockToIsoTime(clock),
+        rowIndex: 3,
+        tone: 'orange' as const,
+        content: formatMedicationSpecialNoteLine(row, no),
+        noteKey: 'specialMeds' as const,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+});
 const sequenceMarkers = computed(() => {
-  const special = parseNumberedNoteLines(summaryNotes.value.specialMeds);
   const operations = keyOperationLines.value;
   return [
-    ...buildSequenceMarkersFromNotes(special, {
-      rowIndex: 3,
-      tone: 'orange',
-      idPrefix: 'special',
-      noteKey: 'specialMeds',
-      clockToIso: clockToIsoTime,
-    }),
+    ...specialMedicationSequenceMarkers.value,
     ...buildSequenceMarkersFromNotes(operations, {
       rowIndex: 4,
       tone: 'pink',
@@ -1640,17 +1685,21 @@ const isSequenceMarkerActive = (marker: { noteKey: 'specialMeds' | 'keyOperation
   highlightedSequence.value?.noteKey === marker.noteKey && highlightedSequence.value.index === marker.number
 );
 const highlightSequenceMarker = (marker: { noteKey: 'specialMeds' | 'keyOperations'; number: number }) => {
-  highlightedSequence.value = { noteKey: marker.noteKey, index: marker.number };
+  focusSequenceMarker(marker.noteKey, marker.number);
 };
+const medicationBandRef = ref<HTMLElement | null>(null);
 const focusSequenceMarker = (noteKey: 'specialMeds' | 'keyOperations', index: number) => {
   if (highlightedSequence.value?.noteKey === noteKey && highlightedSequence.value.index === index) {
     highlightedSequence.value = null;
     return;
   }
   highlightedSequence.value = { noteKey, index };
-  ioBandRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  if (noteKey === 'keyOperations' || noteKey === 'specialMeds') {
-    notesSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (noteKey === 'specialMeds') {
+    medicationBandRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return;
+  }
+  if (noteKey === 'keyOperations') {
+    ioBandRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 };
 const updateSummaryNote = (key: keyof typeof summaryNotes.value, value: string) => {
@@ -2289,8 +2338,17 @@ const startMedicationPointDrag = (event: PointerEvent, source: MedicationRecord,
 
 const startSegmentDrag = (event: PointerEvent, kind: 'medication' | 'fluid', source: MedicationRecord | FluidRecord, mode: 'move' | 'start' | 'end', rowIndex = 0, rowTotal = 1) => {
   if (props.readOnly || event.button !== 0) return;
-  const track = (event.currentTarget as HTMLElement).closest('.band-track');
+  const handleEl = event.currentTarget as HTMLElement;
+  const track = handleEl.closest('.band-track');
   if (!track) return;
+  dragState.captureEl = handleEl;
+  if (handleEl.setPointerCapture) {
+    try {
+      handleEl.setPointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }
   const rect = track.getBoundingClientRect();
   dragState.active = true;
   dragState.isPoint = false;
@@ -2359,6 +2417,7 @@ const startVitalPointDrag = (event: PointerEvent, item: VitalSignDictItem, row: 
   window.addEventListener('pointerup', finishVitalPointDrag, { once: true });
 };
 const finishSegmentDrag = (event: PointerEvent) => {
+  try {
   if (!dragState.active || !dragState.source) return;
   updateSegmentDragPreview(event);
   const deltaPercent = ((event.clientX - dragState.startX) / dragState.width) * 100;
@@ -2405,12 +2464,13 @@ const finishSegmentDrag = (event: PointerEvent) => {
       { start: isoOrClockToClock(source.time ?? source.startTime), end: isoOrClockToClock(source.stopTime ?? source.endTime) || isoOrClockToClock(source.time ?? source.startTime) },
       { mode: dragState.mode, deltaPercent, targetPercent, sheetStart: sheetStart.value, sheetEnd: sheetEnd.value },
     );
+    const renderLine = shouldRenderAsLine(source);
     emit('saveMedication', {
       ...source,
       time: moved.start,
       startTime: moved.start,
-      endTime: source.mode === '持续泵入' ? moved.end : undefined,
-      stopTime: source.mode === '持续泵入' ? moved.end : undefined,
+      endTime: renderLine ? moved.end : undefined,
+      stopTime: renderLine ? moved.end : undefined,
     });
   } else {
     const source = dragState.source as FluidRecord;
@@ -2425,6 +2485,9 @@ const finishSegmentDrag = (event: PointerEvent) => {
   dragState.source = null;
   segmentDragPreview.active = false;
   window.removeEventListener('pointermove', updateSegmentDragPreview);
+  } finally {
+    releaseSegmentPointer(event);
+  }
 };
 watch(layoutWarningPayload, (warnings) => {
   emit('layoutWarnings', warnings);
@@ -2441,7 +2504,31 @@ const dismissMenuOnEscape = (event: KeyboardEvent) => {
   if (event.key === 'Escape') closeMenu();
 };
 
-defineExpose({ openDataList, flashEventType, focusTimelineNode, scrollStatusRowIntoView });
+defineExpose({
+  openDataList,
+  flashEventType,
+  focusTimelineNode,
+  scrollStatusRowIntoView,
+  openMedicationEntry: () => openMedicationEditor(),
+  openInfusionEntry: () => {
+    const fallback = infusionCatalog.value[0];
+    if (fallback) openFluidEditor(fallback);
+  },
+  openTransfusionEntry: () => {
+    const fallback = bloodCatalog.value[0];
+    if (fallback) openFluidEditor(fallback);
+  },
+  openAutologousEntry: () => {
+    const fallback = autologousCatalog.value[0];
+    if (fallback) openFluidEditor(fallback);
+  },
+  openVitalEntry: () => openMonitorDialog(),
+  openOutputEntry: (type = '尿量') => {
+    openOutputEditor();
+    outputForm.type = type;
+  },
+  openLabEntry: () => openLabEditor(),
+});
 onMounted(() => {
   document.addEventListener('click', dismissMenuOnOutside);
   document.addEventListener('keydown', dismissMenuOnEscape);
@@ -2939,6 +3026,11 @@ onBeforeUnmount(() => {
 
 .medication-band {
   min-height: 96px;
+  margin-top: 4px;
+}
+
+.medication-band .band-labels span:first-child {
+  padding-top: 4px;
 }
 
 .monitor-band {
@@ -3068,22 +3160,31 @@ onBeforeUnmount(() => {
 
 .medication-band .band-track,
 .inhaled-band .band-track {
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
+  box-sizing: border-box;
+}
+
+.medication-band .band-track {
+  padding-top: 2px;
 }
 
 .line-segment {
   position: absolute;
   z-index: 3;
-  transform: translateY(-4px);
+  transform: translateY(-50%);
   min-width: 24px;
   max-width: 100%;
+  height: 18px;
   overflow: visible;
+  box-sizing: border-box;
   border-top: var(--sheet-segment-width) solid var(--sheet-monitor);
   color: var(--sheet-monitor);
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
   cursor: grab;
+  touch-action: none;
   user-select: none;
 }
 
@@ -3108,6 +3209,28 @@ onBeforeUnmount(() => {
 
 .line-segment::after {
   right: 0;
+}
+
+.segment-edge {
+  position: absolute;
+  top: 50%;
+  z-index: 6;
+  width: 12px;
+  height: 22px;
+  opacity: 0;
+  transform: translateY(-50%);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.segment-edge-start {
+  left: 0;
+  transform: translate(-50%, -50%);
+}
+
+.segment-edge-end {
+  right: 0;
+  transform: translate(50%, -50%);
 }
 
 .line-segment.is-template {
@@ -3211,33 +3334,6 @@ onBeforeUnmount(() => {
 .live-record-card.is-print-mode .drug-point {
   max-width: 40px;
   font-size: 10px;
-}
-
-.segment-handle {
-  position: absolute;
-  top: -7px;
-  z-index: 5;
-  width: 10px;
-  height: 14px;
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  background: #fff;
-  opacity: 0;
-  pointer-events: auto;
-  transition: opacity 0.12s ease;
-  cursor: ew-resize;
-}
-
-.line-segment:hover .segment-handle {
-  opacity: 1;
-}
-
-.segment-handle-start {
-  left: -5px;
-}
-
-.segment-handle-end {
-  right: -5px;
 }
 
 .inhaled-line {
@@ -4056,7 +4152,6 @@ onBeforeUnmount(() => {
     cursor: default;
   }
 
-  .is-print-mode .segment-handle,
   .is-print-mode .drag-guide,
   .is-print-mode .drag-tooltip,
   .is-print-mode .segment-drag-start-guide,

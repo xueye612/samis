@@ -3,6 +3,7 @@ import type { SurgeryCase } from '@/types/anesthesia';
 import {
   buildLiveTimeScale,
   buildRecordBandGrid,
+  isRescueModeActive,
   resolveTimeAxisIntervals,
   timeToPercent,
 } from '@/services/anesthesiaRecordEngine';
@@ -29,10 +30,18 @@ export function useRecordCoordinates(getRecord: () => SurgeryCase, getPageNo: ()
 
   const currentPage = computed(() => {
     const record = getRecord();
-    const pages = record.recordDocument?.timeAxisPages?.length
-      ? record.recordDocument.timeAxisPages
-      : pagination.value.pages;
-    const fallback = pages[0] ?? pagination.value.pages[0];
+    const intervals = resolveTimeAxisIntervals(record);
+    const livePages = pagination.value.pages;
+    const stored = record.recordDocument?.timeAxisPages;
+    const storedMinor = stored?.[0]?.minorGridMinutes;
+    const rescueGrid = isRescueModeActive(record) || record.vitalFrequency === '抢救1分钟';
+    const storedUsable = Boolean(
+      stored?.length
+      && storedMinor === intervals.minorInterval
+      && !(storedMinor === 1 && !rescueGrid),
+    );
+    const pages = storedUsable ? stored! : livePages;
+    const fallback = pages[0] ?? livePages[0];
     return pages.find((item) => item.pageNo === getPageNo()) ?? fallback;
   });
 
@@ -49,7 +58,13 @@ export function useRecordCoordinates(getRecord: () => SurgeryCase, getPageNo: ()
   const bandGrid = (rows: number) => buildRecordBandGrid(timeScale.value, rows);
   const chartGrid = computed(() => buildRecordBandGrid(timeScale.value, 8));
 
-  const topFor = (index: number, total: number) => `${((index + 0.5) / Math.max(total, 1)) * 100}%`;
+  /** 上下留白，避免首行标记与时间轴刻度重叠 */
+  const BAND_ROW_INSET = 0.08;
+  const topFor = (index: number, total: number) => {
+    const span = 1 - BAND_ROW_INSET * 2;
+    const y = BAND_ROW_INSET + ((index + 0.5) / Math.max(total, 1)) * span;
+    return `${y * 100}%`;
+  };
   const leftFor = (time?: string) => `${timeToPercent(time, sheetStart.value, sheetEnd.value)}%`;
   const pointStyle = (time: string | undefined, index: number, total: number) => ({ left: leftFor(time), top: topFor(index, total) });
   const segmentStyle = (start: string | undefined, end: string | undefined, index: number, total: number): Record<string, string> => {

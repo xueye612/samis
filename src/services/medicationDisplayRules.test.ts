@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import type { MedicationRecord } from '@/types/anesthesia';
+import type { SurgeryCase } from '@/types/anesthesia';
 import {
   assignSpecialNumbers,
+  buildInductionMedicationSummaryText,
   buildMedicationDisplayModel,
   buildSpecialMedicationSummaryText,
   formatMedicationDoseLabel,
   formatSpecialNo,
   formatSegmentDurationLabel,
+  mergeSpecialMedicationNotes,
   resolveMedicationLineLabel,
   shouldRenderAsLine,
   shouldRenderAsPoint,
+  shouldRenderInInductionMedication,
   shouldRenderInSpecialMedication,
 } from '@/services/medicationDisplayRules';
 
@@ -161,6 +165,51 @@ describe('medicationDisplayRules', () => {
     expect(map.get('a')).toBe(1);
     expect(map.get('b')).toBeUndefined();
     expect(map.get('c')).toBe(2);
+  });
+
+  it('reassigns special numbers by time and ignores stale specialNo', () => {
+    const rows = [
+      base({ id: 'late', isSpecial: true, time: '2026-06-02T11:00:00', specialNo: 9 }),
+      base({ id: 'early', isSpecial: true, time: '2026-06-02T09:00:00', specialNo: 1 }),
+    ];
+    const map = assignSpecialNumbers(rows);
+    expect(map.get('early')).toBe(1);
+    expect(map.get('late')).toBe(2);
+    const text = buildSpecialMedicationSummaryText(rows);
+    expect(text.indexOf('①')).toBeLessThan(text.indexOf('②'));
+  });
+
+  it('separates induction meds from special meds', () => {
+    const context = {
+      roomInTime: '2026-06-02T08:00:00',
+      anesthesiaStart: '2026-06-02T08:05:00',
+      surgeryStart: '2026-06-02T09:00:00',
+      events: [
+        { id: 'e1', type: '插管', time: '2026-06-02T08:30:00', stage: '诱导期', severity: '轻度', treatment: '', staff: [], reported: false, qualityIncluded: false },
+      ],
+    } satisfies Pick<SurgeryCase, 'roomInTime' | 'anesthesiaStart' | 'surgeryStart' | 'events'>;
+    const rows = [
+      base({ id: 'ind', drug: '丙泊酚', time: '2026-06-02T08:10:00', dose: 120, unit: 'mg', isSpecial: false }),
+      base({ id: 'sp', drug: '去甲肾上腺素', time: '2026-06-02T10:00:00', isSpecial: true }),
+    ];
+    expect(shouldRenderInInductionMedication(rows[0], context)).toBe(true);
+    expect(shouldRenderInInductionMedication(rows[1], context)).toBe(false);
+    expect(shouldRenderInSpecialMedication(rows[1])).toBe(true);
+    const induction = buildInductionMedicationSummaryText(rows, context);
+    const special = buildSpecialMedicationSummaryText(rows);
+    expect(induction).toContain('丙泊酚');
+    expect(induction).not.toContain('去甲肾上腺素');
+    expect(special).toContain('去甲肾上腺素');
+    expect(special).not.toContain('丙泊酚');
+  });
+
+  it('mergeSpecialMedicationNotes prefers auto-numbered lines', () => {
+    const rows = [
+      base({ id: 'a', isSpecial: true, time: '2026-06-02T10:15:00', drug: '麻黄碱', dose: 6, unit: 'mg' }),
+    ];
+    const merged = mergeSpecialMedicationNotes('9. 错误序号 麻黄碱 6mg', rows);
+    expect(merged).toContain('①');
+    expect(merged).not.toContain('9.');
   });
 
   it('formatMedicationDoseLabel never includes drug name', () => {

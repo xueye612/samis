@@ -8,7 +8,7 @@ import {
   resolveRecordAxisStart,
   resolveRecordPageNoForTime,
 } from '@/services/recordPaginationEngine';
-import { roundAxisStartTime } from '@/services/anesthesiaRecordEngine';
+import { clockToMinutes, roundAxisStartTime } from '@/services/anesthesiaRecordEngine';
 
 const baseCase = (): SurgeryCase => ({
   id: 'case-1',
@@ -67,7 +67,7 @@ describe('recordPaginationEngine', () => {
     const record = baseCase();
     record.surgeryEnd = '2026-05-30T16:10:00';
     const { pages, axisStart } = buildRecordPagination(record, { pageDurationMinutes: 210 });
-    expect(axisStart).toBe('07:52');
+    expect(axisStart).toBe('07:30');
     expect(pages.length).toBeGreaterThan(1);
     expect(pages[1].pageStartTime).toBe(pages[0].pageEndTime);
   });
@@ -78,6 +78,30 @@ describe('recordPaginationEngine', () => {
     expect(clipped?.start).toBe('09:30');
     expect(clipped?.end).toBe('10:00');
     expect(clipped?.continuesToNext).toBe(true);
+  });
+
+  it('does not extend pagination past surgery end when vitals continue', () => {
+    const record = baseCase();
+    record.roomInTime = '2026-06-02T10:10:00';
+    record.surgeryEnd = '2026-06-02T14:08:00';
+    record.leaveRoomTime = '2026-06-02T14:20:00';
+    record.vitals = [
+      { id: 'v1', time: '2026-06-02T12:00:00', HR: 80, source: '设备采集' },
+      { id: 'v2', time: '2026-06-02T18:10:00', HR: 78, source: '设备采集' },
+    ];
+    const { pages, axisEnd } = buildRecordPagination(record, { pageDurationMinutes: 210 });
+    const endM = (clockToMinutes(axisEnd) ?? 0);
+    const leaveM = clockToMinutes('14:20') ?? 0;
+    expect(endM).toBeLessThanOrEqual(leaveM + 60);
+    expect(pages.length).toBeLessThanOrEqual(2);
+  });
+
+  it('uses full page duration on the last page (paper-style window)', () => {
+    const pages = buildTimeAxisPages('13:35', '18:05', { pageDurationMinutes: 210 });
+    expect(pages.length).toBe(2);
+    expect(pages[0].pageEndTime).toBe('17:05');
+    expect(pages[1].pageStartTime).toBe('17:05');
+    expect(pages[1].pageEndTime).toBe('20:35');
   });
 
   it('detects time on page with half-open boundaries', () => {
@@ -100,8 +124,32 @@ describe('recordPaginationEngine', () => {
     }
   });
 
-  it('uses the exact room in time for axis start', () => {
-    expect(resolveRecordAxisStart(baseCase())).toBe('07:52');
+  it('uses rounded room-in time for axis start after entry', () => {
+    expect(resolveRecordAxisStart(baseCase())).toBe('07:30');
+  });
+
+  it('uses scheduled start before room-in and rounds backward', () => {
+    const record = baseCase();
+    record.roomInTime = undefined;
+    record.scheduledStart = '2026-05-30T08:17:00';
+    record.plannedStart = '2026-05-30T07:00:00';
+    expect(resolveRecordAxisStart(record)).toBe('08:00');
+  });
+
+  it('prefers scheduledStart over plannedStart before room-in', () => {
+    const record = baseCase();
+    record.roomInTime = undefined;
+    record.scheduledStart = '2026-05-30T09:42:00';
+    record.plannedStart = '2026-05-30T08:00:00';
+    expect(resolveRecordAxisStart(record)).toBe('09:30');
+  });
+
+  it('does not use anesthesiaStart when room-in is absent', () => {
+    const record = baseCase();
+    record.roomInTime = undefined;
+    record.anesthesiaStart = '2026-05-30T08:05:00';
+    record.plannedStart = '2026-05-30T08:20:00';
+    expect(resolveRecordAxisStart(record)).toBe('08:00');
   });
 
   it('resolves page number for a clock time inside the case', () => {

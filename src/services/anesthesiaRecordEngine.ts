@@ -590,16 +590,33 @@ export function addMinutesToClock(clock: string, minutes: number) {
   return minutesToClock((clockToMinutes(clock) ?? 0) + minutes);
 }
 
+/** 已入室后录入默认时刻不早于显示轴起点（整点/半点）；未入室不 clamp 到未来排班时刻。 */
+function resolveEstablishedAxisStartClock(
+  record?: Pick<SurgeryCase, 'roomInTime' | 'scheduledStart' | 'plannedStart'>,
+): string {
+  return resolveRecordAxisStartClock(record);
+}
+
 /** 记录单录入弹窗默认时刻：手术日锚定下的当前时分。 */
 export function resolveRecordSheetNowClock(
-  record?: Pick<SurgeryCase, 'plannedStart' | 'anesthesiaStart'>,
+  record?: Pick<SurgeryCase, 'plannedStart' | 'anesthesiaStart' | 'roomInTime' | 'actualStart'>,
 ): string {
   const now = new Date();
-  const base = record?.plannedStart || record?.anesthesiaStart;
+  const base = record?.anesthesiaStart || record?.plannedStart;
   if (base) {
     const anchor = new Date(base);
     if (!Number.isNaN(anchor.getTime())) {
       anchor.setHours(now.getHours(), now.getMinutes(), 0, 0);
+      const axisStartClock = resolveEstablishedAxisStartClock(record);
+      if (axisStartClock) {
+        const axisStartMinutes = clockToMinutes(axisStartClock);
+        const anchorMinutes = anchor.getHours() * 60 + anchor.getMinutes();
+        if (axisStartMinutes !== null && anchorMinutes < axisStartMinutes) {
+          const hour = Math.floor(axisStartMinutes / 60);
+          const minute = Math.floor(axisStartMinutes % 60);
+          anchor.setHours(hour, minute, 0, 0);
+        }
+      }
       return isoOrClockToClock(anchor.toISOString());
     }
   }
@@ -616,10 +633,8 @@ export function resolveRecordSheetNowIso(
     const anchor = new Date(base);
     if (!Number.isNaN(anchor.getTime())) {
       anchor.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
-      if (record) {
-        const axisStartClock = isoOrClockToClock(
-          record.roomInTime ?? record.anesthesiaStart ?? record.actualStart ?? record.plannedStart,
-        ) || '08:00';
+      const axisStartClock = resolveEstablishedAxisStartClock(record);
+      if (axisStartClock) {
         const axisStartMinutes = clockToMinutes(axisStartClock);
         const anchorMinutes = anchor.getHours() * 60 + anchor.getMinutes() + anchor.getSeconds() / 60;
         if (axisStartMinutes !== null && anchorMinutes < axisStartMinutes) {
@@ -1043,6 +1058,16 @@ export function runUnifiedRecordQualityChecks(
   return Array.from(merged.values());
 }
 
+/** 病例已结束（手术结束或离室）时用于分页的时间上限，避免术后设备点把页数撑到 3 页以上 */
+export function resolveClinicalAxisCapClock(record: SurgeryCase): string | undefined {
+  const cap = record.leaveRoomTime ?? record.surgeryEnd ?? record.actualEnd;
+  return cap ? isoOrClockToClock(cap) : undefined;
+}
+
+export function isRecordClinicallyComplete(record: SurgeryCase): boolean {
+  return Boolean(record.leaveRoomTime || record.surgeryEnd);
+}
+
 export function collectRecordTimes(item: SurgeryCase) {
   return [
     item.anesthesiaStart,
@@ -1065,6 +1090,23 @@ export function roundAxisStartTime(time = '08:00', roundMinutes = 30): string {
   return minutesToClock(rounded);
 }
 
+/** 时间轴参考时刻（未入室=预计开台，已入室=真实入室时间；不含麻醉开始等衍生字段）。 */
+export function resolveRecordAxisReferenceIso(
+  record: Pick<SurgeryCase, 'roomInTime' | 'scheduledStart' | 'plannedStart'>,
+): string | undefined {
+  if (record.roomInTime) return record.roomInTime;
+  return record.scheduledStart ?? record.plannedStart;
+}
+
+/** 已建立入室后的显示轴起点（整点/半点）；未入室返回空字符串。 */
+export function resolveRecordAxisStartClock(
+  record?: Pick<SurgeryCase, 'roomInTime' | 'scheduledStart' | 'plannedStart'>,
+): string {
+  if (!record?.roomInTime) return '';
+  const raw = isoOrClockToClock(record.roomInTime);
+  return raw ? roundAxisStartTime(raw) : '';
+}
+
 export function isRescueModeActive(record: Pick<SurgeryCase, 'rescue'>): boolean {
   return Boolean(record.rescue?.startTime && !record.rescue?.endTime);
 }
@@ -1073,7 +1115,9 @@ export function resolveTimeAxisIntervals(record: SurgeryCase): { minorInterval: 
   if (isRescueModeActive(record) || record.vitalFrequency === '抢救1分钟') {
     return { minorInterval: 1, majorInterval: 15 };
   }
-  const minor = record.recordDocument?.minorInterval ?? 5;
+  const docMinor = record.recordDocument?.minorInterval;
+  // 退出抢救后 recordDocument 可能仍残留 minorInterval=1，不得继续按 1 分钟渲染
+  const minor = docMinor === 1 ? 5 : (docMinor ?? 5);
   const major = record.recordDocument?.majorInterval ?? 30;
   return { minorInterval: minor, majorInterval: major };
 }

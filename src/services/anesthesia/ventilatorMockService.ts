@@ -12,7 +12,7 @@ import { canDeviceOverwriteVital, findExistingDeviceRaw } from '@/services/anest
 
 import { readEntityBaseSyncVersion, enqueueSyncItem } from '@/services/anesthesia/anesthesiaSyncQueue';
 
-import { patchAnesthesiaSyncUiState, triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthesiaSyncService';
+import { triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthesiaSyncService';
 
 import { buildVentilatorSample } from '@/services/anesthesia/deviceMockSamples';
 
@@ -44,7 +44,8 @@ export interface VentilatorMockHandle {
 }
 
 export function startVentilatorMockService(
-  caseItem: SurgeryCase,
+  recordLocalId: string,
+  resolveCase: () => SurgeryCase | undefined,
   onVitalAppended: (caseId: string, vital: VitalSign) => void,
   options?: MonitorMockOptions,
 ): VentilatorMockHandle {
@@ -60,7 +61,12 @@ export function startVentilatorMockService(
   const rawIntervalMs = resolveDeviceRawIntervalMs(simulationMode);
   let lastVitalBucketKey = '';
 
-  patchAnesthesiaSyncUiState({ ventilatorRunning: true, rescueMode });
+  const resolveBoundCase = () => {
+    const caseItem = resolveCase();
+    if (!caseItem || caseItem.id !== recordLocalId) return undefined;
+    if (caseItem.locked) return undefined;
+    return caseItem;
+  };
 
   const buildSample = (forDisplay: boolean) => {
     if (simulationMode === 'abnormal' && forDisplay) {
@@ -81,13 +87,13 @@ export function startVentilatorMockService(
   const persistRaw = async (ts: string, sample: ReturnType<typeof buildVentilatorSample>) => {
     const db = getAnesthesiaLocalDb();
     const localId = `ventilator-${Date.now()}`;
-    const existingRaw = await findExistingDeviceRaw('ventilator_raw', caseItem.id, localId, ts);
+    const existingRaw = await findExistingDeviceRaw('ventilator_raw', recordLocalId, localId, ts);
     if (existingRaw) return;
 
     await db.ventilator_raw.put({
       local_id: localId,
-      record_local_id: caseItem.id,
-      operation_id: caseItem.id,
+      record_local_id: recordLocalId,
+      operation_id: recordLocalId,
       collect_time: ts,
       ...sample,
       source_device: SOURCE_DEVICE,
@@ -99,10 +105,10 @@ export function startVentilatorMockService(
       updated_at: ts,
     });
 
-    const rawBaseVersion = await readEntityBaseSyncVersion(caseItem.id, 'ventilator_raw', localId);
+    const rawBaseVersion = await readEntityBaseSyncVersion(recordLocalId, 'ventilator_raw', localId);
     await enqueueSyncItem({
-      recordLocalId: caseItem.id,
-      operationId: caseItem.id,
+      recordLocalId,
+      operationId: recordLocalId,
       entityType: 'ventilator_raw',
       entityLocalId: localId,
       operationType: 'create',
@@ -118,7 +124,7 @@ export function startVentilatorMockService(
     triggerAnesthesiaSyncAfterChange('ventilator_raw');
   };
 
-  const maybePersistDisplayVital = async (ts: string, sample: ReturnType<typeof buildVentilatorSample>) => {
+  const maybePersistDisplayVital = async (ts: string, sample: ReturnType<typeof buildVentilatorSample>, caseItem: SurgeryCase) => {
     const bucketKey = resolveVitalBucketKey(ts, displayIntervalMinutes);
     if (bucketKey === lastVitalBucketKey) return;
 
@@ -160,11 +166,11 @@ export function startVentilatorMockService(
     }
     const savedVital = existingIndex >= 0 ? caseItem.vitals[existingIndex] : vital;
     const db = getAnesthesiaLocalDb();
-    await db.vital_signs.put(mapVitalToRow(caseItem.id, savedVital, 1));
-    const vitalBaseVersion = await readEntityBaseSyncVersion(caseItem.id, 'vital_sign', savedVital.id!);
+    await db.vital_signs.put(mapVitalToRow(recordLocalId, savedVital, 1));
+    const vitalBaseVersion = await readEntityBaseSyncVersion(recordLocalId, 'vital_sign', savedVital.id!);
     await enqueueSyncItem({
-      recordLocalId: caseItem.id,
-      operationId: caseItem.id,
+      recordLocalId,
+      operationId: recordLocalId,
       entityType: 'vital_sign',
       entityLocalId: savedVital.id!,
       operationType: 'create',
@@ -173,17 +179,22 @@ export function startVentilatorMockService(
       payload: savedVital,
     });
     triggerAnesthesiaSyncAfterChange('vital_sign');
-    onVitalAppended(caseItem.id, savedVital);
+    onVitalAppended(recordLocalId, savedVital);
     lastVitalBucketKey = bucketKey;
   };
 
   const rawTick = async () => {
     if (stopped) return;
+    const caseItem = resolveBoundCase();
+    if (!caseItem) {
+      if (!stopped) setTimeout(rawTick, rawIntervalMs);
+      return;
+    }
     const ts = resolveRecordSheetNowIso(caseItem);
     const sample = buildSample(false);
     await persistRaw(ts, sample);
-    await maybePersistDisplayVital(ts, sample);
-    patchAnesthesiaSyncUiState({ ventilatorRunning: true, lastCollectTime: ts, rescueMode });
+    await maybePersistDisplayVital(ts, sample, caseItem);
+    options?.onCollect?.(recordLocalId, ts);
     if (!stopped) setTimeout(rawTick, rawIntervalMs);
   };
 
@@ -191,7 +202,6 @@ export function startVentilatorMockService(
   return {
     stop: () => {
       stopped = true;
-      patchAnesthesiaSyncUiState({ ventilatorRunning: false, rescueMode });
     },
   };
 }

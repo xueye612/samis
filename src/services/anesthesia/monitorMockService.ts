@@ -12,7 +12,7 @@ import { canDeviceOverwriteVital, findExistingDeviceRaw } from '@/services/anest
 
 import { readEntityBaseSyncVersion, enqueueSyncItem } from '@/services/anesthesia/anesthesiaSyncQueue';
 
-import { patchAnesthesiaSyncUiState, triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthesiaSyncService';
+import { triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthesiaSyncService';
 
 import { buildMonitorSample } from '@/services/anesthesia/deviceMockSamples';
 
@@ -79,10 +79,12 @@ export interface MonitorMockOptions {
   displayIntervalMinutes?: number;
   simulationMode?: DeviceSimulationMode;
   abnormalTypes?: AbnormalSimulationType[];
+  onCollect?: (recordLocalId: string, ts: string) => void;
 }
 
 export function startMonitorMockService(
-  caseItem: SurgeryCase,
+  recordLocalId: string,
+  resolveCase: () => SurgeryCase | undefined,
   onVitalAppended: (caseId: string, vital: VitalSign) => void,
   options?: MonitorMockOptions,
 ): MonitorMockHandle {
@@ -98,7 +100,12 @@ export function startMonitorMockService(
   const rawIntervalMs = resolveDeviceRawIntervalMs(simulationMode);
   let lastVitalBucketKey = '';
 
-  patchAnesthesiaSyncUiState({ monitorRunning: true, rescueMode });
+  const resolveBoundCase = () => {
+    const caseItem = resolveCase();
+    if (!caseItem || caseItem.id !== recordLocalId) return undefined;
+    if (caseItem.locked) return undefined;
+    return caseItem;
+  };
 
   const buildSample = (forDisplay: boolean) => {
     if (simulationMode === 'abnormal' && forDisplay) {
@@ -116,16 +123,16 @@ export function startMonitorMockService(
     return buildMonitorSample({ rescueChaos: simulationMode === 'rescue' });
   };
 
-  const persistRaw = async (ts: string, sample: ReturnType<typeof buildMonitorSample>) => {
+  const persistRaw = async (ts: string, sample: ReturnType<typeof buildMonitorSample>, caseItem: SurgeryCase) => {
     const db = getAnesthesiaLocalDb();
     const localId = `monitor-${Date.now()}`;
-    const existingRaw = await findExistingDeviceRaw('monitor_raw', caseItem.id, localId, ts);
+    const existingRaw = await findExistingDeviceRaw('monitor_raw', recordLocalId, localId, ts);
     if (existingRaw) return;
 
     await db.monitor_raw.put({
       local_id: localId,
-      record_local_id: caseItem.id,
-      operation_id: caseItem.id,
+      record_local_id: recordLocalId,
+      operation_id: recordLocalId,
       collect_time: ts,
       ...sample,
       source_device: SOURCE_DEVICE,
@@ -137,10 +144,10 @@ export function startMonitorMockService(
       updated_at: ts,
     });
 
-    const rawBaseVersion = await readEntityBaseSyncVersion(caseItem.id, 'monitor_raw', localId);
+    const rawBaseVersion = await readEntityBaseSyncVersion(recordLocalId, 'monitor_raw', localId);
     await enqueueSyncItem({
-      recordLocalId: caseItem.id,
-      operationId: caseItem.id,
+      recordLocalId,
+      operationId: recordLocalId,
       entityType: 'monitor_raw',
       entityLocalId: localId,
       operationType: 'create',
@@ -157,7 +164,7 @@ export function startMonitorMockService(
     triggerAnesthesiaSyncAfterChange('monitor_raw');
   };
 
-  const maybePersistDisplayVital = async (ts: string, sample: ReturnType<typeof buildMonitorSample>) => {
+  const maybePersistDisplayVital = async (ts: string, sample: ReturnType<typeof buildMonitorSample>, caseItem: SurgeryCase) => {
     const bucketKey = resolveVitalBucketKey(ts, displayIntervalMinutes);
     if (bucketKey === lastVitalBucketKey) return;
 
@@ -196,11 +203,11 @@ export function startMonitorMockService(
     }
     const savedVital = existingIndex >= 0 ? caseItem.vitals[existingIndex] : vital;
     const db = getAnesthesiaLocalDb();
-    await db.vital_signs.put(mapVitalToRow(caseItem.id, savedVital, 1));
-    const vitalBaseVersion = await readEntityBaseSyncVersion(caseItem.id, 'vital_sign', savedVital.id!);
+    await db.vital_signs.put(mapVitalToRow(recordLocalId, savedVital, 1));
+    const vitalBaseVersion = await readEntityBaseSyncVersion(recordLocalId, 'vital_sign', savedVital.id!);
     await enqueueSyncItem({
-      recordLocalId: caseItem.id,
-      operationId: caseItem.id,
+      recordLocalId,
+      operationId: recordLocalId,
       entityType: 'vital_sign',
       entityLocalId: savedVital.id!,
       operationType: 'create',
@@ -209,7 +216,7 @@ export function startMonitorMockService(
       payload: savedVital,
     });
     triggerAnesthesiaSyncAfterChange('vital_sign');
-    onVitalAppended(caseItem.id, savedVital);
+    onVitalAppended(recordLocalId, savedVital);
     lastVitalBucketKey = bucketKey;
 
     if (caseItem.device) {
@@ -220,25 +227,30 @@ export function startMonitorMockService(
 
   const rawTick = async () => {
     if (stopped) return;
+    const caseItem = resolveBoundCase();
+    if (!caseItem) {
+      if (!stopped) setTimeout(rawTick, rawIntervalMs);
+      return;
+    }
     const ts = resolveRecordSheetNowIso(caseItem);
     const sample = buildSample(false);
     sample.pulse = sample.hr;
     sample.map_value = Math.round((sample.sbp + sample.dbp * 2) / 3);
-    await persistRaw(ts, sample);
-    await maybePersistDisplayVital(ts, sample);
-    patchAnesthesiaSyncUiState({ monitorRunning: true, lastCollectTime: ts, rescueMode });
+    await persistRaw(ts, sample, caseItem);
+    await maybePersistDisplayVital(ts, sample, caseItem);
+    options?.onCollect?.(recordLocalId, ts);
     if (!stopped) setTimeout(rawTick, rawIntervalMs);
   };
 
-  if (caseItem.device) {
-    caseItem.device.collectStatus = resolveCollectStatus(simulationMode);
+  const bootCase = resolveBoundCase();
+  if (bootCase?.device) {
+    bootCase.device.collectStatus = resolveCollectStatus(simulationMode);
   }
 
   setTimeout(rawTick, rawIntervalMs);
   return {
     stop: () => {
       stopped = true;
-      patchAnesthesiaSyncUiState({ monitorRunning: false, rescueMode });
     },
   };
 }

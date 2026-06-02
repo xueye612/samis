@@ -91,9 +91,15 @@
               质控缺陷
             </a-button>
           </a-badge>
+          <a-tag v-if="sessionRoomGroup" size="small" color="arcoblue">{{ sessionRoomGroup }}</a-tag>
+          <a-tag v-if="sessionRoom" size="small">{{ sessionRoom }}</a-tag>
           <a-dropdown trigger="click">
-            <a-avatar :size="32" class="header-avatar" aria-label="用户菜单">麻</a-avatar>
+            <a-space :size="6" class="header-user-trigger">
+              <span class="header-user-name">{{ userDisplayName }}</span>
+              <a-avatar :size="32" class="header-avatar" aria-label="用户菜单">{{ userAvatarText }}</a-avatar>
+            </a-space>
             <template #content>
+              <a-doption disabled>{{ userDisplayName }}</a-doption>
               <a-doption @click="router.push('/system/users')">系统设置</a-doption>
               <a-doption @click="router.push('/workbench/emergency')">紧急呼叫</a-doption>
               <a-doption @click="logout">退出登录</a-doption>
@@ -172,6 +178,12 @@ import NavIconBadge from '@/components/NavIconBadge.vue';
 import { menuIconFor } from '@/config/menuTheme';
 import { getPrimaryMenuLabel, matchSecondaryKey, primaryMenuMap, primaryMenus, secondaryMenuGroupLabels, secondaryMenus } from '@/config/navigation';
 import { useAnesthesiaPersistenceGate } from '@/composables/useAnesthesiaPersistenceGate';
+import { logoutSamis, restoreSessionIfPresent } from '@/services/auth/authService';
+import {
+  getSamisRoom,
+  getSamisRoomGroup,
+  getSamisUserProfile,
+} from '@/services/session/samisSession';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
 const route = useRoute();
@@ -183,8 +195,17 @@ const patientQuery = ref('');
 const clockText = ref(dayjs().format('YYYY-MM-DD HH:mm:ss'));
 let clockTimer: number | undefined;
 
+const userDisplayName = computed(() => getSamisUserProfile()?.displayName ?? store.currentDoctorName ?? '未登录');
+const userAvatarText = computed(() => {
+  const name = userDisplayName.value;
+  return name && name !== '未登录' ? name.slice(0, 1) : '麻';
+});
+const sessionRoom = computed(() => getSamisRoom());
+const sessionRoomGroup = computed(() => getSamisRoomGroup());
+
 onMounted(() => {
   void ensureReady();
+  void restoreSessionIfPresent();
   clockTimer = window.setInterval(() => {
     clockText.value = dayjs().format('YYYY-MM-DD HH:mm:ss');
   }, 1000);
@@ -241,7 +262,10 @@ const goSecondaryGroup = (key: string) => {
   if (target) router.push(target.path);
 };
 const openPatient = (id: string) => router.push(`/surgery/detail/${id}`);
-const logout = () => router.push('/login');
+const logout = () => {
+  logoutSamis();
+  router.push('/login');
+};
 const timeRange = (item: { scheduledStart?: string; plannedStart: string; scheduledEnd?: string; surgeryEnd?: string; expectedDurationMinutes: number }) => {
   const start = item.scheduledStart ?? item.plannedStart;
   const end = item.scheduledEnd ?? item.surgeryEnd ?? dayjs(start).add(item.expectedDurationMinutes || 60, 'minute').toISOString();
@@ -279,7 +303,9 @@ const timeRange = (item: { scheduledStart?: string; plannedStart: string; schedu
 .sider-nav-item.active { border-color: var(--color-brand-100); background: linear-gradient(90deg, var(--primary-soft), var(--surface)); color: var(--primary); font-weight: 600; }
 .sider-nav-item.active::before { content: ''; position: absolute; left: -1px; top: 10px; bottom: 10px; width: 3px; border-radius: 999px; background: var(--primary); }
 .sider-nav-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.header-avatar { background: var(--primary); color: var(--surface); font-size: 13px; cursor: pointer; box-shadow: var(--shadow-xs); }
+.header-user-name { font-size: var(--font-size-sm); color: var(--text-secondary); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-user-trigger { cursor: pointer; }
+.header-avatar { background: var(--primary); color: var(--surface); font-size: 13px; cursor: pointer; box-shadow: var(--shadow-xs); flex-shrink: 0; }
 .app-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 18px; border-top: 1px solid var(--border); background: rgb(255 255 255 / 86%); color: var(--text-tertiary); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; }
 .app-persistence-loading { min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text-tertiary); }
 </style>

@@ -20,7 +20,10 @@ export async function ensureAnesthesiaPersistenceReady(): Promise<boolean> {
   return useAnesthesiaStore().localPersistenceReady;
 }
 
-export async function hydrateAnesthesiaCasesFromLocalDb(seedCases: SurgeryCase[]): Promise<SurgeryCase[]> {
+export async function hydrateAnesthesiaCasesFromLocalDb(
+  seedCases: SurgeryCase[],
+  options?: { appendOrphans?: boolean },
+): Promise<SurgeryCase[]> {
   const localCases = await loadAllCasesFromLocalDb();
   if (!localCases.length) return seedCases;
   const merged = seedCases.map((seed) => {
@@ -31,10 +34,12 @@ export async function hydrateAnesthesiaCasesFromLocalDb(seedCases: SurgeryCase[]
     const localUpdated = normalizedLocal.printedAt ?? normalizedLocal.actualStart ?? normalizedLocal.plannedStart ?? '';
     return localUpdated >= seedUpdated ? normalizedLocal : seed;
   });
-  localCases.forEach((local) => {
-    const normalizedLocal = { ...local, vitals: dedupeVitalsById(local.vitals) };
-    if (!merged.some((item) => item.id === normalizedLocal.id)) merged.push(normalizedLocal);
-  });
+  if (options?.appendOrphans !== false) {
+    localCases.forEach((local) => {
+      const normalizedLocal = { ...local, vitals: dedupeVitalsById(local.vitals) };
+      if (!merged.some((item) => item.id === normalizedLocal.id)) merged.push(normalizedLocal);
+    });
+  }
   return merged;
 }
 

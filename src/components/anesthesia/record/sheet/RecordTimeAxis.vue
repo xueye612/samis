@@ -55,8 +55,10 @@ defineProps<{
 
 .ruler-track {
   position: relative;
+  z-index: 2;
   height: 32px;
   border-bottom: 1px solid #cbd5e1;
+  overflow: visible;
 }
 
 .ruler-track .tick-label {

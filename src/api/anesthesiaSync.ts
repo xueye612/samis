@@ -118,11 +118,6 @@ export const anesthesiaDeviceApi = {
   },
 };
 
-export const operationInfoApi = {
-  getOperationInfo(operationId: string) {
-    return samisRequest<unknown>(`/operationInfo/getOperationInfo?operationId=${encodeURIComponent(operationId)}`);
-  },
-};
-
 export { ANESTHESIA_USE_MOCK, samisRequest } from '@/api/samisClient';
+export { operationInfoApi } from '@/api/operationInfo';
 export { anesthesiaDictApi } from '@/api/anesthesiaDict';

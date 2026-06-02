@@ -1,6 +1,6 @@
 # current-completed-features（samisweb 麻醉记录单增量）
 
-更新时间：2026-06-02
+更新时间：2026-06-02（接口接入）
 
 ## 真实完成（前端）
 
@@ -24,10 +24,47 @@
 - **2026-06-02 Phase7**：跨页 vital 半开区间页边界
 - **2026-06-02 Phase7**：纸面空字段 + 右侧待完善列表
 - **2026-06-02 Phase7**：冲突 E2E（注入测试冲突，不再 skip）
-- **2026-06-02 UI 收口**：顶部 `RecordStatusBar` 仅全局摘要；右侧「设备与同步」紧凑列表；开发测试按钮仅 DEV+mock；打印隐藏全部运行态 UI
+- **2026-06-02 监护会话归属**：会话绑定记录单；刷新/切换患者不串写设备数据；停止 vs 撤销监护。见 `docs/02_specs/麻醉记录单.md`「监护会话归属」
+- **2026-06-02 时间轴起点**：未入室用预计开台、已入室用入室时间，整点/半点取整；入室后自动定位页码；数据时间戳不重写
+- **2026-06-02 抢救模式时间轴/分页同步**：进入抢救 → 1 分钟小格 + `syncRecordDocument` 重建分页 + 跳转 `rescue.startTime` 页；退出抢救 → 5 分钟小格 + 跳转 `rescue.endTime` 页 + 设备模拟自动恢复 normal（否则右侧面板提示）；`useRecordCoordinates` 在 `minorGridMinutes` 与当前刻度不一致时改用实时分页。见 `docs/02_specs/麻醉记录单.md` 变更记录
 - **2026-06-02 用药显示规则修正**：是否画线由 `mode` / `start_time` / `end_time` 决定；是否进入特殊用药区由 `is_special` 决定；特殊持续用药可同时画线并进入特殊用药说明区；特殊单次用药仅时间点编号与说明。见 `docs/02_specs/麻醉记录单用药显示规则.md`、`src/services/medicationDisplayRules.ts`
 - **2026-06-02 特殊用药判断与字典**：药品名称只作默认推荐，最终以 `is_special` 为准；字典新增 `default_is_special`、`special_category`、`special_reason_template`、`allow_manual_override` 等；选药弹窗区分系统推荐与医生确认；`mode` 仅决定时间轴展示，`is_special` 仅决定编号与下方说明区。见 `docs/02_specs/麻醉药品字典接口要求.md`、`src/services/drugDictRecommend.ts`
 - **2026-06-02 用药记录弹窗临床化**：「用药数据」改为「用药记录」；按药品选择、给药方式、给药明细、特殊用药记录分区；给药方式为单次给药/追加一次/持续给药；底部短规则条；`mode` 与 `is_special` 业务规则不变
+- **2026-06-02 真实接口接入（Phase 1）**：`samisHttpClient` + 模块 mock 开关；`operationInfo` / `room` / `auth` API 与 adapter；store `loadRemoteOperationList` / `loadRoomCatalog` / `hydrateCaseFromOperationInfo`；手术排班保存走 `updateOperationInfo`（不含麻醉记录单临床数据）
+- **2026-06-02 登录与排班 UI**：Login 手术部/手术间/redirect/顶栏用户；排班筛选、护理排班合并、台次批量保存、麻醉记录单跳转
+- **2026-06-02 Apifox 联调对齐**：列表 query `operationRoom`；排班 `startTime`/`endTime`；POST 写回 form-urlencoded + `saveNursePb.data`；更新通知单含 `OPERATINGROOM_CODE`/`NUMBER_OF_STATIONS`；当前用户 fallback `adminUser/getAdminUserInfo`
+
+## 接口接入状态（2026-06-02）
+
+| 类型 | 接口 | 状态 |
+|---|---|---|
+| 真实可切换 | `login/login`、`adminUser/getAdminUserInfo`、`user/getLoginUser` | 已实现；用户接口按 Apifox 顺序 fallback |
+| 真实可切换 | `operationInfo/getOperationList`（含 `operationRoom`）、`getOperationInfo` | 已实现，默认 mock |
+| 真实可切换 | `getNursePbList`（`startTime`+`endTime`）、`saveNursePb`、`updateNumberOfStations`、`updateOperationInfo`（form） | 已实现，默认 mock |
+| 真实可切换 | `room/getRoomList`、`getRoomGroupList` | 已实现，默认 mock |
+| 仍 mock | `anesthesiaRecord/*`、`anesthesiaSync/*`、`anesthesiaDevice/*`、`anesthesiaDict/*` | 等待 Apifox 正式定义 |
+
+代码入口：`.env.example`、`src/config/apiFlags.ts`、`src/api/samisClient.ts`、`src/services/anesthesia/operationInfoService.ts`。
+
+## 手动验收要点
+
+**登录 UI**
+
+1. 登录页校验、手术部/手术间上下文、登录后 `fetchCurrentUser` 与 `redirect` 回跳。
+2. 顶栏显示用户姓名；退出清除 session。
+
+**排班 UI**
+
+1. 日期/手术间/姓名/住院号筛选与刷新；护理排班模式；台次批量保存；麻醉记录单入口。
+2. 值班排班页展示 `getNursePbList` 摘要（query 为 `startTime`/`endTime` 同日）。
+3. 排班保存 Network：`Content-Type` 为 `application/x-www-form-urlencoded`；`saveNursePb` body 含 `data=[...]`。
+
+**记录单与接口**
+
+1. 设 `VITE_USE_REAL_OPERATION_INFO=true` 并登录 → 排班/记录单列表应请求 `getOperationList`。
+2. 打开记录单 → `getOperationInfo`，表头来自通知单；IndexedDB `snapshots` 有数据；锁定/打印后刷新不覆盖 snapshot。
+3. 设 `VITE_USE_REAL_ROOM=true` → `getRoomList` 更新手术间筛选。
+4. 录入用药/体征后刷新 → 本地 clinical 数据仍在；设备 mock 不改患者信息。
 
 ## 清理策略（已实现）
 
@@ -60,17 +97,17 @@
 
 ## mock 完成（非真实后端）
 
-- 全部 `/api-samis/pc/v1/anesthesia*` 接口（`backendFetch` mock）
-- operationInfo/getOperationInfo mock 返回
+- `anesthesiaRecord` / `anesthesiaSync` / `anesthesiaDevice` / `anesthesiaDict`（`src/services/mock/samisMockRouter.ts`）
 - pushBatch / batchPushMonitorData / batchPushVentilatorData 成功响应
 - server_id 为前端 mock 自增，非数据库真实 ID
+- operationInfo / room / auth 在对应 `VITE_USE_REAL_*=false` 时仍走同一 mock 路由
 
-## 等待后端
+## 等待 Apifox / 后端补充
 
-- 真实 TP6/sam is 控制器实现
-- 真实 OceanBase 写入与幂等
-- Token/权限与护理系统统一鉴权
-- 关闭 mock：`VITE_ANESTHESIA_USE_MOCK=false` 并接入真实 HTTP
+- `anesthesiaRecord/saveRecord`、`getRecordDetail`、`batchSaveVitalSigns` 等记录单 CRUD
+- `anesthesiaSync/pushBatch` 真实幂等与冲突
+- `anesthesiaDevice/batchPush*` 真实入库
+- `anesthesiaDict/get*` 与药品字典正式字段
 
 ## 历史参考（非主接口）
 

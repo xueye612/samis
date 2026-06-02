@@ -5,6 +5,7 @@ import { createPinia } from 'pinia';
 import App from './App.vue';
 import router from './router';
 import { registerAppIcons } from '@/icons/registry';
+import { restoreSessionIfPresent } from '@/services/auth/authService';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 import './styles/tokens.css';
 import './styles/arco-overrides.css';
@@ -20,6 +21,7 @@ async function bootstrap() {
     await useAnesthesiaStore().bootstrapAnesthesiaLocalPersistence();
   });
   await useAnesthesiaStore().bootstrapAnesthesiaLocalPersistence();
+  await restoreSessionIfPresent();
   app.mount('#app');
 }
 

@@ -3,8 +3,12 @@ import {
   calculateLiveSheetEnd,
   clockToMinutes,
   collectRecordTimes,
+  isRecordClinicallyComplete,
   isoOrClockToClock,
   minutesToClock,
+  resolveClinicalAxisCapClock,
+  resolveRecordAxisReferenceIso,
+  roundAxisStartTime,
   timeToFractionalMinutes,
 } from '@/services/anesthesiaRecordEngine';
 import type { SurgeryCase } from '@/types/anesthesia';
@@ -19,14 +23,24 @@ export interface PaginationOptions {
   minimumFirstPageMinutes?: number;
 }
 
-export function resolveRecordAxisStart(record: SurgeryCase): string {
-  const raw = isoOrClockToClock(record.roomInTime ?? record.anesthesiaStart ?? record.actualStart ?? record.plannedStart) || '08:00';
-  return raw;
+export function resolveRecordAxisStart(record: SurgeryCase, roundMinutes = 30): string {
+  const reference = resolveRecordAxisReferenceIso(record);
+  const raw = isoOrClockToClock(reference) || '08:00';
+  return roundAxisStartTime(raw, roundMinutes);
 }
 
 export function resolveRecordAxisEnd(record: SurgeryCase, axisStart: string, options: PaginationOptions = {}): string {
   const minimum = options.minimumFirstPageMinutes ?? DEFAULT_PAGE_DURATION_MINUTES;
-  return calculateLiveSheetEnd(axisStart, collectRecordTimes(record), minimum, options.majorInterval ?? DEFAULT_MAJOR_INTERVAL);
+  const roundMinutes = options.majorInterval ?? DEFAULT_MAJOR_INTERVAL;
+  const dataEnd = calculateLiveSheetEnd(axisStart, collectRecordTimes(record), minimum, roundMinutes);
+  if (!isRecordClinicallyComplete(record)) return dataEnd;
+  const capClock = resolveClinicalAxisCapClock(record);
+  if (!capClock) return dataEnd;
+  const clinicalEnd = calculateLiveSheetEnd(axisStart, [capClock], minimum, roundMinutes);
+  const dataMinutes = clockToMinutes(dataEnd);
+  const clinicalMinutes = clockToMinutes(clinicalEnd);
+  if (dataMinutes === null || clinicalMinutes === null) return dataEnd;
+  return dataMinutes > clinicalMinutes ? clinicalEnd : dataEnd;
 }
 
 export function buildTimeAxisPages(
@@ -44,7 +58,8 @@ export function buildTimeAxisPages(
 
   return Array.from({ length: pageCount }, (_, index) => {
     const pageStart = startMinutes + index * pageDuration;
-    const pageEnd = Math.min(endMinutes, pageStart + pageDuration);
+    // 纸面每页固定 3.5h 窗宽，末页也不截成不足 1 小时的短页
+    const pageEnd = pageStart + pageDuration;
     return {
       pageNo: index + 1,
       pageCount,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import dayjs from 'dayjs';
 import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/types/system';
 import type { SurgeryCase } from '@/types/anesthesia';
 import { anesthesiaCases } from '@/mock/anesthesiaCases';
@@ -15,6 +16,8 @@ import {
   roundAxisStartTime,
   resolveDefaultMonitorOrder,
   resolveRecordSheetNowIso,
+  resolveRecordAxisReferenceIso,
+  resolveRecordAxisStartClock,
   isInhaledMedication,
   hasInhaledMethodHint,
   hasInhaledEventHint,
@@ -423,6 +426,12 @@ describe('anesthesiaRecordEngine printable chart layout', () => {
     expect(isRescueModeActive(ended)).toBe(false);
     expect(resolveTimeAxisIntervals({ ...anesthesiaCases[0], ...active, vitalFrequency: '5分钟' }).minorInterval).toBe(1);
     expect(resolveTimeAxisIntervals({ ...anesthesiaCases[0], ...ended, vitalFrequency: '5分钟' }).minorInterval).toBe(5);
+    expect(resolveTimeAxisIntervals({
+      ...anesthesiaCases[0],
+      ...ended,
+      vitalFrequency: '5分钟',
+      recordDocument: { ...anesthesiaCases[0].recordDocument!, minorInterval: 1, majorInterval: 15 },
+    }).minorInterval).toBe(5);
   });
 
   it('creates editable anesthesia plane drafts for the first medication row', () => {
@@ -565,6 +574,30 @@ describe('anesthesiaRecordEngine band helpers', () => {
   });
 });
 
+describe('resolveRecordAxisReferenceIso', () => {
+  it('prefers room-in after entry', () => {
+    const record = baseCase();
+    record.roomInTime = '2026-06-02T07:52:00';
+    record.scheduledStart = '2026-06-02T08:00:00';
+    expect(resolveRecordAxisReferenceIso(record)).toBe('2026-06-02T07:52:00');
+  });
+
+  it('uses scheduled start before room-in', () => {
+    const record = baseCase();
+    record.roomInTime = undefined;
+    record.scheduledStart = '2026-06-02T09:00:00';
+    record.plannedStart = '2026-06-02T08:00:00';
+    expect(resolveRecordAxisReferenceIso(record)).toBe('2026-06-02T09:00:00');
+  });
+});
+
+describe('resolveRecordAxisStartClock', () => {
+  it('returns rounded room-in axis only after entry', () => {
+    expect(resolveRecordAxisStartClock({ roomInTime: '2026-06-02T07:52:00' })).toBe('07:30');
+    expect(resolveRecordAxisStartClock({ plannedStart: '2026-06-02T08:00:00' })).toBe('');
+  });
+});
+
 describe('resolveRecordSheetNowIso', () => {
   it('anchors to anesthesiaStart and clamps before axis start', () => {
     const record: SurgeryCase = {
@@ -577,6 +610,21 @@ describe('resolveRecordSheetNowIso', () => {
     const minutes = clockToMinutes(clock);
     expect(minutes).not.toBeNull();
     expect(minutes!).toBeGreaterThanOrEqual(clockToMinutes('14:05')!);
+  });
+
+  it('does not clamp to future plannedStart before recording begins', () => {
+    const futureStart = dayjs().add(180, 'minute').second(0).millisecond(0).toISOString();
+    const record: SurgeryCase = {
+      ...baseCase(),
+      plannedStart: futureStart,
+      scheduledStart: futureStart,
+    };
+    const iso = resolveRecordSheetNowIso(record);
+    const clock = isoOrClockToClock(iso);
+    const plannedClock = isoOrClockToClock(futureStart);
+    const nowClock = isoOrClockToClock(new Date().toISOString());
+    expect(clock).toBe(nowClock);
+    expect(clock).not.toBe(plannedClock);
   });
 });
 

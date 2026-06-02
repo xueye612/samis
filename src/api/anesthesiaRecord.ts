@@ -3,8 +3,10 @@ export {
   anesthesiaRecordApi,
   anesthesiaDeviceApi,
   anesthesiaDictApi,
-  operationInfoApi,
 } from '@/api/anesthesiaSync';
+export { operationInfoApi } from '@/api/operationInfo';
+export { roomApi } from '@/api/room';
+export { authApi } from '@/api/auth';
 
 export type {
   PushBatchItem,

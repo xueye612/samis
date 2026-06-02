@@ -1,11 +1,27 @@
 export interface SamisApiResponse<T = unknown> {
   code: number;
-  msg: string;
+  msg?: string;
+  /** 部分 SAMIS 接口使用 message 而非 msg */
+  message?: string;
   data: T;
   request_id?: string;
 }
 
-export const ANESTHESIA_USE_MOCK = import.meta.env.VITE_ANESTHESIA_USE_MOCK !== 'false';
+/** 业务层 token/鉴权失败（HTTP 可能仍为 200） */
+export function isSamisAuthBusinessCode(code: number | undefined): boolean {
+  if (code === undefined || !Number.isFinite(code)) return false;
+  return code === 401 || code === 403 || code === 9003;
+}
+
+export function readSamisResponseMessage(
+  body: Pick<SamisApiResponse<unknown>, 'msg' | 'message'> | null | undefined,
+  fallback = '接口返回失败',
+): string {
+  if (!body) return fallback;
+  return (body.msg || body.message || fallback).trim() || fallback;
+}
+
+export { ANESTHESIA_USE_MOCK } from '@/config/apiFlags';
 
 export function unwrapSamisResponse<T>(response: SamisApiResponse<T>): T {
   if (response.code !== 0) {

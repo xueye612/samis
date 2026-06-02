@@ -9,4 +9,12 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  server: {
+    proxy: {
+      '/api-samis': {
+        target: 'http://47.105.38.226:8022',
+        changeOrigin: true,
+      },
+    },
+  },
 });

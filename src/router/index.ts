@@ -63,6 +63,8 @@ import SystemAudit from '@/views/system/SystemAudit.vue';
 import SystemIntegration from '@/views/system/SystemIntegration.vue';
 import SystemMock from '@/views/system/SystemMock.vue';
 
+import { checkSamisAuthRequired, ensureLoggedIn } from '@/services/auth/authService';
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -138,6 +140,14 @@ const router = createRouter({
     { path: '/system/integration', name: 'systemIntegration', component: SystemIntegration, meta: { menu: 'system', title: '接口配置' } },
     { path: '/system/mock', name: 'systemMock', component: SystemMock, meta: { menu: 'system', title: '数据模拟配置' } },
   ],
+});
+
+router.beforeEach((to) => {
+  if (to.meta.fullscreen || to.path === '/login') return true;
+  if (checkSamisAuthRequired() && !ensureLoggedIn()) {
+    return { path: '/login', query: { redirect: to.fullPath } };
+  }
+  return true;
 });
 
 export default router;

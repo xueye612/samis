@@ -3,161 +3,197 @@
     <section class="module-hero">
       <div>
         <h2 class="module-hero__title">手术排班</h2>
-        <p class="module-hero__desc">列表与周历视图协同，支持房间排班与急诊插单。</p>
+        <p class="module-hero__desc">列表与周历视图协同，支持房间排班与急诊插单；数据来自手术通知单与护理排班接口。</p>
       </div>
+      <a-space>
+        <a-tag v-if="store.operationListSource" size="small" :color="sourceTagColor">{{ sourceLabel }}</a-tag>
+        <a-button :loading="scheduleLoading" @click="reloadSchedule">
+          <template #icon><icon-refresh /></template>
+          刷新
+        </a-button>
+      </a-space>
     </section>
     <a-tabs v-model:active-key="scheduleTab" type="rounded" class="schedule-tabs">
       <a-tab-pane key="list" title="列表视图">
-    <div class="page-toolbar surgery-toolbar">
-      <a-space wrap>
-        <a-radio-group v-model="viewMode" type="button">
-          <a-radio value="room">房间排班</a-radio>
-          <a-radio value="mine">我的排班</a-radio>
-          <a-radio value="list">全院列表</a-radio>
-        </a-radio-group>
-        <a-button type="primary" @click="openCreate(false)">
-          <template #icon><icon-plus /></template>
-          新增手术
-        </a-button>
-        <a-button status="danger" @click="openCreate(true)">
-          <template #icon><icon-plus-circle /></template>
-          急诊插单
-        </a-button>
-        <a-button @click="router.push('/quality/defects')">
-          <template #icon><icon-exclamation-circle /></template>
-          质控缺陷
-        </a-button>
-      </a-space>
-      <a-input-search v-model="keyword" class="toolbar-search" placeholder="搜索患者、手术、科室、手术间" allow-clear />
-    </div>
+        <div class="page-toolbar surgery-toolbar">
+          <a-space wrap>
+            <a-date-picker v-model="filterDate" style="width: 140px" @change="reloadSchedule" />
+            <a-select
+              v-model="filterRoom"
+              placeholder="全部手术间"
+              allow-clear
+              style="width: 140px"
+              :options="filterRoomOptions"
+              @change="reloadSchedule"
+            />
+            <a-input
+              v-model="filterPatientName"
+              placeholder="患者姓名"
+              allow-clear
+              style="width: 120px"
+              @press-enter="reloadSchedule"
+            />
+            <a-input
+              v-model="filterInpatientNo"
+              placeholder="住院号"
+              allow-clear
+              style="width: 120px"
+              @press-enter="reloadSchedule"
+            />
+            <a-radio-group v-model="viewMode" type="button">
+              <a-radio value="room">房间排班</a-radio>
+              <a-radio value="mine">我的排班</a-radio>
+              <a-radio value="list">全院列表</a-radio>
+            </a-radio-group>
+            <a-button type="primary" @click="openCreate(false)">
+              <template #icon><icon-plus /></template>
+              新增手术
+            </a-button>
+            <a-button status="danger" @click="openCreate(true)">
+              <template #icon><icon-plus-circle /></template>
+              急诊插单
+            </a-button>
+          </a-space>
+          <a-input-search v-model="keyword" class="toolbar-search" placeholder="本地筛选：患者、手术、科室" allow-clear />
+        </div>
 
-    <a-alert type="info" show-icon>
-      患者基础信息由手术护理系统统一维护，麻醉侧通过 patientId 关联同一患者；本页聚焦排班协同、责任分配和状态追踪。
-    </a-alert>
+        <a-alert type="info" show-icon>
+          手术通知单由 `getOperationList` 加载；人员排班由 `getNursePbList` 合并展示。保存时分别调用 `updateOperationInfo` 与 `saveNursePb`，不写入麻醉记录单临床数据。
+        </a-alert>
 
-    <a-card v-if="viewMode !== 'list'" class="section-card" :bordered="false">
-      <template #title>{{ viewMode === 'mine' ? `${store.currentDoctorName} 我的排班` : '手术间房间视图' }}</template>
-      <div class="room-schedule-grid">
-        <div v-for="group in visibleRoomGroups" :key="group.roomId" class="room-schedule-card">
-          <div class="room-schedule-head">
-            <strong>{{ group.roomName }}</strong>
-            <a-tag>{{ group.cases.length }} 台</a-tag>
-          </div>
-          <div v-if="group.cases.length" class="room-schedule-list">
-            <div v-for="item in group.cases" :key="item.id" class="room-schedule-item" :class="{ mine: store.isMyCase(item), emergency: item.emergencyInserted || item.urgency === '急诊' }">
-              <div class="schedule-time">
-                <strong>{{ formatRange(item) }}</strong>
-                <span>第 {{ item.sequence }} 台</span>
-              </div>
-              <div class="schedule-info">
-                <div>
-                  <strong>{{ item.patientName }}</strong>
-                  <span>{{ item.department }} · {{ item.surgeryName }}</span>
+        <a-spin :loading="scheduleLoading" class="schedule-spin">
+          <a-card v-if="viewMode !== 'list'" class="section-card" :bordered="false">
+            <template #title>{{ viewMode === 'mine' ? `${store.currentDoctorName} 我的排班` : '手术间房间视图' }}</template>
+            <div class="room-schedule-grid">
+              <div v-for="group in visibleRoomGroups" :key="group.roomId" class="room-schedule-card">
+                <div class="room-schedule-head">
+                  <strong>{{ group.roomName }}</strong>
+                  <a-tag>{{ group.cases.length }} 台</a-tag>
                 </div>
-                <div class="schedule-tags">
-                  <a-tag v-if="store.isMyCase(item)" color="arcoblue">本人负责</a-tag>
-                  <a-tag v-if="item.emergencyInserted || item.urgency === '急诊'" color="red">急诊插单</a-tag>
-                  <StatusTag :value="item.status" />
+                <div v-if="group.cases.length" class="room-schedule-list">
+                  <div
+                    v-for="item in group.cases"
+                    :key="item.id"
+                    class="room-schedule-item"
+                    :class="{ mine: store.isMyCase(item), emergency: item.emergencyInserted || item.urgency === '急诊' }"
+                  >
+                    <div class="schedule-time">
+                      <strong>{{ formatRange(item) }}</strong>
+                      <span>第 {{ item.sequence }} 台</span>
+                    </div>
+                    <div class="schedule-info">
+                      <div>
+                        <strong>{{ item.patientName }}</strong>
+                        <span>{{ item.department }} · {{ item.surgeryName }}</span>
+                      </div>
+                      <div class="schedule-tags">
+                        <a-tag v-if="store.isMyCase(item)" color="arcoblue">本人负责</a-tag>
+                        <a-tag v-if="item.emergencyInserted || item.urgency === '急诊'" color="red">急诊插单</a-tag>
+                        <StatusTag :value="item.status" />
+                      </div>
+                    </div>
+                    <div class="schedule-actions">
+                      <span>{{ item.anesthesiologist }} / {{ item.anesthesiaNurse }}</span>
+                      <a-space>
+                        <a-button size="mini" type="primary" @click="goRecord(item.id)">记录单</a-button>
+                        <a-button size="mini" @click="router.push(`/surgery/detail/${item.id}`)">详情</a-button>
+                      </a-space>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div class="schedule-actions">
-                <span>{{ item.anesthesiologist }} / {{ item.anesthesiaNurse }}</span>
-                <a-button size="mini" type="primary" @click="router.push(`/surgery/detail/${item.id}`)">详情</a-button>
+                <a-empty v-else description="暂无排班" />
               </div>
             </div>
-          </div>
-          <a-empty v-else description="暂无排班" />
-        </div>
-      </div>
-    </a-card>
+          </a-card>
 
-    <a-card class="section-card" :bordered="false">
-      <template #title>{{ viewMode === 'list' ? '全院排班列表' : '排班明细' }}</template>
-      <a-table class="compact-table" :data="filteredCases" :pagination="{ pageSize: 8 }" row-key="id" :scroll="{ x: 1800 }">
-        <template #columns>
-          <a-table-column title="手术间" data-index="room" :width="90" />
-          <a-table-column title="时间" :width="150">
-            <template #cell="{ record }">{{ formatRange(record) }}</template>
-          </a-table-column>
-          <a-table-column title="台次" data-index="sequence" :width="70" />
-          <a-table-column title="患者" data-index="patientName" :width="90" />
-          <a-table-column title="性别" data-index="gender" :width="70" />
-          <a-table-column title="年龄" data-index="age" :width="70" />
-          <a-table-column title="科室" data-index="department" />
-          <a-table-column title="诊断" data-index="diagnosis" />
-          <a-table-column title="拟施手术" data-index="surgeryName" />
-          <a-table-column title="手术医师" data-index="surgeon" />
-          <a-table-column title="麻醉方式" data-index="anesthesiaMethod" />
-          <a-table-column title="ASA" data-index="asa" :width="70" />
-          <a-table-column title="急诊/择期" :width="110">
-            <template #cell="{ record }">
-              <a-tag :color="record.urgency === '急诊' ? 'red' : 'green'">{{ record.urgency }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="麻醉医师" data-index="anesthesiologist" />
-          <a-table-column title="麻醉护士" data-index="anesthesiaNurse" />
-          <a-table-column title="护理排班来源" data-index="nursingScheduleSource" :width="170" />
-          <a-table-column title="本人负责" :width="100">
-            <template #cell="{ record }"><a-tag v-if="store.isMyCase(record)" color="arcoblue">是</a-tag><span v-else class="muted">否</span></template>
-          </a-table-column>
-          <a-table-column title="状态" :width="100">
-            <template #cell="{ record }"><StatusTag :value="record.status" /></template>
-          </a-table-column>
-          <a-table-column title="操作" fixed="right" :width="280">
-            <template #cell="{ record }">
+          <a-card class="section-card" :bordered="false">
+            <template #title>
               <a-space>
-                <a-button size="small" @click="router.push(`/surgery/detail/${record.id}`)">
-                  <template #icon><icon-eye /></template>
-                  详情
-                </a-button>
-                <a-button size="small" @click="openEdit(record)">
-                  <template #icon><icon-edit /></template>
-                  编辑
-                </a-button>
-                <a-button size="small" status="warning" @click="store.cancelCase(record.id)">
-                  <template #icon><icon-close /></template>
-                  取消
-                </a-button>
-                <a-button size="small" type="primary" @click="router.push(`/surgery/detail/${record.id}`)">
-                  <template #icon><icon-file /></template>
-                  患者详情
-                </a-button>
+                <span>{{ viewMode === 'list' ? '全院排班列表' : '排班明细' }}</span>
+                <a-radio-group v-model="listDataMode" type="button" size="small">
+                  <a-radio value="operation">手术通知单</a-radio>
+                  <a-radio value="nurse">护理排班</a-radio>
+                </a-radio-group>
               </a-space>
             </template>
-          </a-table-column>
-        </template>
-      </a-table>
-    </a-card>
+            <a-table
+              class="compact-table"
+              :data="filteredCases"
+              :pagination="{ pageSize: 8 }"
+              row-key="id"
+              :scroll="{ x: 1900 }"
+            >
+              <template #columns>
+                <a-table-column title="手术间" data-index="room" :width="90" />
+                <a-table-column title="时间" :width="150">
+                  <template #cell="{ record }">{{ formatRange(record) }}</template>
+                </a-table-column>
+                <a-table-column title="台次" :width="100">
+                  <template #cell="{ record }">
+                    <a-input-number
+                      v-model="stationDrafts[record.id]"
+                      :min="1"
+                      :max="99"
+                      size="small"
+                      style="width: 72px"
+                      @change="(v: number) => onStationDraftChange(record.id, v)"
+                    />
+                  </template>
+                </a-table-column>
+                <a-table-column title="患者" data-index="patientName" :width="90" />
+                <a-table-column title="住院号" :width="100">
+                  <template #cell="{ record }">{{ record.patientId ?? '-' }}</template>
+                </a-table-column>
+                <a-table-column title="科室" data-index="department" />
+                <a-table-column title="拟施手术" data-index="surgeryName" />
+                <a-table-column title="麻醉医师" data-index="anesthesiologist" />
+                <a-table-column title="麻醉护士" data-index="anesthesiaNurse" />
+                <a-table-column title="状态" :width="100">
+                  <template #cell="{ record }"><StatusTag :value="record.status" /></template>
+                </a-table-column>
+                <a-table-column title="操作" fixed="right" :width="320">
+                  <template #cell="{ record }">
+                    <a-space>
+                      <a-button size="small" type="primary" @click="goRecord(record.id)">麻醉记录单</a-button>
+                      <a-button size="small" @click="openEdit(record)">编辑</a-button>
+                      <a-button size="small" status="warning" @click="store.cancelCase(record.id)">取消</a-button>
+                    </a-space>
+                  </template>
+                </a-table-column>
+              </template>
+            </a-table>
+            <div v-if="stationDirtyCount > 0" class="station-batch-bar">
+              <span>已修改 {{ stationDirtyCount }} 条台次</span>
+              <a-button type="primary" size="small" :loading="stationSaving" @click="saveStationBatch">保存台次</a-button>
+            </div>
+          </a-card>
+        </a-spin>
 
-    <a-drawer v-model:visible="drawerVisible" width="640px" :title="editing?.id ? '编辑手术排班' : '新增手术排班'" @ok="saveCase">
-      <a-form v-if="editing" :model="editing" layout="vertical">
-        <a-alert type="normal" show-icon class="drawer-tip">
-          patientId：{{ editing.patientId || '保存后生成' }}，患者资料与手术护理系统共享。
-        </a-alert>
-        <a-row :gutter="12">
-          <a-col :span="8"><a-form-item label="手术间"><a-select v-model="editing.room" :options="roomOptions" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="台次"><a-input-number v-model="editing.sequence" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="状态"><a-select v-model="editing.status" :options="statusOptions" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="预计开始"><a-date-picker v-model="editing.scheduledStart" show-time format="YYYY-MM-DD HH:mm" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="预计结束"><a-date-picker v-model="editing.scheduledEnd" show-time format="YYYY-MM-DD HH:mm" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="患者"><a-input v-model="editing.patientName" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="性别"><a-select v-model="editing.gender" :options="['男', '女']" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="年龄"><a-input-number v-model="editing.age" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="科室"><a-input v-model="editing.department" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="诊断"><a-input v-model="editing.diagnosis" /></a-form-item></a-col>
-          <a-col :span="24"><a-form-item label="拟施手术"><a-input v-model="editing.surgeryName" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="手术医师"><a-input v-model="editing.surgeon" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="麻醉方式"><a-input v-model="editing.anesthesiaMethod" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="ASA"><a-select v-model="editing.asa" :options="['I', 'II', 'III', 'IV', 'V']" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="类型"><a-select v-model="editing.urgency" :options="['择期', '急诊']" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="预计分钟"><a-input-number v-model="editing.expectedDurationMinutes" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="麻醉医师"><a-select v-model="editing.anesthesiologist" :options="store.doctorOptions" allow-search /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="麻醉护士"><a-input v-model="editing.anesthesiaNurse" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="排班来源"><a-input v-model="editing.nursingScheduleSource" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="急诊插单"><a-switch v-model="editing.emergencyInserted" /></a-form-item></a-col>
-        </a-row>
-      </a-form>
-    </a-drawer>
+        <a-drawer v-model:visible="drawerVisible" width="640px" :title="editing?.id?.startsWith('case-new') ? '新增手术排班' : '编辑手术排班'" @ok="saveCase">
+          <a-form v-if="editing" :model="editing" layout="vertical">
+            <a-alert type="normal" show-icon class="drawer-tip">
+              通知单字段走 updateOperationInfo；麻醉/护士人员走 saveNursePb。不保存用药与生命体征。
+            </a-alert>
+            <a-row :gutter="12">
+              <a-col :span="8"><a-form-item label="手术间"><a-select v-model="editing.room" :options="drawerRoomOptions" /></a-form-item></a-col>
+              <a-col :span="8"><a-form-item label="台次"><a-input-number v-model="editing.sequence" :min="1" /></a-form-item></a-col>
+              <a-col :span="8"><a-form-item label="状态"><a-select v-model="editing.status" :options="statusOptions" /></a-form-item></a-col>
+              <a-col :span="12"><a-form-item label="预计开始"><a-date-picker v-model="editing.scheduledStart" show-time format="YYYY-MM-DD HH:mm" style="width: 100%" /></a-form-item></a-col>
+              <a-col :span="12"><a-form-item label="预计结束"><a-date-picker v-model="editing.scheduledEnd" show-time format="YYYY-MM-DD HH:mm" style="width: 100%" /></a-form-item></a-col>
+              <a-col :span="8"><a-form-item label="患者"><a-input v-model="editing.patientName" /></a-form-item></a-col>
+              <a-col :span="8"><a-form-item label="性别"><a-select v-model="editing.gender" :options="['男', '女']" /></a-form-item></a-col>
+              <a-col :span="8"><a-form-item label="年龄"><a-input-number v-model="editing.age" /></a-form-item></a-col>
+              <a-col :span="12"><a-form-item label="科室"><a-input v-model="editing.department" /></a-form-item></a-col>
+              <a-col :span="12"><a-form-item label="诊断"><a-input v-model="editing.diagnosis" /></a-form-item></a-col>
+              <a-col :span="24"><a-form-item label="拟施手术"><a-input v-model="editing.surgeryName" /></a-form-item></a-col>
+              <a-col :span="12"><a-form-item label="手术医师"><a-input v-model="editing.surgeon" /></a-form-item></a-col>
+              <a-col :span="12"><a-form-item label="麻醉方式"><a-input v-model="editing.anesthesiaMethod" /></a-form-item></a-col>
+              <a-col :span="12"><a-form-item label="麻醉医师"><a-select v-model="editing.anesthesiologist" :options="store.doctorOptions.map((d) => ({ label: d, value: d }))" allow-search /></a-form-item></a-col>
+              <a-col :span="12"><a-form-item label="麻醉护士"><a-input v-model="editing.anesthesiaNurse" /></a-form-item></a-col>
+              <a-col :span="12"><a-form-item label="急诊插单"><a-switch v-model="editing.emergencyInserted" /></a-form-item></a-col>
+            </a-row>
+          </a-form>
+        </a-drawer>
       </a-tab-pane>
       <a-tab-pane key="calendar" title="日历视图">
         <a-card class="section-card" :bordered="false" title="本周排班概览">
@@ -169,7 +205,7 @@
                 <a-tag size="small">{{ day.cases.length }}</a-tag>
               </div>
               <div v-if="day.cases.length" class="week-day__list">
-                <div v-for="item in day.cases" :key="item.id" class="week-case" @click="router.push(`/surgery/detail/${item.id}`)">
+                <div v-for="item in day.cases" :key="item.id" class="week-case" @click="goRecord(item.id)">
                   <span class="week-case__time">{{ dayjs(item.scheduledStart ?? item.plannedStart).format('HH:mm') }}</span>
                   <strong>{{ item.patientName }}</strong>
                   <span class="muted">{{ item.room }} · {{ item.surgeryName }}</span>
@@ -186,17 +222,63 @@
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import { computed, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { Message } from '@arco-design/web-vue';
 import { useRouter } from 'vue-router';
 import StatusTag from '@/components/StatusTag.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import {
+  buildSaveNursePbPayload,
+  loadNurseScheduleList,
+  matchCaseRoom,
+  mergeNurseScheduleIntoCases,
+  persistOperationInfoFields,
+  saveNurseSchedule,
+  updateOperationStations,
+} from '@/services/anesthesia/scheduleService';
 import type { SurgeryCase } from '@/types/anesthesia';
 
 const router = useRouter();
 const store = useAnesthesiaStore();
 const scheduleTab = ref('list');
+const scheduleLoading = ref(false);
+const stationSaving = ref(false);
 const keyword = ref('');
 const viewMode = ref<'room' | 'mine' | 'list'>('room');
+const listDataMode = ref<'operation' | 'nurse'>('operation');
+
+const filterDate = ref(dayjs().format('YYYY-MM-DD'));
+const filterRoom = ref<string>();
+const filterPatientName = ref('');
+const filterInpatientNo = ref('');
+
+const stationDrafts = reactive<Record<string, number>>({});
+const stationDirty = reactive<Record<string, boolean>>({});
+
+const drawerVisible = ref(false);
+const editing = ref<SurgeryCase>();
+const originalSequence = ref<number>();
+
+const statusOptions = ['待入室', '已入室', '麻醉诱导', '麻醉中', '手术中', '苏醒中', 'PACU', '已离室', '已取消'];
+
+const filterRoomOptions = computed(() => [
+  { label: '全部手术间', value: '' },
+  ...store.configRooms.map((item) => ({ label: item, value: item })),
+]);
+
+const drawerRoomOptions = computed(() =>
+  store.configRooms.map((item) => ({ label: item, value: item })),
+);
+
+const sourceLabel = computed(() => {
+  const map: Record<string, string> = { remote: '真实接口', mock: 'Mock' };
+  return map[store.operationListSource] ?? store.operationListSource;
+});
+
+const sourceTagColor = computed(() => {
+  if (store.operationListSource === 'remote') return 'green';
+  return 'gray';
+});
 
 const weekStart = computed(() => dayjs().startOf('week').add(1, 'day'));
 const weekDays = computed(() =>
@@ -213,46 +295,164 @@ const weekDays = computed(() =>
     };
   }),
 );
-const drawerVisible = ref(false);
-const editing = ref<SurgeryCase>();
-const statusOptions = ['待入室', '已入室', '麻醉诱导', '麻醉中', '手术中', '苏醒中', 'PACU', '已离室', '已取消'];
-const roomOptions = computed(() => store.configRooms.filter((item) => item.startsWith('OR-')).map((item) => ({ label: item, value: item })));
 
 const sourceCases = computed(() => (viewMode.value === 'mine' ? store.myTodayCases : store.sortedCases));
+
 const filteredCases = computed(() => {
+  let source = sourceCases.value;
+  if (filterRoom.value) {
+    source = source.filter((item) => matchCaseRoom(item, filterRoom.value!));
+  }
   const word = keyword.value.trim();
-  const source = sourceCases.value;
-  if (!word) return source;
-  return source.filter((item) => `${item.room}${item.patientName}${item.department}${item.surgeryName}${item.diagnosis}`.includes(word));
+  if (word) {
+    source = source.filter((item) =>
+      `${item.room}${item.patientName}${item.department}${item.surgeryName}${item.diagnosis}`.includes(word),
+    );
+  }
+  return source;
 });
+
 const visibleRoomGroups = computed(() => {
   const source = viewMode.value === 'mine' ? store.myTodayCases : filteredCases.value;
   return store.roomSchedule
-    .filter((group) => group.roomId.startsWith('OR-'))
-    .map((group) => ({ ...group, cases: source.filter((item) => item.room === group.roomId) }))
+    .map((group) => ({
+      ...group,
+      cases: source.filter((item) =>
+        matchCaseRoom(item, group.roomId) || matchCaseRoom(item, group.roomName),
+      ),
+    }))
     .filter((group) => viewMode.value !== 'mine' || group.cases.length > 0);
 });
 
+const stationDirtyCount = computed(() => Object.values(stationDirty).filter(Boolean).length);
+
+function syncStationDrafts() {
+  store.cases.forEach((item) => {
+    stationDrafts[item.id] = item.sequence;
+    stationDirty[item.id] = false;
+  });
+}
+
+async function reloadSchedule() {
+  scheduleLoading.value = true;
+  try {
+    await store.loadRemoteOperationList({
+      operationDate: filterDate.value,
+      room: filterRoom.value || undefined,
+      patientName: filterPatientName.value.trim() || undefined,
+      inpatientNo: filterInpatientNo.value.trim() || undefined,
+    });
+    if (listDataMode.value === 'nurse') {
+      const nurseRows = await loadNurseScheduleList(filterDate.value);
+      store.cases = mergeNurseScheduleIntoCases(store.cases, nurseRows);
+    }
+    syncStationDrafts();
+  } finally {
+    scheduleLoading.value = false;
+  }
+}
+
+watch(listDataMode, () => {
+  void reloadSchedule();
+});
+
+function onStationDraftChange(caseId: string, value: number) {
+  const item = store.cases.find((c) => c.id === caseId);
+  stationDirty[caseId] = item ? value !== item.sequence : true;
+}
+
+async function saveStationBatch() {
+  const items = Object.entries(stationDirty)
+    .filter(([, dirty]) => dirty)
+    .map(([operationId]) => {
+      const row = store.cases.find((c) => c.id === operationId);
+      return {
+        operationId,
+        numberOfStations: stationDrafts[operationId] ?? row?.sequence ?? 1,
+        room: row?.room,
+      };
+    });
+  if (!items.length) return;
+  stationSaving.value = true;
+  try {
+    await updateOperationStations(items);
+    items.forEach(({ operationId, numberOfStations }) => {
+      const index = store.cases.findIndex((c) => c.id === operationId);
+      if (index >= 0) {
+        store.cases[index] = { ...store.cases[index], sequence: numberOfStations };
+        stationDirty[operationId] = false;
+      }
+    });
+    Message.success('台次已保存');
+  } catch (error) {
+    Message.warning(error instanceof Error ? error.message : '台次保存失败');
+  } finally {
+    stationSaving.value = false;
+  }
+}
+
 const clone = (item: SurgeryCase) => JSON.parse(JSON.stringify(item)) as SurgeryCase;
+
 const formatRange = (item: SurgeryCase) => {
   const start = item.scheduledStart ?? item.plannedStart;
   const end = item.scheduledEnd ?? item.surgeryEnd ?? dayjs(start).add(item.expectedDurationMinutes || 60, 'minute').toISOString();
   return `${dayjs(start).format('HH:mm')} - ${dayjs(end).format('HH:mm')}`;
 };
+
+const goRecord = (id: string) => router.push(`/surgery/record/${id}`);
+
 const openEdit = (item: SurgeryCase) => {
   editing.value = clone(item);
+  originalSequence.value = item.sequence;
   drawerVisible.value = true;
 };
+
 const openCreate = (emergency: boolean) => {
-  const base = clone(store.cases[0]);
+  const base = store.cases[0] ? clone(store.cases[0]) : undefined;
   const start = dayjs().add(emergency ? 20 : 180, 'minute').second(0).millisecond(0).toISOString();
+  const room = filterRoom.value || store.configRooms[0] || 'OR-01';
   editing.value = {
-    ...base,
+    ...(base ?? {
+      gender: '男',
+      age: 40,
+      department: '',
+      diagnosis: '',
+      surgeryName: '',
+      surgeon: '',
+      anesthesiaMethod: '全身麻醉',
+      asa: 'II',
+      urgency: '择期',
+      locationType: '手术室内',
+      expectedDurationMinutes: 90,
+      locked: false,
+      activeWarming: false,
+      autologousBlood: false,
+      postoperativeAnalgesia: false,
+      preVisit: {
+        completed: false,
+        height: 170,
+        weight: 65,
+        asa: 'II',
+        allergy: '无',
+        anesthesiaHistory: '',
+        difficultAirway: '',
+        fasting: '',
+        preMedication: '',
+        specialCondition: '',
+        plan: '',
+        doctorSignature: '',
+      },
+      vitals: [],
+      events: [],
+      medications: [],
+      fluids: [],
+      outputs: { urine: 0, bloodLoss: 0, drainage: 0 },
+    }),
     id: `case-new-${Date.now()}`,
     patientId: `patient-new-${Date.now()}`,
-    room: emergency ? 'OR-03' : 'OR-01',
-    roomId: emergency ? 'OR-03' : 'OR-01',
-    roomName: emergency ? 'OR-03' : 'OR-01',
+    room,
+    roomId: room,
+    roomName: room,
     sequence: emergency ? 99 : 2,
     patientName: emergency ? '急诊患者' : '',
     status: '待入室',
@@ -276,38 +476,83 @@ const openCreate = (emergency: boolean) => {
     recordSnapshot: undefined,
     recordSummary: undefined,
     printedAt: undefined,
-    airwayRecord: undefined,
-    recoveryRecord: undefined,
-    transfusionEvents: [],
-    anesthesiaPlanes: [],
-    labResults: [],
-    professionalFieldValues: {},
-    layoutWarnings: [],
-    modificationLogs: [],
     operationLogs: ['手术护理系统新建排班'],
     locked: false,
-    events: [],
-    vitals: [],
-    medications: [],
-    fluids: [],
-    outputRecords: [],
-  };
+  } as SurgeryCase;
+  originalSequence.value = editing.value.sequence;
   drawerVisible.value = true;
 };
-const saveCase = () => {
+
+const saveCase = async () => {
   if (!editing.value) return;
-  editing.value.roomId = editing.value.room;
-  editing.value.roomName = editing.value.room;
-  editing.value.plannedStart = editing.value.scheduledStart ?? editing.value.plannedStart;
-  editing.value.assignedAnesthesiologistIds = [editing.value.anesthesiologist];
-  if (editing.value.emergencyInserted) store.createEmergencyCase(editing.value);
-  else store.upsertCase(editing.value);
+  const item = editing.value;
+  item.roomId = item.room;
+  item.roomName = item.room;
+  item.plannedStart = item.scheduledStart ?? item.plannedStart;
+  item.assignedAnesthesiologistIds = [item.anesthesiologist];
+
+  if (item.emergencyInserted) store.createEmergencyCase(item);
+  else store.upsertCase(item);
+
+  const errors: string[] = [];
+  const tasks: Promise<unknown>[] = [
+    persistOperationInfoFields(item).catch((e) => {
+      errors.push(e instanceof Error ? e.message : '通知单保存失败');
+    }),
+    saveNurseSchedule(buildSaveNursePbPayload(item, filterDate.value)).catch((e) => {
+      errors.push(e instanceof Error ? e.message : '护理排班保存失败');
+    }),
+  ];
+
+  if (originalSequence.value !== undefined && item.sequence !== originalSequence.value) {
+    tasks.push(
+      updateOperationStations([{
+        operationId: item.id,
+        numberOfStations: item.sequence,
+        room: item.room,
+      }]).catch((e) => {
+        errors.push(e instanceof Error ? e.message : '台次更新失败');
+      }),
+    );
+  }
+
+  await Promise.all(tasks);
+
+  if (errors.length) {
+    Message.warning(`本地已保存；远程：${errors.join('；')}`);
+  } else {
+    Message.success('排班已保存');
+  }
+
+  drawerVisible.value = false;
+  await reloadSchedule();
 };
+
+onMounted(async () => {
+  await store.bootstrapAnesthesiaLocalPersistence();
+  if (!store.roomGroups.length) {
+    await store.loadRoomCatalog();
+  }
+  await reloadSchedule();
+});
 </script>
 
 <style scoped>
 .schedule-tabs {
   margin-top: var(--space-3);
+}
+.schedule-spin {
+  display: block;
+  width: 100%;
+}
+.station-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 .week-grid {
   display: grid;
@@ -353,6 +598,9 @@ const saveCase = () => {
 .week-case strong {
   display: block;
   font-size: var(--font-size-sm);
+}
+.drawer-tip {
+  margin-bottom: 12px;
 }
 @media (max-width: 1200px) {
   .week-grid {

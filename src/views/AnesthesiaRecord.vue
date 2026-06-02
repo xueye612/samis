@@ -5,103 +5,40 @@
     :class="{ 'print-preview-active': printPreviewVisible }"
     :style="recordSheetShellStyle"
   >
-    <section class="record-topbar no-print">
-      <div class="topbar-row topbar-row-main">
-        <div class="brand-block">
-          <a-button class="return-button" size="mini" @click="goBackToSource">
-            {{ returnTarget.label }}
-          </a-button>
-          <div class="brand-inline">
-            <h1>麻醉记录单</h1>
-            <span class="case-inline">{{ current.room }} {{ current.patientName }} {{ current.surgeryName }}</span>
-            <a-tag size="small" :color="recordStatusTagColor">{{ recordStatusTagLabel }}</a-tag>
-          </div>
-        </div>
-
-        <div class="top-primary-actions">
-          <a-button
-            size="small"
-            :type="recordPrimaryButton.type"
-            :disabled="recordPrimaryButton.disabled"
-            @click="handleRecordPrimaryAction"
-          >
-            {{ recordPrimaryButton.label }}
-          </a-button>
-          <a-button size="small" @click="saveDraft()">保存草稿</a-button>
-          <a-button size="small" status="danger" :disabled="current.locked || rescueModeActive" @click="enterRescue">抢救模式</a-button>
-          <a-button v-if="rescueModeActive" size="small" status="warning" :disabled="current.locked" @click="exitRescue">退出抢救</a-button>
-          <a-button size="small" type="primary" status="success" :disabled="current.locked" @click="submitSignature">提交签名</a-button>
-          <a-dropdown trigger="click">
-            <a-button size="small">更多</a-button>
-            <template #content>
-              <a-doption @click="runQuality">完整性检查</a-doption>
-              <a-doption @click="printCurrent">打印预览</a-doption>
-              <a-doption @click="sectionSettingsVisible = true">纸面显示设置</a-doption>
-              <a-doption v-if="current.locked" @click="unlockCurrent">解锁修改</a-doption>
-            </template>
-          </a-dropdown>
-        </div>
-      </div>
-
-      <RecordStatusBar
-        :sync-state="syncState"
-        @open-sync-detail="syncDetailVisible = true"
-        @open-conflicts="conflictPanelVisible = true"
-      />
-
-      <div class="topbar-row topbar-row-tools">
-        <div class="toolbar-group toolbar-view-tools">
-          <span class="toolbar-group-label">视图</span>
-          <a-button size="mini" @click="patientPanelOpen = !patientPanelOpen">{{ patientPanelOpen ? '隐藏患者队列' : '患者队列' }}</a-button>
-          <a-button size="mini" @click="qualityPanelOpen = !qualityPanelOpen">{{ qualityPanelOpen ? '隐藏质控侧栏' : '质控侧栏' }}</a-button>
-          <a-button size="mini" @click="sectionSettingsVisible = true">纸面显示</a-button>
-          <a-button-group size="mini">
-            <a-button @click="decreaseSheetZoom">缩小</a-button>
-            <a-button disabled>{{ sheetZoomPercent }}%</a-button>
-            <a-button @click="increaseSheetZoom">放大</a-button>
-            <a-button @click="fitSheetWidth">适宽</a-button>
-          </a-button-group>
-          <a-select
-            :model-value="selectedId"
-            size="mini"
-            class="compact-case-select"
-            :options="sortedCases.map((item) => ({ label: `${item.room} ${item.patientName} ${item.surgeryName}`, value: item.id }))"
-            @change="(value) => selectCase(String(value))"
-          />
-          <span v-if="livePageCount > 1" class="topbar-chip">记录 {{ livePageCount }} 页</span>
-          <span class="topbar-chip">A4横向</span>
-        </div>
-        <div class="toolbar-group toolbar-quick-actions">
-          <span class="toolbar-group-label">快捷</span>
-          <a-tooltip
-            v-for="event in primaryQuickEventButtons"
-            :key="event.name"
-            :content="event.title"
-            :disabled="!event.title"
-          >
-            <a-button
-              size="mini"
-              type="outline"
-              :disabled="current.locked || event.disabled"
-              @click="addEvent(event.name)"
-            >{{ event.name }}</a-button>
-          </a-tooltip>
-          <a-dropdown v-if="extraQuickEventButtons.length" trigger="click">
-            <a-button size="mini" type="outline">更多事件</a-button>
-            <template #content>
-              <a-doption
-                v-for="event in extraQuickEventButtons"
-                :key="event.name"
-                :disabled="current.locked || event.disabled"
-                @click="addEvent(event.name)"
-              >
-                {{ event.name }}
-              </a-doption>
-            </template>
-          </a-dropdown>
-        </div>
-      </div>
-    </section>
+    <RecordWorkstationTopbar
+      :record="current"
+      :return-label="returnTarget.label"
+      :current-user-name="store.currentDoctorName"
+      :sync-state="syncState"
+      :selected-case-id="selectedId"
+      :case-options="caseSelectOptions"
+      :zoom-percent="sheetZoomPercent"
+      :page-count="livePageCount"
+      :locked="Boolean(current.locked)"
+      :rescue-active="rescueModeActive"
+      :device-collecting="deviceCollectingActive"
+      :patient-panel-open="patientPanelOpen"
+      :quality-panel-open="qualityPanelOpen"
+      :actions="recordActions"
+      @go-back="goBackToSource"
+      @primary-action="handleRecordPrimaryAction"
+      @save-draft="saveDraft()"
+      @enter-rescue="enterRescue"
+      @exit-rescue="exitRescue"
+      @submit-signature="submitSignature"
+      @unlock="unlockCurrent"
+      @print="printCurrent"
+      @quality-check="runQuality"
+      @section-settings="sectionSettingsVisible = true"
+      @toggle-patient-queue="patientPanelOpen = !patientPanelOpen"
+      @toggle-quality-panel="qualityPanelOpen = !qualityPanelOpen"
+      @decrease-zoom="decreaseSheetZoom"
+      @increase-zoom="increaseSheetZoom"
+      @fit-width="fitSheetWidth"
+      @select-case="selectCase"
+      @open-sync-detail="syncDetailVisible = true"
+      @open-conflicts="conflictPanelVisible = true"
+    />
 
     <div class="record-layout" :class="{ 'queue-collapsed': !patientPanelOpen, 'quality-collapsed': !qualityPanelOpen }">
       <aside v-show="patientPanelOpen" class="patient-queue">
@@ -159,6 +96,14 @@
       <main class="record-center">
         <div class="record-workspace">
           <section class="sheet-workbench">
+            <RecordSheetQuickStrip
+              :entries="sheetQuickActions.entries"
+              :primary-events="sheetQuickActions.primaryEvents"
+              :more-events="sheetQuickActions.moreEvents"
+              :has-more-events="sheetQuickActions.hasMoreEvents"
+              @entry="handleSheetEntry"
+              @quick-event="addEvent"
+            />
             <div class="sheet-page-nav no-print">
               <a-pagination
                 v-if="livePageCount > 1"
@@ -227,25 +172,32 @@
             </div>
           </section>
 
-          <aside ref="toolboxRef" class="record-toolbox">
-            <a-card v-if="sheetMethodKeys.length" class="timeline-workbench-card" :bordered="false">
-              <template #title>关键时间</template>
-              <template #extra>
-                <span class="timeline-card-extra">{{ timelineProgressLabel }}</span>
-              </template>
-              <p v-if="timelinePendingLabels" class="timeline-card-hint">待录：{{ timelinePendingLabels }}</p>
-              <TimelineNodeRail
-                :embedded="false"
-                :show-header="false"
-                :record="current"
-                :method-keys="sheetMethodKeys"
-                :method-labels="sheetAppliedMethodLabels"
-                :locked="current.locked"
-                :active-key="activeTimelineKey"
-                @save="saveTimelineNode"
-                @focus="focusWorkbenchTimelineNode"
-              />
-            </a-card>
+          <aside ref="toolboxRef" class="record-toolbox" :class="{ collapsed: toolboxCollapsed }">
+            <div class="toolbox-head no-print">
+              <strong>记录辅助</strong>
+              <a-button size="mini" type="text" @click="toolboxCollapsed = !toolboxCollapsed">
+                {{ toolboxCollapsed ? '展开' : '收起' }}
+              </a-button>
+            </div>
+
+            <template v-if="!toolboxCollapsed">
+            <RecordQuickToolbar
+              :record="current"
+              :entries="sheetQuickActions.entries"
+              :monitor-running="syncState.monitorRunning"
+              :ventilator-running="syncState.ventilatorRunning"
+              :conflict-count="syncState.conflictCount"
+              :show-device="recordActions.showDeviceControls"
+              @entry="handleSheetEntry"
+              @stop-pump="stopPump"
+              @open-data="openDataList"
+              @toggle-monitor="toggleMonitorMock"
+              @toggle-ventilator="toggleVentilatorMock"
+              @import-vitals="importVitals"
+              @open-sync-detail="syncDetailVisible = true"
+              @open-conflicts="conflictPanelVisible = true"
+              @open-quality="runQuality"
+            />
 
             <IntraopWorkflowPanel
               :stage="currentStage"
@@ -272,12 +224,24 @@
               @confirm-item="confirmLandingItem"
             />
 
-            <RecordQuickToolbar
-              :record="current"
-              :locked="current.locked"
-              @stop-pump="stopPump"
-              @open-data="openDataList"
-            />
+            <a-card v-if="sheetMethodKeys.length" class="timeline-workbench-card" :bordered="false">
+              <template #title>关键时间</template>
+              <template #extra>
+                <span class="timeline-card-extra">{{ timelineProgressLabel }}</span>
+              </template>
+              <p v-if="timelinePendingLabels" class="timeline-card-hint">待录：{{ timelinePendingLabels }}</p>
+              <TimelineNodeRail
+                :embedded="false"
+                :show-header="false"
+                :record="current"
+                :method-keys="sheetMethodKeys"
+                :method-labels="sheetAppliedMethodLabels"
+                :locked="current.locked"
+                :active-key="activeTimelineKey"
+                @save="saveTimelineNode"
+                @focus="focusWorkbenchTimelineNode"
+              />
+            </a-card>
 
             <RecordRecentEntries :entries="recentEntries" @locate="locateRecentEntry" />
 
@@ -303,6 +267,7 @@
                 :locked="current.locked"
                 :rescue-mode-active="rescueModeActive"
                 :monitor-interval-options="monitorIntervalOptions"
+                :monitoring-view="monitoringViewUi"
                 @update:monitor-display-interval-minutes="monitorDisplayIntervalMinutes = $event"
                 @update:simulation-mode="onDeviceSimulationModeChange"
                 @update:abnormal-types="onAbnormalSimulationTypesChange"
@@ -310,6 +275,7 @@
                 @toggle-monitor="toggleMonitorMock"
                 @toggle-ventilator="toggleVentilatorMock"
                 @stop-all-devices="stopAllDevices"
+                @revoke-monitoring="revokeMonitoring"
                 @inject-test-conflict="injectTestConflict"
                 @open-sync-detail="syncDetailVisible = true"
                 @open-conflicts="conflictPanelVisible = true"
@@ -337,6 +303,7 @@
                 />
               </a-collapse-item>
             </a-collapse>
+            </template>
           </aside>
         </div>
 
@@ -506,14 +473,18 @@ import RecordRecentEntries from '@/components/anesthesia/record/RecordRecentEntr
 import RecordQuickToolbar from '@/components/anesthesia/record/RecordQuickToolbar.vue';
 import RecordQualityPanel from '@/components/anesthesia/record/RecordQualityPanel.vue';
 import RecordDeviceWorkbenchPanel from '@/components/anesthesia/record/RecordDeviceWorkbenchPanel.vue';
-import RecordStatusBar from '@/components/anesthesia/record/RecordStatusBar.vue';
+import RecordWorkstationTopbar from '@/components/anesthesia/record/RecordWorkstationTopbar.vue';
+import RecordSheetQuickStrip from '@/components/anesthesia/record/RecordSheetQuickStrip.vue';
+import { buildRecordActionVisibility, buildRecordEntryVisibility } from '@/services/anesthesia/recordActionRules';
+import { resolveSheetQuickEvents, type SheetEntryAction } from '@/services/anesthesia/recordQuickActions';
+import { resolveRecordSheetNowIso } from '@/services/anesthesiaRecordEngine';
 import RecordAuditPanel from '@/components/anesthesia/record/RecordAuditPanel.vue';
 import PrintPreview from '@/components/anesthesia/record/PrintPreview.vue';
 import SyncConflictPanel from '@/components/anesthesia/record/SyncConflictPanel.vue';
 import { buildSurgeryNameOptions, SURGICAL_POSITION_OPTIONS } from '@/config/recordHeaderOptions';
 import { OPTIONAL_RECORD_SECTIONS, resolveSectionVisible, type RecordSectionKey, type RecordSectionVisibility, type SectionVisibilityMode } from '@/config/recordSections';
 import type { AggregatedAbnormalVital } from '@/services/anesthesiaRecordEngine';
-import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog, buildRecordSummaryFields, isRescueModeActive, resolveDefaultMonitorOrder, resolveTimeAxisIntervals, runPrintPreflightChecks } from '@/services/anesthesiaRecordEngine';
+import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog, buildRecordSummaryFields, isRescueModeActive, resolveDefaultMonitorOrder, runPrintPreflightChecks } from '@/services/anesthesiaRecordEngine';
 import { buildRecordPendingFields } from '@/services/anesthesia/recordFieldCompleteness';
 import {
   readAbnormalSimulationTypes,
@@ -521,8 +492,12 @@ import {
   type AbnormalSimulationType,
   type DeviceSimulationMode,
 } from '@/services/anesthesia/deviceSimulationMode';
+import {
+  getMonitoringRegistry,
+  resolveMonitoringViewUi,
+} from '@/services/anesthesia/monitoringSessionService';
 import { buildRecordReturnTarget, buildRecordRoute, normalizeRecordEntrySource } from '@/services/recordNavigation';
-import { buildRecordPagination, resolveRecordPageNoForTime } from '@/services/recordPaginationEngine';
+import { buildRecordPagination } from '@/services/recordPaginationEngine';
 import {
   buildCompletionGaps,
   buildConfirmedTemplateImpact,
@@ -538,7 +513,6 @@ import {
   getDynamicModuleEntries,
   getQuickEventOption,
   isQuickEventDone,
-  resolveTopToolbarQuickEvents,
   getMethodLabels,
   hasAnesthesiaPlaneModule,
   mergeSelectedMethods,
@@ -613,7 +587,8 @@ const queueStatusFilter = ref('');
 const queueRiskFilter = ref('');
 const qualityVisible = ref(false);
 const patientPanelOpen = ref(false);
-const qualityPanelOpen = ref(true);
+const qualityPanelOpen = ref(false);
+const toolboxCollapsed = ref(false);
 const recentEntries = ref<RecordRecentEntry[]>([]);
 const primaryMethod = ref<AnesthesiaMethodKey>('general');
 const auxiliaryMethods = ref<AnesthesiaMethodKey[]>([]);
@@ -640,6 +615,12 @@ const liveSheetRef = ref<{
   flashEventType: (type: string) => void;
   focusTimelineNode: (node: MethodTimelineNode) => void;
   scrollStatusRowIntoView: () => void;
+  openMedicationEntry: () => void;
+  openInfusionEntry: () => void;
+  openTransfusionEntry: () => void;
+  openVitalEntry: () => void;
+  openOutputEntry: (type?: string) => void;
+  openLabEntry: () => void;
 } | null>(null);
 const abnormalVisible = ref(false);
 const abnormalTarget = ref<AbnormalVitalByDictionary | null>(null);
@@ -663,7 +644,7 @@ const sheetZoomFrameStyle = computed(() => ({
   minHeight: `${Math.max(640, sheetSkeletonHeightPx.value - 40)}px`,
 }));
 const toolboxRef = ref<HTMLElement | null>(null);
-const toolboxCollapseKeys = ref<Array<string | number>>(['device']);
+const toolboxCollapseKeys = ref<Array<string | number>>([]);
 
 const ensureElementVisibleInScrollRoot = (element: HTMLElement, scrollRoot: HTMLElement, padding = 12) => {
   const rootRect = scrollRoot.getBoundingClientRect();
@@ -717,46 +698,32 @@ const filteredCases = computed(() => {
   });
 });
 const current = computed(() => store.cases.find((item) => item.id === selectedId.value));
-const resolveRecordStatus = (item?: SurgeryCase) => {
-  if (!item) return '未开始';
-  if (item.locked) return '已锁定';
-  return item.recordStatus ?? (item.anesthesiaStart ? '采集中' : '未开始');
-};
-const recordStatusTagLabel = computed(() => {
-  if (!current.value) return '未开始';
-  if (rescueModeActive.value) return '抢救中';
-  return resolveRecordStatus(current.value);
+const caseSelectOptions = computed(() => sortedCases.value.map((item) => ({
+  label: `${item.room} ${item.patientName}`,
+  value: item.id,
+})));
+const recordActions = computed(() => buildRecordActionVisibility(current.value, rescueModeActive.value));
+const sheetQuickActions = computed(() => {
+  if (!current.value) {
+    return {
+      entries: buildRecordEntryVisibility(undefined, false),
+      primaryEvents: [],
+      moreEvents: [],
+      hasMoreEvents: false,
+    };
+  }
+  return resolveSheetQuickEvents(
+    current.value,
+    currentStage.value,
+    selectedMethodKeys.value,
+    selectedTemplateName.value,
+    selectedScenario.value,
+    rescueModeActive.value,
+  );
 });
-const recordStatusTagColor = computed(() => {
-  const status = recordStatusTagLabel.value;
-  if (status === '已锁定') return 'orangered';
-  if (status === '抢救中') return 'red';
-  if (status === '采集中' || status === '补记中') return 'green';
-  if (status === '未开始') return 'gray';
-  return 'arcoblue';
-});
-const recordPrimaryButton = computed(() => {
-  const item = current.value;
-  if (!item || item.locked) {
-    return { label: item?.locked ? '已锁定' : '启动记录', disabled: true, type: 'outline' as const, action: 'none' as const };
-  }
-  const status = resolveRecordStatus(item);
-  if (status === '未开始') {
-    return { label: '启动记录', disabled: false, type: 'primary' as const, action: 'start' as const };
-  }
-  if (status === '采集中' || status === '补记中') {
-    return { label: '记录中', disabled: true, type: 'outline' as const, action: 'none' as const };
-  }
-  if (status === '已完成') {
-    return { label: '查看记录', disabled: true, type: 'outline' as const, action: 'none' as const };
-  }
-  return { label: status, disabled: true, type: 'outline' as const, action: 'none' as const };
-});
+const monitoringViewUi = computed(() => resolveMonitoringViewUi(selectedId.value, getMonitoringRegistry()));
 const deviceCollectingActive = computed(() => (
-  syncState.value.monitorRunning
-  || syncState.value.ventilatorRunning
-  || current.value?.device?.collectStatus === '采集中'
-  || current.value?.collectStatus === '采集中'
+  monitoringViewUi.value.mockTicking || monitoringViewUi.value.monitoringPaused
 ));
 const rescueModeActive = computed(() => (current.value ? isRescueModeActive(current.value) : false));
 const effectiveMonitorIntervalMinutes = computed(() => resolveMonitorDisplayIntervalMinutes({
@@ -799,8 +766,6 @@ const sheetInteractionMode = computed(() => {
   if (current.value?.locked) return 'view';
   return 'edit';
 });
-const primaryQuickEventButtons = computed(() => topQuickEventButtons.value.slice(0, 3));
-const extraQuickEventButtons = computed(() => topQuickEventButtons.value.slice(3));
 const monitorOrder = computed(() => {
   const draft = store.recordDrafts[selectedId.value] as { monitorOrder?: string[] } | undefined;
   const saved = draft?.monitorOrder ?? [];
@@ -858,16 +823,6 @@ const scenarioContext = computed(() => current.value
     confirmedImpact: confirmedTemplateImpact.value,
   }));
 
-const topQuickEventButtons = computed(() => {
-  if (!current.value) return [];
-  return resolveTopToolbarQuickEvents(
-    current.value,
-    currentStage.value,
-    selectedMethodKeys.value,
-    selectedTemplateName.value,
-    selectedScenario.value,
-  );
-});
 const sheetZoomPercent = computed(() => Math.round(sheetZoom.value * 100));
 
 const headerPickerOptions = computed(() => {
@@ -927,7 +882,7 @@ watch(() => route.params.id, (id) => {
 });
 watch(selectedId, async (id) => {
   if (!store.localPersistenceReady) return;
-  store.setActiveAnesthesiaRecordScope(id);
+  await store.setActiveAnesthesiaRecordScope(id);
   caseSheetReady.value = false;
   livePageNo.value = await restoreCasePageNo(id);
   restoreWorkflowState(id);
@@ -947,15 +902,28 @@ watch(activeTab, () => saveDraft(false));
 watch([primaryMethod, auxiliaryMethods, selectedTemplateName, pendingLandingItems, confirmedLandingItems, manualStage, selectedScenario, sectionVisibility], () => saveDraft(false), { deep: true });
 
 const selectCase = (id: string) => {
-  selectedId.value = id;
-  router.replace(buildRecordRoute(id, recordEntrySource.value));
+  if (id === selectedId.value) return;
+  const hint = store.prepareRecordScopeSwitch(id);
+  const proceed = () => {
+    selectedId.value = id;
+    router.replace(buildRecordRoute(id, recordEntrySource.value));
+  };
+  if (hint.needConfirm) {
+    Modal.confirm({
+      title: '切换患者',
+      content: hint.message,
+      onOk: proceed,
+    });
+    return;
+  }
+  proceed();
 };
 
 const prepareCurrentCaseView = async (caseId: string) => {
   if (!store.localPersistenceReady) {
     await store.bootstrapAnesthesiaLocalPersistence();
   }
-  store.setActiveAnesthesiaRecordScope(caseId);
+  await store.setActiveAnesthesiaRecordScope(caseId);
   livePageNo.value = await restoreCasePageNo(caseId);
   restoreWorkflowState(caseId);
   store.syncRecordDocument(caseId);
@@ -965,6 +933,20 @@ const prepareCurrentCaseView = async (caseId: string) => {
 
 onMounted(async () => {
   await prepareCurrentCaseView(selectedId.value);
+  const resumePrompt = store.checkMonitoringResumePrompt(selectedId.value);
+  if (resumePrompt.show) {
+    Modal.confirm({
+      title: '恢复模拟采集',
+      content: '检测到未结束的监护会话，已采集数据仍归属本记录单。是否恢复模拟采集？',
+      okText: '恢复',
+      cancelText: '暂不',
+      onOk: () => {
+        const result = store.resumeMonitoringMock(selectedId.value);
+        if (result && !result.ok) Message.warning(result.message ?? '无法恢复模拟采集');
+      },
+      onCancel: () => store.dismissMonitoringResumePrompt(selectedId.value),
+    });
+  }
   if (showE2eActions.value) {
     (window as Window & { __samisAnesthesiaE2E?: Record<string, unknown> }).__samisAnesthesiaE2E = {
       injectConflict: async (caseId = selectedId.value) => {
@@ -982,7 +964,7 @@ const onDeviceSimulationModeChange = (mode: DeviceSimulationMode) => {
 const onAbnormalSimulationTypesChange = (types: AbnormalSimulationType[]) => {
   abnormalSimulationTypes.value = types.length ? types : readAbnormalSimulationTypes();
   store.setAbnormalSimulationTypes(abnormalSimulationTypes.value);
-  if (syncState.value.monitorRunning || syncState.value.ventilatorRunning) {
+  if (monitoringViewUi.value.mockTicking) {
     store.restartDeviceMocksForInterval(selectedId.value);
   }
 };
@@ -991,31 +973,55 @@ const injectTestConflict = async () => {
   await store.injectMockSyncConflict(selectedId.value);
 };
 const stopAllDevices = () => {
-  if (!syncState.value.monitorRunning && !syncState.value.ventilatorRunning) return;
+  if (!monitoringViewUi.value.mockTicking && !monitoringViewUi.value.monitoringPaused) return;
   Modal.confirm({
-    title: '停止全部设备模拟',
-    content: '确认停止监护仪和呼吸机模拟？',
+    title: '停止监护',
+    content: '确认停止监护仪和呼吸机模拟？已采集数据将保留。',
     onOk: () => {
-      if (syncState.value.monitorRunning) store.stopMonitorDeviceMock();
-      if (syncState.value.ventilatorRunning) store.stopVentilatorDeviceMock();
+      store.stopAllMonitoringDevices();
     },
   });
 };
 const toggleMonitorMock = () => {
-  if (syncState.value.monitorRunning) {
+  const ui = monitoringViewUi.value;
+  if (ui.mockTicking && ui.hasMonitorSession) {
     store.stopMonitorDeviceMock();
+    return;
+  }
+  if (ui.monitoringPaused && ui.hasMonitorSession) {
+    const result = store.resumeMonitoringMock(selectedId.value);
+    if (result && !result.ok) Message.warning(result.message ?? '无法恢复监护仪模拟');
     return;
   }
   const result = store.startMonitorDeviceMock(selectedId.value, monitorDisplayIntervalMinutes.value);
   if (result && !result.ok) Message.warning(result.message ?? '无法启动监护仪模拟');
 };
 const toggleVentilatorMock = () => {
-  if (syncState.value.ventilatorRunning) {
+  const ui = monitoringViewUi.value;
+  if (ui.mockTicking && ui.hasVentilatorSession) {
     store.stopVentilatorDeviceMock();
+    return;
+  }
+  if (ui.monitoringPaused && ui.hasVentilatorSession) {
+    const result = store.resumeMonitoringMock(selectedId.value);
+    if (result && !result.ok) Message.warning(result.message ?? '无法恢复呼吸机模拟');
     return;
   }
   const result = store.startVentilatorDeviceMock(selectedId.value, monitorDisplayIntervalMinutes.value);
   if (result && !result.ok) Message.warning(result.message ?? '无法启动呼吸机模拟');
+};
+const revokeMonitoring = (reason: string) => {
+  Modal.confirm({
+    title: '确认撤销监护',
+    content: '撤销后，本次监护会话内的设备采集数据将标记作废，是否继续？',
+    okText: '撤销',
+    okButtonProps: { status: 'danger' },
+    onOk: () => {
+      const result = store.revokeMonitoringSession(selectedId.value, reason);
+      if (!result.ok) Message.warning(result.message ?? '撤销失败');
+      else Message.success('监护会话已撤销，相关设备数据已标记作废');
+    },
+  });
 };
 const goBackToSource = () => router.push(returnTarget.value.path);
 const requireCurrent = (): SurgeryCase | undefined => current.value;
@@ -1036,50 +1042,54 @@ const startRecord = () => {
   store.startAnesthesiaRecord(selectedId.value);
 };
 const handleRecordPrimaryAction = () => {
-  if (recordPrimaryButton.value.action === 'start') startRecord();
+  if (recordActions.value.primaryAction === 'start') startRecord();
 };
 const importVitals = () => {
   store.importDeviceVitalsLayered(selectedId.value);
 };
+const applyRescuePageFocus = (pageNo?: number) => {
+  if (pageNo && pageNo >= 1) {
+    livePageNo.value = pageNo;
+    store.setRecordPageDraft(selectedId.value, pageNo);
+  }
+};
 const enterRescue = () => {
-  if (store.enterRescueRecordMode(selectedId.value)) {
-    const record = current.value;
-    focusLivePageToTime(
-      record?.device?.lastCollectTime
-        ?? record?.vitals[record.vitals.length - 1]?.time
-        ?? new Date().toISOString(),
-    );
-    Message.success('已进入抢救模式，监测频率 1 分钟');
+  const transition = store.enterRescueRecordMode(selectedId.value);
+  if (transition.ok) {
+    applyRescuePageFocus(transition.pageNo);
+    Message.success('已进入抢救模式：1 分钟小格，已跳转抢救开始时间所在页');
     return;
   }
   if (current.value && isRescueModeActive(current.value)) Message.info('当前已在抢救模式中');
   else Message.warning('无法进入抢救模式');
 };
-const focusLivePageToTime = (time?: string) => {
-  const record = current.value;
-  if (!record) return;
-  const intervals = resolveTimeAxisIntervals(record);
-  livePageNo.value = resolveRecordPageNoForTime(record, time, {
-    minorInterval: intervals.minorInterval,
-    majorInterval: intervals.majorInterval,
-  });
-  store.setRecordPageDraft(selectedId.value, livePageNo.value);
-};
 const exitRescue = () => {
-  if (store.exitRescueRecordMode(selectedId.value, '抢救结束，请补记相关记录')) {
-    const record = current.value;
-    const focusTime = record?.rescue?.endTime
-      ?? record?.device?.lastCollectTime
-      ?? record?.vitals[record.vitals.length - 1]?.time;
-    focusLivePageToTime(focusTime);
-    Message.success('已退出抢救模式，时间轴已恢复 5 分钟刻度');
+  const transition = store.exitRescueRecordMode(selectedId.value, '抢救结束，请补记相关记录');
+  if (transition.ok) {
+    applyRescuePageFocus(transition.pageNo);
+    if (transition.deviceSimRestored) {
+      deviceSimulationMode.value = 'normal';
+    }
+    const deviceHint = transition.deviceSimRestored
+      ? '，设备模拟已恢复普通采集频率'
+      : (readDeviceSimulationMode() === 'rescue' ? '；设备模拟仍为抢救频率，请在右侧切换为正常' : '');
+    Message.success(`已退出抢救模式：5 分钟刻度，已跳转抢救结束时间所在页${deviceHint}`);
     return;
   }
   Message.warning('当前未处于抢救模式');
 };
 watch(rescueModeActive, (active, wasActive) => {
-  if (wasActive && !active && current.value?.rescue?.endTime) {
-    focusLivePageToTime(current.value.rescue.endTime);
+  if (wasActive && !active && current.value) {
+    const pageNo = store.focusRecordPageByTime(
+      selectedId.value,
+      current.value.rescue?.endTime
+        || current.value.device?.lastCollectTime
+        || current.value.vitals[current.value.vitals.length - 1]?.time,
+    );
+    applyRescuePageFocus(pageNo);
+    if (readDeviceSimulationMode() === 'normal') {
+      deviceSimulationMode.value = 'normal';
+    }
   }
 });
 const runQuality = () => {
@@ -1242,9 +1252,15 @@ const addEvent = (type: string) => {
     Message.info(`${type} 已记录`);
     return;
   }
-  const payload = buildQuickEventPayload(type, current.value);
+  const payload = buildQuickEventPayload(type, current.value, resolveRecordSheetNowIso(current.value));
   store.appendEvent(selectedId.value, payload);
-  if (option.syncField && current.value) current.value[option.syncField] = payload.time;
+  if (option.syncField && current.value) {
+    current.value[option.syncField] = payload.time;
+    if (option.syncField === 'roomInTime') {
+      store.syncRecordDocument(selectedId.value);
+      livePageNo.value = store.focusRecordPageByTime(selectedId.value, payload.time);
+    }
+  }
   recentEventLabel.value = `${type} ${dayjs(payload.time).format('HH:mm')}`;
   selectedEventName.value = type;
   pushRecentEntry({ kind: 'event', label: type, time: payload.time, target: 'sheet-event', refId: type });
@@ -1305,7 +1321,8 @@ watch(selectedMethodKeys, (keys) => {
 const saveSummaryField = (patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryFields>) => store.updateRecordSummary(selectedId.value, patch);
 const saveSummaryNotes = (patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryNotes>) => store.updateRecordSummaryNotes(selectedId.value, patch);
 const saveTimelineNode = (node: MethodTimelineNode, isoTime: string) => {
-  store.applyTimelineNode(selectedId.value, node, isoTime);
+  const pageNo = store.applyTimelineNode(selectedId.value, node, isoTime);
+  if (pageNo >= 1) livePageNo.value = pageNo;
   activeTimelineKey.value = node.key;
   recentEventLabel.value = `${node.label} ${dayjs(isoTime).format('HH:mm')}`;
   pushRecentEntry({ kind: 'timeline', label: node.label, time: isoTime, target: 'timeline', refId: node.key });
@@ -1324,6 +1341,45 @@ const stopPump = (medicationId: string) => {
 const openDataList = (key: 'medications' | 'infusions' | 'vitals') => {
   liveSheetRef.value?.openDataList(key);
   Message.info(`已在纸面下方「已录入数据维护」打开 · ${DATA_LIST_LABELS[key]}`);
+};
+const handleSheetEntry = (action: SheetEntryAction) => {
+  if (!sheetQuickActions.value.entries.canEdit) {
+    Message.warning('当前状态不可录入');
+    return;
+  }
+  const sheet = liveSheetRef.value;
+  if (!sheet) return;
+  switch (action) {
+    case 'medication':
+      sheet.openMedicationEntry();
+      break;
+    case 'infusion':
+      sheet.openInfusionEntry();
+      break;
+    case 'transfusion':
+      sheet.openTransfusionEntry();
+      break;
+    case 'autologous':
+      sheet.openTransfusionEntry();
+      break;
+    case 'vital':
+      sheet.openVitalEntry();
+      break;
+    case 'output-urine':
+      sheet.openOutputEntry('尿量');
+      break;
+    case 'output-blood':
+      sheet.openOutputEntry('出血量');
+      break;
+    case 'output-drainage':
+      sheet.openOutputEntry('引流量');
+      break;
+    case 'lab':
+      sheet.openLabEntry();
+      break;
+    default:
+      break;
+  }
 };
 const focusDefect = (defect: QualityDefect) => {
   qualityPanelOpen.value = true;
@@ -1422,79 +1478,31 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 <style scoped>
 .anesthesia-record-workstation {
   --record-sheet-skeleton-height: 720px;
-  --record-topbar-offset: 112px;
-  --sheet-paper-offset: 48px;
+  --record-topbar-offset: 44px;
+  --sheet-paper-offset: 0px;
   display: grid;
-  gap: 12px;
+  gap: 8px;
   margin: -12px;
-  padding: 12px;
+  padding: 8px 12px 12px;
 }
 
-.record-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
+.record-layout {
   display: grid;
-  gap: 0;
-  padding: 6px 10px 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: var(--shadow-sm);
-}
-
-.topbar-row-main {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  grid-template-columns: 220px minmax(0, 1fr) 260px;
   gap: 10px;
-  min-height: 34px;
+  align-items: start;
 }
 
-.topbar-row-tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  min-height: 30px;
-  padding-top: 2px;
+.record-layout.queue-collapsed {
+  grid-template-columns: minmax(0, 1fr) 260px;
 }
 
-.topbar-main {
-  display: none;
+.record-layout.quality-collapsed {
+  grid-template-columns: 220px minmax(0, 1fr);
 }
 
-.top-primary-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.topbar-footer {
-  display: none;
-}
-
-.toolbar-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-}
-
-.toolbar-group-label {
-  color: var(--text-tertiary);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  margin-right: 0;
-}
-
-.toolbar-quick-actions {
-  padding-left: 8px;
-  border-left: 1px solid var(--border);
+.record-layout.queue-collapsed.quality-collapsed {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .sync-detail-modal {
@@ -1511,93 +1519,6 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   display: none;
 }
 
-.compact-case-select {
-  width: min(300px, 32vw);
-  min-width: 240px;
-  max-width: 320px;
-}
-
-.brand-block {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex: 1;
-}
-
-.brand-inline {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex-wrap: wrap;
-}
-
-.return-button {
-  flex: 0 0 auto;
-  color: var(--primary);
-  background: var(--primary-soft);
-}
-
-.brand-mark {
-  display: none;
-}
-
-.brand-block h1,
-.brand-block p {
-  margin: 0;
-}
-
-.brand-block h1,
-.brand-inline h1 {
-  font-size: 15px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.case-inline {
-  color: var(--text-secondary);
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: min(320px, 36vw);
-}
-
-.top-context {
-  display: none;
-}
-
-.workflow-route {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--primary-soft);
-  color: var(--primary);
-}
-
-.device-state {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--surface-muted);
-  color: var(--text-tertiary);
-  font-weight: 600;
-}
-
-.device-state.collecting {
-  background: var(--color-success-50);
-  color: var(--color-success-600);
-}
-
-.device-state.warning {
-  background: var(--color-warning-100);
-  color: var(--warning);
-}
-
-.device-state.offline {
-  background: var(--color-danger-100);
-  color: var(--danger);
-}
-
 .sheet-hydration-shell {
   display: flex;
   flex-direction: column;
@@ -1610,53 +1531,6 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   background: var(--surface-muted);
   border: 1px dashed var(--border);
   border-radius: var(--radius-md);
-}
-
-.top-action-groups {
-  display: none;
-}
-
-.action-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-muted);
-}
-
-.action-group > span {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-xs);
-  font-weight: 700;
-}
-
-.topbar-chip {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--surface-muted);
-  color: var(--text-secondary);
-  font-size: var(--font-size-xs);
-}
-
-.record-layout {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) 280px;
-  gap: 12px;
-  align-items: start;
-}
-
-.record-layout.queue-collapsed {
-  grid-template-columns: minmax(0, 1fr) 280px;
-}
-
-.record-layout.quality-collapsed {
-  grid-template-columns: 240px minmax(0, 1fr);
-}
-
-.record-layout.queue-collapsed.quality-collapsed {
-  grid-template-columns: minmax(0, 1fr);
 }
 
 .patient-queue {
@@ -1761,8 +1635,8 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 .record-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 10px;
   align-items: start;
 }
 
@@ -1780,7 +1654,7 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   position: relative;
   min-width: 0;
   overflow: auto;
-  padding: 10px;
+  padding: 6px 8px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-blue);
@@ -1828,14 +1702,29 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   position: sticky;
   top: var(--record-topbar-offset);
   display: grid;
-  gap: 10px;
-  max-height: calc(100vh - var(--record-topbar-offset) - 24px);
+  gap: 8px;
+  max-height: calc(100vh - var(--record-topbar-offset) - 16px);
   overflow: auto;
-  padding: 10px;
-  padding-top: var(--sheet-paper-offset);
-  border: 1px solid #dbe6f3;
+  padding: 8px;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.98);
+}
+
+.record-toolbox.collapsed {
+  align-self: start;
+  max-height: none;
+}
+
+.toolbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .timeline-workbench-card {
@@ -1895,12 +1784,8 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 }
 
 @media (max-width: 1280px) {
-  .topbar-main {
-    grid-template-columns: 1fr;
-  }
-
   .record-workspace {
-    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-columns: minmax(0, 1fr) 280px;
   }
 }
 
@@ -1931,7 +1816,6 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 }
 
 @media (max-width: 900px) {
-  .topbar-main,
   .record-layout {
     grid-template-columns: 1fr;
   }
@@ -1951,8 +1835,9 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   margin: 4mm;
 }
 
-.anesthesia-record-workstation.print-preview-active > .record-topbar,
-.anesthesia-record-workstation.print-preview-active > .record-layout {
+.anesthesia-record-workstation.print-preview-active > .record-workstation-topbar,
+.anesthesia-record-workstation.print-preview-active > .record-layout,
+.anesthesia-record-workstation.print-preview-active :deep(.record-workstation-topbar) {
   display: none;
 }
 
@@ -1970,15 +1855,15 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
     display: none !important;
   }
 
-  .anesthesia-record-workstation.print-preview-active > .record-topbar,
-  .anesthesia-record-workstation.print-preview-active > .record-layout {
+  .anesthesia-record-workstation.print-preview-active > .record-layout,
+  .anesthesia-record-workstation.print-preview-active :deep(.record-workstation-topbar) {
     display: none !important;
   }
 
   .app-sider,
   .app-header,
   .app-subnav,
-  .record-topbar,
+  .record-workstation-topbar,
   .record-status-bar,
   .work-mode-bar,
   .patient-queue,

@@ -53,8 +53,11 @@ import {
   DEFAULT_HOSPITAL_NAME,
   clockToMinutes,
   minutesToClock,
+  resolveRecordSheetNowIso,
 } from '@/services/anesthesiaRecordEngine';
-import { buildRecordPagination } from '@/services/recordPaginationEngine';
+import { applySpecialNumbersToMedications } from '@/services/medicationDisplayRules';
+import { buildRecordPagination, resolveRecordPageNoForTime } from '@/services/recordPaginationEngine';
+import type { RescueModeTransitionResult } from '@/services/anesthesia/rescueModeTransition';
 import type { LabResultRecord, LayoutWarning, RecordSummaryFields, RecordSummaryNotes } from '@/types/anesthesiaRecord';
 import {
   appendAuditLog,
@@ -159,7 +162,15 @@ import {
   buildWorkloadStats,
 } from '@/mock/clinicalModulesSeed';
 import {
+  fetchOperationList,
+  hydrateCaseFromOperationInfo as hydrateCaseFromOperationInfoService,
+} from '@/services/anesthesia/operationInfoService';
+import { loadRoomCatalog } from '@/services/anesthesia/roomService';
+import { useRealOperationInfo } from '@/config/apiFlags';
+import type { RoomGroupCatalog } from '@/services/anesthesia/adapters/roomAdapter';
+import {
   hydrateAnesthesiaCasesFromLocalDb,
+  restoreSingleCase,
   schedulePersistCase,
 } from '@/services/anesthesia/anesthesiaPersistenceBridge';
 import {
@@ -191,6 +202,24 @@ import {
   type DeviceSimulationMode,
 } from '@/services/anesthesia/deviceSimulationMode';
 import { runStartupLocalCleanupIfDue } from '@/services/anesthesia/anesthesiaLocalCleanupService';
+import {
+  buildMonitoringSessionFromCase,
+  clearAwayMockTimeout,
+  dropSession,
+  finalizeRevokedSession,
+  finalizeStoppedSession,
+  getActiveMockSession,
+  getMonitoringRegistry,
+  getMonitoringSession,
+  loadMonitoringSessionFromDb,
+  markMockPaused,
+  markMockTicking,
+  persistMonitoringRegistry,
+  prepareScopeSwitchHint,
+  resolveMonitoringViewUi,
+  saveSession,
+  scheduleAwayMockTimeout,
+} from '@/services/anesthesia/monitoringSessionService';
 
 let activeMonitorMock: MonitorMockHandle | null = null;
 let activeVentilatorMock: VentilatorMockHandle | null = null;
@@ -269,6 +298,10 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     localPersistenceReady: false,
     isHydrating: false,
     hasRestoredLocalData: false,
+    activeRecordScopeId: '' as string,
+    operationListSource: '' as string,
+    roomCatalogSource: '' as string,
+    roomGroups: [] as RoomGroupCatalog[],
     anesthesiaSyncState: {
       pendingCount: 0,
       failedCount: 0,
@@ -469,9 +502,14 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       this.isHydrating = true;
       const localCases = await loadAllCasesFromLocalDb();
       this.hasRestoredLocalData = localCases.length > 0;
-      this.cases = await hydrateAnesthesiaCasesFromLocalDb(this.cases);
+      if (!useRealOperationInfo()) {
+        this.cases = await hydrateAnesthesiaCasesFromLocalDb(this.cases);
+      } else {
+        this.cases = [];
+      }
       this.localDbReady = true;
       this.localPersistenceReady = true;
+      await this.loadSamisBaseCatalog();
       this.isHydrating = false;
       startAnesthesiaSyncService();
       subscribeAnesthesiaSyncState((state) => {
@@ -480,6 +518,57 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       });
       void this.refreshSyncConflicts();
       void runStartupLocalCleanupIfDue();
+      await loadMonitoringSessionFromDb();
+    },
+    setCurrentUserFromSession(profile?: { displayName?: string; loginName?: string; defaultRoom?: string }) {
+      if (profile?.displayName) {
+        this.currentDoctorName = profile.displayName;
+      }
+      if (profile?.defaultRoom) {
+        this.qualityFilter = { ...this.qualityFilter, roomId: profile.defaultRoom };
+      }
+    },
+    async loadRemoteOperationList(params?: {
+      operationDate?: string;
+      room?: string;
+      roomId?: string;
+      patientName?: string;
+      inpatientNo?: string;
+    }) {
+      const result = await fetchOperationList(params);
+      this.cases = result.cases;
+      this.operationListSource = result.source;
+      result.cases.forEach((item) => syncCaseToDataset(getMutableDataset(), item));
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+      return result;
+    },
+    async loadRoomCatalog() {
+      const catalog = await loadRoomCatalog();
+      this.configRooms = catalog.roomNames;
+      this.roomGroups = catalog.groups;
+      this.roomCatalogSource = catalog.source;
+      return catalog;
+    },
+    async loadSamisBaseCatalog() {
+      await Promise.all([
+        this.loadRoomCatalog(),
+        this.loadRemoteOperationList({ operationDate: dayjs().format('YYYY-MM-DD') }),
+      ]);
+    },
+    async hydrateCaseFromOperationInfo(caseId: string) {
+      const index = this.cases.findIndex((item) => item.id === caseId);
+      if (index < 0) return null;
+      const merged = await hydrateCaseFromOperationInfoService(this.cases[index]);
+      if (!merged) return null;
+      this.cases[index] = merged;
+      syncCaseToDataset(getMutableDataset(), merged);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+      return merged;
+    },
+    async refreshOperationInfoIfAllowed(caseId: string) {
+      return this.hydrateCaseFromOperationInfo(caseId);
     },
     validateDeviceMockContext(caseId: string): { ok: boolean; message?: string } {
       if (!this.localPersistenceReady || this.isHydrating) {
@@ -502,6 +591,29 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     setRecordPageDraft(caseId: string, pageNo: number) {
       this.recordPageDrafts[caseId] = pageNo;
     },
+    /** 按时间点定位页码并写入页码草稿（与 syncRecordDocument 刻度一致） */
+    focusRecordPageByTime(caseId: string, time?: string): number {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target) return 1;
+      const intervals = resolveTimeAxisIntervals(target);
+      const pageNo = resolveRecordPageNoForTime(target, time, {
+        minorInterval: intervals.minorInterval,
+        majorInterval: intervals.majorInterval,
+      });
+      this.setRecordPageDraft(caseId, pageNo);
+      return pageNo;
+    },
+    restoreDeviceSimulationFromRescue(caseId: string): boolean {
+      if (readDeviceSimulationMode() !== 'rescue') return false;
+      writeDeviceSimulationMode('normal');
+      if (this.rescueFromDeviceSimCaseId === caseId) this.rescueFromDeviceSimCaseId = '';
+      const target = this.cases.find((item) => item.id === caseId);
+      if (target?.device) {
+        const running = this.anesthesiaSyncState.monitorRunning || this.anesthesiaSyncState.ventilatorRunning;
+        target.device.collectStatus = running ? '采集中' : '已停止';
+      }
+      return true;
+    },
     afterRecordMutation(caseId: string, meta?: RecordPersistMeta) {
       const target = this.cases.find((item) => item.id === caseId);
       if (!target) return;
@@ -520,6 +632,11 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       if (target.device) {
         target.device.lastCollectTime = vital.time;
       }
+      const session = getMonitoringSession(caseId);
+      if (session) {
+        saveSession({ ...session, lastCollectTime: vital.time });
+        void persistMonitoringRegistry();
+      }
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
@@ -528,38 +645,192 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         lastCollectTime: vital.time,
         collectStatus: target.device?.collectStatus,
       });
+      if (this.activeRecordScopeId === caseId) {
+        this.applyMonitoringUiForScope(caseId);
+      }
     },
-    setActiveAnesthesiaRecordScope(caseId: string) {
-      this.stopMonitorDeviceMock();
-      this.stopVentilatorDeviceMock();
+    applyMonitoringUiForScope(viewCaseId: string) {
+      const ui = resolveMonitoringViewUi(viewCaseId, getMonitoringRegistry());
+      const viewCase = this.cases.find((item) => item.id === viewCaseId);
+      const ownerId = getActiveMockSession()?.recordLocalId ?? viewCaseId;
+      const ownerCase = this.cases.find((item) => item.id === ownerId);
+      patchAnesthesiaSyncUiState({
+        monitorRunning: ui.monitorRunning,
+        ventilatorRunning: ui.ventilatorRunning,
+        lastCollectTime: ownerCase?.device?.lastCollectTime
+          ?? getMonitoringSession(viewCaseId)?.lastCollectTime
+          ?? viewCase?.device?.lastCollectTime,
+        rescueMode: Boolean(viewCase && isRescueModeActive(viewCase)),
+      });
+    },
+    onMonitoringCollect(recordLocalId: string, ts: string) {
+      const session = getMonitoringSession(recordLocalId);
+      if (!session) return;
+      saveSession({ ...session, lastCollectTime: ts });
+      void persistMonitoringRegistry();
+      if (this.activeRecordScopeId === recordLocalId) {
+        this.applyMonitoringUiForScope(recordLocalId);
+      }
+    },
+    buildDeviceMockOptions(caseId: string, displayIntervalMinutes?: number) {
+      const target = this.cases.find((item) => item.id === caseId)!;
+      const simulationMode = readDeviceSimulationMode();
+      return {
+        rescueMode: isRescueModeActive(target) || simulationMode === 'rescue',
+        displayIntervalMinutes,
+        simulationMode,
+        abnormalTypes: readAbnormalSimulationTypes(),
+        onCollect: (id: string, collectTs: string) => this.onMonitoringCollect(id, collectTs),
+      };
+    },
+    pauseMonitoringMockTimers() {
+      activeMonitorMock?.stop();
+      activeMonitorMock = null;
+      activeVentilatorMock?.stop();
+      activeVentilatorMock = null;
+      const bound = getActiveMockSession();
+      if (!bound) return;
+      const paused = markMockPaused(bound);
+      saveSession(paused);
+      void persistMonitoringRegistry();
+    },
+    startMonitoringMockTicks(caseId: string) {
+      const session = getMonitoringSession(caseId);
+      if (!session || (!session.monitorActive && !session.ventilatorActive)) {
+        return { ok: false as const, message: '无活动监护会话' };
+      }
+      const check = this.validateDeviceMockContext(caseId);
+      if (!check.ok) return check;
+
+      activeMonitorMock?.stop();
+      activeVentilatorMock?.stop();
+      activeMonitorMock = null;
+      activeVentilatorMock = null;
+
+      const resolveCase = () => this.cases.find((item) => item.id === caseId);
+      const interval = session.displayIntervalMinutes ?? readMonitorDisplayIntervalMinutes();
+      const mockOptions = this.buildDeviceMockOptions(caseId, interval);
+
+      if (session.monitorActive) {
+        activeMonitorMock = startMonitorMockService(
+          caseId,
+          resolveCase,
+          (id, vital) => this.onDeviceVitalAppended(id, vital),
+          mockOptions,
+        );
+      }
+      if (session.ventilatorActive) {
+        activeVentilatorMock = startVentilatorMockService(
+          caseId,
+          resolveCase,
+          (id, vital) => this.onDeviceVitalAppended(id, vital),
+          mockOptions,
+        );
+      }
+
+      markMockTicking(session, true);
+      void persistMonitoringRegistry();
+      this.applyMonitoringUiForScope(this.activeRecordScopeId || caseId);
+      return { ok: true as const };
+    },
+    ensureMonitoringSession(caseItem: SurgeryCase) {
+      let session = getMonitoringSession(caseItem.id);
+      if (!session || session.status === 'stopped' || session.status === 'revoked') {
+        session = buildMonitoringSessionFromCase(caseItem);
+        saveSession(session);
+      }
+      return session;
+    },
+    async mergeCaseFromLocalDb(caseId: string) {
+      const local = await restoreSingleCase(caseId);
+      if (!local) return;
+      const index = this.cases.findIndex((item) => item.id === caseId);
+      const normalized = { ...local, vitals: dedupeVitalsById(local.vitals) };
+      if (index >= 0) {
+        this.cases[index] = normalized;
+        syncCaseToDataset(getMutableDataset(), normalized);
+        bumpDatasetVersion();
+        this.datasetVersion += 1;
+      }
+    },
+    prepareRecordScopeSwitch(nextCaseId: string) {
+      const fromId = this.activeRecordScopeId || nextCaseId;
+      return prepareScopeSwitchHint(fromId, nextCaseId, getMonitoringRegistry());
+    },
+    checkMonitoringResumePrompt(caseId: string) {
+      const session = getMonitoringSession(caseId);
+      const show = Boolean(
+        session
+        && session.recordLocalId === caseId
+        && session.mockResumePending
+        && (session.monitorActive || session.ventilatorActive)
+        && session.status !== 'revoked',
+      );
+      return { show, session };
+    },
+    dismissMonitoringResumePrompt(caseId: string) {
+      const session = getMonitoringSession(caseId);
+      if (!session) return;
+      saveSession({ ...session, mockResumePending: false });
+      void persistMonitoringRegistry();
+    },
+    resumeMonitoringMock(caseId: string) {
+      const session = getMonitoringSession(caseId);
+      if (!session) return { ok: false as const, message: '无监护会话' };
+      saveSession({ ...session, mockResumePending: false, status: 'active' });
+      void persistMonitoringRegistry();
+      return this.startMonitoringMockTicks(caseId);
+    },
+    async setActiveAnesthesiaRecordScope(caseId: string) {
+      const prevScope = this.activeRecordScopeId;
+      this.activeRecordScopeId = caseId;
       const target = this.cases.find((item) => item.id === caseId);
       setAnesthesiaSyncRecordScope(caseId);
-      patchAnesthesiaSyncUiState({
-        monitorRunning: false,
-        ventilatorRunning: false,
-        lastCollectTime: target?.device?.lastCollectTime,
-        rescueMode: Boolean(target && isRescueModeActive(target)),
-      });
+
+      if (prevScope && prevScope !== caseId) {
+        const leavingSession = getMonitoringSession(prevScope);
+        if (leavingSession && (leavingSession.monitorActive || leavingSession.ventilatorActive)) {
+          this.pauseMonitoringMockTimers();
+          scheduleAwayMockTimeout(() => {
+            const paused = getMonitoringSession(prevScope);
+            if (paused && !paused.mockTicking) {
+              saveSession(markMockPaused(paused));
+              void persistMonitoringRegistry();
+            }
+          });
+        }
+      } else {
+        clearAwayMockTimeout();
+      }
+
+      if (getMonitoringSession(caseId)) {
+        await this.mergeCaseFromLocalDb(caseId);
+      }
+
+      this.applyMonitoringUiForScope(caseId);
+      void this.hydrateCaseFromOperationInfo(caseId);
     },
     startMonitorDeviceMock(caseId: string, displayIntervalMinutes?: number) {
       const check = this.validateDeviceMockContext(caseId);
       if (!check.ok) return check;
       const target = this.cases.find((item) => item.id === caseId)!;
-      const simulationMode = readDeviceSimulationMode();
-      const mockOptions = {
-        rescueMode: isRescueModeActive(target) || simulationMode === 'rescue',
-        displayIntervalMinutes,
-        simulationMode,
-        abnormalTypes: readAbnormalSimulationTypes(),
+
+      const bound = getActiveMockSession();
+      if (bound && bound.recordLocalId !== caseId && bound.mockTicking) {
+        this.pauseMonitoringMockTimers();
+      }
+
+      let session = this.ensureMonitoringSession(target);
+      session = {
+        ...session,
+        monitorActive: true,
+        mockResumePending: false,
+        status: 'active',
+        displayIntervalMinutes: displayIntervalMinutes ?? session.displayIntervalMinutes ?? readMonitorDisplayIntervalMinutes(),
       };
-      activeMonitorMock?.stop();
-      activeMonitorMock = startMonitorMockService(
-        target,
-        (id, vital) => {
-          this.onDeviceVitalAppended(id, vital);
-        },
-        mockOptions,
-      );
+      saveSession(session);
+      void persistMonitoringRegistry();
+
       if (target.device) {
         target.device.collectStatus = '采集中';
         target.device.monitor = '模拟采集中';
@@ -568,57 +839,197 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
           monitor: '模拟采集中',
         });
       }
-      return { ok: true };
+
+      return this.startMonitoringMockTicks(caseId);
     },
     stopMonitorDeviceMock() {
+      const scopeId = this.activeRecordScopeId;
+      if (!scopeId) {
+        activeMonitorMock?.stop();
+        activeMonitorMock = null;
+        return;
+      }
+      const session = getMonitoringSession(scopeId);
       activeMonitorMock?.stop();
       activeMonitorMock = null;
+      if (!session) return;
+
+      let next = {
+        ...session,
+        monitorActive: false,
+        mockTicking: Boolean(session.ventilatorActive && activeVentilatorMock),
+      };
+      const target = this.cases.find((item) => item.id === scopeId);
+      if (!next.monitorActive && !next.ventilatorActive) {
+        next = finalizeStoppedSession(next);
+        dropSession(scopeId);
+        if (target?.device) {
+          target.device.monitor = '已停止';
+          target.device.collectStatus = '已结束';
+          void patchRecordDeviceCollectMeta(scopeId, {
+            collectStatus: '已结束',
+            monitor: '已停止',
+          });
+        }
+      } else {
+        next = markMockPaused(next);
+        saveSession(next);
+        if (target?.device) {
+          target.device.monitor = '已停止';
+          void patchRecordDeviceCollectMeta(scopeId, { monitor: '已停止' });
+        }
+      }
+      void persistMonitoringRegistry();
+      this.applyMonitoringUiForScope(scopeId);
     },
     startVentilatorDeviceMock(caseId: string, displayIntervalMinutes?: number) {
       const check = this.validateDeviceMockContext(caseId);
       if (!check.ok) return check;
       const target = this.cases.find((item) => item.id === caseId)!;
-      const simulationMode = readDeviceSimulationMode();
-      const mockOptions = {
-        rescueMode: isRescueModeActive(target) || simulationMode === 'rescue',
-        displayIntervalMinutes,
-        simulationMode,
-        abnormalTypes: readAbnormalSimulationTypes(),
+
+      const bound = getActiveMockSession();
+      if (bound && bound.recordLocalId !== caseId && bound.mockTicking) {
+        this.pauseMonitoringMockTimers();
+      }
+
+      let session = this.ensureMonitoringSession(target);
+      session = {
+        ...session,
+        ventilatorActive: true,
+        mockResumePending: false,
+        status: 'active',
+        displayIntervalMinutes: displayIntervalMinutes ?? session.displayIntervalMinutes ?? readMonitorDisplayIntervalMinutes(),
       };
-      activeVentilatorMock?.stop();
-      activeVentilatorMock = startVentilatorMockService(
-        target,
-        (id, vital) => {
-          this.onDeviceVitalAppended(id, vital);
-        },
-        mockOptions,
-      );
+      saveSession(session);
+      void persistMonitoringRegistry();
+
       if (target.device) {
         target.device.anesthesiaMachine = '模拟采集中';
         void patchRecordDeviceCollectMeta(caseId, {
           anesthesiaMachine: '模拟采集中',
         });
       }
-      return { ok: true };
+
+      return this.startMonitoringMockTicks(caseId);
     },
     stopVentilatorDeviceMock() {
+      const scopeId = this.activeRecordScopeId;
+      if (!scopeId) {
+        activeVentilatorMock?.stop();
+        activeVentilatorMock = null;
+        return;
+      }
+      const session = getMonitoringSession(scopeId);
       activeVentilatorMock?.stop();
       activeVentilatorMock = null;
+      if (!session) return;
+
+      let next = {
+        ...session,
+        ventilatorActive: false,
+        mockTicking: Boolean(session.monitorActive && activeMonitorMock),
+      };
+      const target = this.cases.find((item) => item.id === scopeId);
+      if (!next.monitorActive && !next.ventilatorActive) {
+        next = finalizeStoppedSession(next);
+        dropSession(scopeId);
+        if (target?.device) {
+          target.device.anesthesiaMachine = '已停止';
+          target.device.collectStatus = '已结束';
+          void patchRecordDeviceCollectMeta(scopeId, {
+            collectStatus: '已结束',
+            anesthesiaMachine: '已停止',
+          });
+        }
+      } else {
+        next = markMockPaused(next);
+        saveSession(next);
+        if (target?.device) {
+          target.device.anesthesiaMachine = '已停止';
+          void patchRecordDeviceCollectMeta(scopeId, { anesthesiaMachine: '已停止' });
+        }
+      }
+      void persistMonitoringRegistry();
+      this.applyMonitoringUiForScope(scopeId);
+    },
+    stopAllMonitoringDevices() {
+      const scopeId = this.activeRecordScopeId;
+      activeMonitorMock?.stop();
+      activeMonitorMock = null;
+      activeVentilatorMock?.stop();
+      activeVentilatorMock = null;
+      if (!scopeId) return;
+      const session = getMonitoringSession(scopeId);
+      if (!session) return;
+      const stopped = finalizeStoppedSession({
+        ...session,
+        monitorActive: false,
+        ventilatorActive: false,
+      });
+      dropSession(scopeId);
+      void persistMonitoringRegistry();
+      const target = this.cases.find((item) => item.id === scopeId);
+      if (target?.device) {
+        target.device.collectStatus = '已结束';
+        target.device.monitor = '已停止';
+        target.device.anesthesiaMachine = '已停止';
+        void patchRecordDeviceCollectMeta(scopeId, {
+          collectStatus: '已结束',
+          monitor: '已停止',
+          anesthesiaMachine: '已停止',
+        });
+      }
+      this.applyMonitoringUiForScope(scopeId);
+    },
+    revokeMonitoringSession(caseId: string, reason: string) {
+      if (!reason.trim()) return { ok: false as const, message: '请填写撤销原因' };
+      this.pauseMonitoringMockTimers();
+      const session = getMonitoringSession(caseId);
+      if (!session) return { ok: false as const, message: '无监护会话' };
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target) return { ok: false as const, message: '记录单不存在' };
+
+      const startedAt = session.startedAt;
+      target.vitals = target.vitals.map((vital) => {
+        if (vital.source !== '设备采集') return vital;
+        if (dayjs(vital.time).isBefore(startedAt)) return vital;
+        if (vital.status === 'voided') return vital;
+        return {
+          ...vital,
+          status: 'voided' as const,
+          voidReason: reason,
+          voidedAt: dayjs().toISOString(),
+        };
+      });
+
+      finalizeRevokedSession(session, reason);
+      dropSession(caseId);
+      void persistMonitoringRegistry();
+
+      if (target.device) {
+        target.device.collectStatus = '未连接';
+        target.device.monitor = '未连接';
+        target.device.anesthesiaMachine = '未连接';
+        void patchRecordDeviceCollectMeta(caseId, {
+          collectStatus: '未连接',
+          monitor: '未连接',
+          anesthesiaMachine: '未连接',
+        });
+      }
+      this.afterRecordMutation(caseId, { voidReason: reason, entityType: 'vital_sign' });
+      this.syncRecordDocument(caseId);
+      this.applyMonitoringUiForScope(this.activeRecordScopeId || caseId);
+      return { ok: true as const };
     },
     restartDeviceMocksForInterval(caseId: string) {
-      const monitorRunning = this.anesthesiaSyncState.monitorRunning;
-      const ventilatorRunning = this.anesthesiaSyncState.ventilatorRunning;
-      const intervalMinutes = readMonitorDisplayIntervalMinutes();
-      if (monitorRunning) {
-        this.stopMonitorDeviceMock();
-        this.startMonitorDeviceMock(caseId, intervalMinutes);
-      }
-      if (ventilatorRunning) {
-        this.stopVentilatorDeviceMock();
-        this.startVentilatorDeviceMock(caseId, intervalMinutes);
-      }
+      const session = getMonitoringSession(caseId);
+      if (!session || (!session.monitorActive && !session.ventilatorActive)) return;
+      this.pauseMonitoringMockTimers();
+      this.startMonitoringMockTicks(caseId);
       const target = this.cases.find((item) => item.id === caseId);
-      patchAnesthesiaSyncUiState({ rescueMode: Boolean(target && (isRescueModeActive(target) || readDeviceSimulationMode() === 'rescue')) });
+      patchAnesthesiaSyncUiState({
+        rescueMode: Boolean(target && (isRescueModeActive(target) || readDeviceSimulationMode() === 'rescue')),
+      });
     },
     setDeviceSimulationMode(caseId: string, mode: DeviceSimulationMode) {
       writeDeviceSimulationMode(mode);
@@ -731,7 +1142,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     startAnesthesiaRecord(caseId: string) {
       const target = this.cases.find((item) => item.id === caseId);
       if (!target || target.locked) return;
-      const now = dayjs().toISOString();
+      const now = resolveRecordSheetNowIso(target);
       target.recordStatus = '采集中';
       target.collectStatus = '采集中';
       target.actualStart = target.actualStart ?? now;
@@ -784,9 +1195,9 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       target.device.logs.unshift({ time: now, content: '从设备采集占位带入生命体征' });
       this.appendVital(caseId, payload as unknown as VitalSign);
     },
-    enterRescueRecordMode(caseId: string): boolean {
+    enterRescueRecordMode(caseId: string): RescueModeTransitionResult {
       const target = this.cases.find((item) => item.id === caseId);
-      if (!target || target.locked || isRescueModeActive(target)) return false;
+      if (!target || target.locked || isRescueModeActive(target)) return { ok: false };
       const now = dayjs().toISOString();
       this.rescueModeCaseId = caseId;
       target.vitalFrequency = '抢救1分钟';
@@ -799,13 +1210,18 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       };
       this.appendEvent(caseId, { type: '抢救', stage: '术中', severity: '危急', treatment: '进入抢救模式，生命体征记录频率提高至1分钟。' });
       this.syncRecordDocument(caseId);
+      const pageNo = this.focusRecordPageByTime(caseId, now);
+      this.afterRecordMutation(caseId);
       patchAnesthesiaSyncUiState({ rescueMode: true });
       this.restartDeviceMocksForInterval(caseId);
-      return true;
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+      return { ok: true, pageNo, focusTime: now };
     },
-    exitRescueRecordMode(caseId: string, result = '抢救结束，生命体征趋于稳定。'): boolean {
+    exitRescueRecordMode(caseId: string, result = '抢救结束，生命体征趋于稳定。'): RescueModeTransitionResult {
       const target = this.cases.find((item) => item.id === caseId);
-      if (!target || target.locked || !isRescueModeActive(target)) return false;
+      if (!target || target.locked || !isRescueModeActive(target)) return { ok: false };
       const endTime = dayjs().toISOString();
       target.rescue = {
         ...target.rescue!,
@@ -816,13 +1232,21 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       target.vitalFrequency = '5分钟';
       if (this.rescueModeCaseId === caseId) this.rescueModeCaseId = '';
       this.appendEvent(caseId, { type: '抢救结束', stage: '术中', severity: '重度', treatment: result });
+      const deviceSimRestored = this.restoreDeviceSimulationFromRescue(caseId);
       this.syncRecordDocument(caseId);
+      const pageNo = this.focusRecordPageByTime(
+        caseId,
+        endTime
+          || target.device?.lastCollectTime
+          || target.vitals[target.vitals.length - 1]?.time,
+      );
+      this.afterRecordMutation(caseId);
       patchAnesthesiaSyncUiState({ rescueMode: false });
       this.restartDeviceMocksForInterval(caseId);
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
-      return true;
+      return { ok: true, pageNo, focusTime: endTime, deviceSimRestored };
     },
     appendMedicationFromDict(caseId: string, drugName: string) {
       const drug = this.configDrugs.find((item) => item.enabled && item.name === drugName);
@@ -1032,9 +1456,9 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       bumpDatasetVersion();
       this.datasetVersion += 1;
     },
-    applyTimelineNode(caseId: string, node: MethodTimelineNode, isoTime: string) {
+    applyTimelineNode(caseId: string, node: MethodTimelineNode, isoTime: string): number {
       const target = this.cases.find((entry) => entry.id === caseId);
-      if (!target || target.locked) return;
+      if (!target || target.locked) return this.recordPageDrafts[caseId] ?? 1;
       applyTimelineNodeTime(target, node, isoTime);
       const clock = dayjs(isoTime).format('HH:mm');
       if (!target.recordSummary) target.recordSummary = {};
@@ -1049,6 +1473,10 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      if (node.key === 'room-in' || node.syncField === 'roomInTime') {
+        return this.focusRecordPageByTime(caseId, isoTime);
+      }
+      return this.recordPageDrafts[caseId] ?? 1;
     },
     handleAbnormalVital(caseId: string, vitalKey: string, metric: string, treatment: string) {
       const target = this.cases.find((entry) => entry.id === caseId);
@@ -1084,9 +1512,10 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     appendEvent(caseId: string, event: Omit<AnesthesiaEvent, 'id' | 'time' | 'staff' | 'reported' | 'qualityIncluded'> & Partial<AnesthesiaEvent>) {
       const target = this.cases.find((item) => item.id === caseId);
       if (!target || target.locked) return;
+      const defaultTime = resolveRecordSheetNowIso(target);
       target.events.push({
         id: `event-${Date.now()}`,
-        time: dayjs().toISOString(),
+        time: defaultTime,
         staff: [target.anesthesiologist, target.anesthesiaNurse],
         reported: false,
         qualityIncluded: ['低血压', '高血压', '低氧', '低体温', '困难气道', '反流误吸', '严重过敏', '心脏骤停', '牙齿损伤', '非计划转ICU', '非计划二次插管', '抢救'].includes(event.type),
@@ -1159,6 +1588,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const target = this.cases.find((item) => item.id === caseId);
       if (!target || target.locked) return;
       target.medications.push({ id: `med-${Date.now()}`, ...medication });
+      applySpecialNumbersToMedications(target.medications);
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
@@ -1172,6 +1602,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const before = index >= 0 ? target.medications[index]?.drug : '';
       if (index >= 0) target.medications[index] = row;
       else target.medications.push(row);
+      applySpecialNumbersToMedications(target.medications);
       this.recordFieldChange(caseId, '用药记录', before, `${row.drug}${row.dose ?? ''}${row.unit ?? ''}`, '右键/列表维护');
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();

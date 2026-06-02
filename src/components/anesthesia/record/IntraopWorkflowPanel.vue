@@ -2,19 +2,31 @@
   <a-card class="workflow-panel" :bordered="false">
     <template #title>
       <div class="panel-title">
-        <strong>场景化术中记录工作台</strong>
-        <a-tag color="arcoblue">{{ stage }}</a-tag>
+        <strong>术中辅助</strong>
+        <a-tag color="arcoblue" size="small">{{ stage }}</a-tag>
       </div>
     </template>
 
     <section class="context-controls">
       <label>
         <span>手术场景</span>
-        <a-select :model-value="scenario" size="small" :options="scenarioSelectOptions" @change="handleScenarioChange" />
+        <a-select
+          :model-value="scenario"
+          size="small"
+          popup-container="body"
+          :options="scenarioSelectOptions"
+          @update:model-value="handleScenarioChange"
+        />
       </label>
       <label>
         <span>当前阶段</span>
-        <a-select :model-value="stage" size="small" :options="stageSelectOptions" @change="handleStageChange" />
+        <a-select
+          :model-value="stage"
+          size="small"
+          popup-container="body"
+          :options="stageSelectOptions"
+          @update:model-value="handleStageChange"
+        />
       </label>
     </section>
 
