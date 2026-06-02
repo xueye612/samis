@@ -18,7 +18,9 @@ import {
   getMethodLabels,
   getStageQuickEvents,
   hasAnesthesiaPlaneModule,
+  isQuickEventDone,
   mergeSelectedMethods,
+  resolveTopToolbarQuickEvents,
 } from '@/services/anesthesiaRecordMethodEngine';
 
 const baseCase = (anesthesiaMethod: string): SurgeryCase => ({
@@ -420,6 +422,24 @@ describe('anesthesiaRecordMethodEngine', () => {
 
     expect(neurosurgeryNeuraxial.risks.map((item) => item.text)).toContain('当前手术场景与麻醉方式需复核：请确认是否需要全麻、气道或呼吸管理记录。');
     expect(thoracicLocal.risks.map((item) => item.text)).toContain('当前手术场景与麻醉方式需复核：请确认是否需要全麻、气道或呼吸管理记录。');
+  });
+
+  it('disables milestone quick events after they are recorded', () => {
+    const item = {
+      ...baseCase('全身麻醉'),
+      surgeryStart: '2026-05-27T10:00:00.000Z',
+      events: [{ id: 'e1', type: '手术开始', time: '2026-05-27T10:00:00.000Z', stage: '术中', severity: '轻度', treatment: '', staff: [], reported: false, qualityIncluded: false }],
+    };
+    expect(isQuickEventDone(item, { name: '手术开始', syncField: 'surgeryStart' })).toBe(true);
+    expect(isQuickEventDone(item, { name: '给药' })).toBe(false);
+    expect(isQuickEventDone(item, { name: '低血压' })).toBe(false);
+
+    const buttons = resolveTopToolbarQuickEvents(item, '术中', ['general'], '', 'laparoscopic');
+    const surgeryBtn = buttons.find((btn) => btn.name === '手术开始');
+    expect(surgeryBtn?.disabled).toBe(true);
+    expect(surgeryBtn?.title).toContain('已记录');
+    expect(buttons.map((btn) => btn.name)).toEqual(expect.arrayContaining(['给药', '低血压', '升压药', '手术开始']));
+    expect(new Set(buttons.map((btn) => btn.name)).size).toBe(buttons.length);
   });
 
   it('keeps print styles scoped to the formal record body', () => {

@@ -4,6 +4,7 @@ import type {
   FluidBloodDictItem,
   VitalSignDictItem,
 } from '@/types/system';
+import type { SpecialDrugCategory } from '@/types/drugDict';
 
 function methodChild(id: string, code: string, name: string) {
   return { id, code, name, enabled: true };
@@ -69,34 +70,76 @@ export const seedMethodCategories: AnesthesiaMethodCategory[] = [
   },
 ];
 
-function drug(
-  id: string,
-  code: string,
-  name: string,
-  specification: string,
-  doseUnit: string,
-  defaultRoute: string,
-  defaultDose?: number | string,
-  highAlert = false,
-  common = true,
-  sortOrder = 99,
-): DrugDictItem {
-  return { id, code, name, specification, doseUnit, defaultRoute, defaultDose, highAlert, common, sortOrder, enabled: true };
+type DrugSeed = {
+  id: string;
+  code: string;
+  name: string;
+  specification: string;
+  doseUnit: string;
+  defaultRoute: string;
+  defaultDose?: number | string;
+  defaultRateUnit?: string;
+  defaultMode?: DrugDictItem['defaultMode'];
+  defaultIsSpecial?: boolean;
+  specialCategory?: SpecialDrugCategory;
+  specialReasonTemplate?: string;
+  highAlert?: boolean;
+  isRescueDrug?: boolean;
+  isVasoactive?: boolean;
+  isAnticoagulant?: boolean;
+  isObstetricDrug?: boolean;
+  isElectrolyteDrug?: boolean;
+  common?: boolean;
+  sortOrder?: number;
+};
+
+function drug(seed: DrugSeed): DrugDictItem {
+  return {
+    id: seed.id,
+    code: seed.code,
+    name: seed.name,
+    drugAlias: seed.code,
+    specification: seed.specification,
+    doseUnit: seed.doseUnit,
+    defaultRoute: seed.defaultRoute,
+    defaultDose: seed.defaultDose,
+    defaultRateUnit: seed.defaultRateUnit,
+    defaultMode: seed.defaultMode ?? '单次用药',
+    defaultIsSpecial: Boolean(seed.defaultIsSpecial),
+    specialCategory: seed.specialCategory,
+    specialReasonTemplate: seed.specialReasonTemplate,
+    specialDisplayTemplate: '{time} {drugName} {dose}{doseUnit} {route}，{reason}',
+    allowManualOverride: true,
+    highAlert: Boolean(seed.highAlert),
+    isRescueDrug: seed.isRescueDrug,
+    isVasoactive: seed.isVasoactive,
+    isAnticoagulant: seed.isAnticoagulant,
+    isObstetricDrug: seed.isObstetricDrug,
+    isElectrolyteDrug: seed.isElectrolyteDrug,
+    common: seed.common ?? true,
+    sortOrder: seed.sortOrder ?? 99,
+    enabled: true,
+  };
 }
 
 export const seedDrugDict: DrugDictItem[] = [
-  drug('drug-1', 'PROP', '丙泊酚', '200mg/20ml', 'mg', '静脉', 120, true, true, 1),
-  drug('drug-2', 'FENT', '芬太尼', '0.1mg/2ml', 'μg', '静脉', 100, true, true, 2),
-  drug('drug-3', 'SUF', '舒芬太尼', '50μg/1ml', 'μg', '静脉', 20, true, true, 3),
-  drug('drug-4', 'REMI', '瑞芬太尼', '1mg/1ml', 'μg/kg·min', '泵入', 0.1, true, true, 4),
-  drug('drug-5', 'ROC', '罗库溴铵', '50mg/5ml', 'mg', '静脉', 50, false, true, 5),
-  drug('drug-6', 'CIS', '顺阿曲库铵', '10mg/5ml', 'mg', '静脉', 10, false, true, 6),
-  drug('drug-7', 'SEV', '七氟烷', '250ml/瓶', '%', '吸入', 2, false, true, 7),
-  drug('drug-8', 'NE', '去甲肾上腺素', '2mg/1ml', 'μg/min', '泵入', 8, true, true, 8),
-  drug('drug-9', 'ATR', '阿托品', '0.5mg/1ml', 'mg', '静脉', 0.5, false, true, 9),
-  drug('drug-10', 'EPI', '肾上腺素', '1mg/1ml', 'mg', '静脉', 0.1, true, true, 10),
-  drug('drug-11', 'DEX', '右美托咪定', '200μg/2ml', 'μg/kg·h', '泵入', 0.4, true, true, 11),
-  drug('drug-12', 'EPH', '麻黄碱', '30mg/1ml', 'mg', '静脉', 6, false, true, 12),
+  drug({ id: 'drug-1', code: 'PROP', name: '丙泊酚', specification: '200mg/20ml', doseUnit: 'mg', defaultRoute: '静脉', defaultDose: 120, defaultMode: '单次用药', highAlert: true, sortOrder: 1 }),
+  drug({ id: 'drug-2', code: 'FENT', name: '芬太尼', specification: '0.1mg/2ml', doseUnit: 'μg', defaultRoute: '静脉', defaultDose: 100, defaultMode: '单次用药', highAlert: true, sortOrder: 2 }),
+  drug({ id: 'drug-3', code: 'SUF', name: '舒芬太尼', specification: '50μg/1ml', doseUnit: 'μg', defaultRoute: '静脉', defaultDose: 20, defaultMode: '间断追加', sortOrder: 3 }),
+  drug({ id: 'drug-4', code: 'REMI', name: '瑞芬太尼', specification: '1mg/1ml', doseUnit: 'μg/kg·min', defaultRoute: '泵注', defaultDose: 0.1, defaultMode: '持续泵入', defaultRateUnit: 'μg/kg·min', highAlert: true, sortOrder: 4 }),
+  drug({ id: 'drug-5', code: 'ROC', name: '罗库溴铵', specification: '50mg/5ml', doseUnit: 'mg', defaultRoute: '静脉', defaultDose: 50, defaultMode: '单次用药', sortOrder: 5 }),
+  drug({ id: 'drug-6', code: 'CIS', name: '顺阿曲库铵', specification: '10mg/5ml', doseUnit: 'mg', defaultRoute: '静脉', defaultDose: 10, defaultMode: '单次用药', sortOrder: 6 }),
+  drug({ id: 'drug-7', code: 'SEV', name: '七氟烷', specification: '250ml/瓶', doseUnit: '%', defaultRoute: '吸入', defaultDose: 2, defaultMode: '持续泵入', sortOrder: 7 }),
+  drug({ id: 'drug-8', code: 'NE', name: '去甲肾上腺素', specification: '2mg/1ml', doseUnit: 'μg/kg·min', defaultRoute: '泵注', defaultDose: 0.05, defaultMode: '持续泵入', defaultIsSpecial: true, specialCategory: 'vasoactive', specialReasonTemplate: '维持血压', isVasoactive: true, highAlert: true, sortOrder: 8 }),
+  drug({ id: 'drug-9', code: 'ATR', name: '阿托品', specification: '0.5mg/1ml', doseUnit: 'mg', defaultRoute: '静脉', defaultDose: 0.5, defaultMode: '单次用药', defaultIsSpecial: true, specialCategory: 'hemodynamic', specialReasonTemplate: '处理心动过缓', sortOrder: 9 }),
+  drug({ id: 'drug-10', code: 'EPI', name: '肾上腺素', specification: '1mg/1ml', doseUnit: 'mg', defaultRoute: '静脉', defaultDose: 0.1, defaultMode: '单次用药', defaultIsSpecial: true, specialCategory: 'rescue', specialReasonTemplate: '抢救用药', isRescueDrug: true, highAlert: true, sortOrder: 10 }),
+  drug({ id: 'drug-11', code: 'DEX', name: '右美托咪定', specification: '200μg/2ml', doseUnit: 'μg/kg·h', defaultRoute: '泵注', defaultDose: 0.4, defaultMode: '持续泵入', highAlert: true, sortOrder: 11 }),
+  drug({ id: 'drug-12', code: 'EPH', name: '麻黄碱', specification: '30mg/1ml', doseUnit: 'mg', defaultRoute: '静脉', defaultDose: 6, defaultMode: '单次用药', defaultIsSpecial: true, specialCategory: 'hemodynamic', specialReasonTemplate: '处理血压下降', sortOrder: 12 }),
+  drug({ id: 'drug-13', code: 'DOPA', name: '多巴胺', specification: '20mg/2ml', doseUnit: 'μg/kg·min', defaultRoute: '泵注', defaultMode: '持续泵入', defaultIsSpecial: true, specialCategory: 'vasoactive', specialReasonTemplate: '维持血压', isVasoactive: true, sortOrder: 13 }),
+  drug({ id: 'drug-14', code: 'HEP', name: '肝素', specification: '12500U/2ml', doseUnit: 'U', defaultRoute: '静脉', defaultDose: 3000, defaultMode: '单次用药', defaultIsSpecial: true, specialCategory: 'anticoagulant', specialReasonTemplate: '抗凝', isAnticoagulant: true, sortOrder: 14 }),
+  drug({ id: 'drug-15', code: 'PROT', name: '鱼精蛋白', specification: '50mg/5ml', doseUnit: 'mg', defaultRoute: '静脉', defaultMode: '单次用药', defaultIsSpecial: true, specialCategory: 'anticoagulant', specialReasonTemplate: '拮抗肝素', isAnticoagulant: true, sortOrder: 15 }),
+  drug({ id: 'drug-16', code: 'ETOM', name: '依托咪酯', specification: '20mg/10ml', doseUnit: 'mg', defaultRoute: '静脉', defaultMode: '单次用药', sortOrder: 16 }),
+  drug({ id: 'drug-17', code: 'MID', name: '咪达唑仑', specification: '5mg/1ml', doseUnit: 'mg', defaultRoute: '静脉', defaultMode: '单次用药', sortOrder: 17 }),
 ];
 
 function fluid(

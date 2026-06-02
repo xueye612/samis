@@ -15,6 +15,7 @@ const props = withDefaults(defineProps<{
   options?: string[];
   readonly?: boolean;
   printMode?: boolean;
+  interactionMode?: 'edit' | 'view' | 'print';
   placeholder?: string;
   span?: number;
   compact?: boolean;
@@ -28,6 +29,7 @@ const props = withDefaults(defineProps<{
   options: () => [],
   readonly: false,
   printMode: false,
+  interactionMode: 'edit',
   placeholder: '点击选择',
   span: 1,
   compact: true,
@@ -76,7 +78,7 @@ const filteredOptions = computed(() => {
 });
 
 const openPicker = () => {
-  if (props.readonly || props.printMode) return;
+  if (props.readonly || props.printMode || props.interactionMode !== 'edit') return;
   keyword.value = '';
   customValue.value = '';
   selected.value = parseValue(props.modelValue);
@@ -132,16 +134,17 @@ watch(visible, (open) => {
   <div
     class="paper-picker-field"
     :class="{
-      'is-readonly': readonly,
-      'is-print': printMode,
-      'is-editable': !readonly && !printMode,
+      'is-readonly': readonly || interactionMode === 'view',
+      'is-print': printMode || interactionMode === 'print',
+      'is-view': interactionMode === 'view' && !printMode,
+      'is-editable': !readonly && !printMode && interactionMode === 'edit',
       compact,
     }"
     :style="span > 1 ? { gridColumn: `span ${span}` } : undefined"
   >
     <label class="paper-picker-label">{{ label }}</label>
     <button
-      v-if="!readonly && !printMode"
+      v-if="!readonly && !printMode && interactionMode === 'edit'"
       type="button"
       class="paper-picker-trigger"
       @click="openPicker"
@@ -245,9 +248,9 @@ watch(visible, (open) => {
   min-height: 20px;
   margin: 0;
   padding: 1px 4px 2px;
-  border: 1px dashed #93c5fd;
+  border: 1px solid transparent;
   border-radius: 3px;
-  background: #f0f7ff;
+  background: transparent;
   color: #111827;
   font: inherit;
   font-size: 12px;
@@ -261,13 +264,32 @@ watch(visible, (open) => {
   padding: 0 4px 1px;
 }
 
-.paper-picker-field.is-editable .paper-picker-trigger {
-  box-shadow: inset 0 0 0 1px rgb(37 99 235 / 8%);
+.paper-picker-field.is-editable .paper-picker-trigger:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
 }
 
-.paper-picker-trigger:hover {
-  border-color: #2563eb;
-  background: #e8f1ff;
+.paper-picker-field.is-editable .paper-picker-value.empty {
+  color: #94a3b8;
+}
+
+.paper-picker-field.is-editable .paper-picker-action {
+  opacity: 0;
+}
+
+.paper-picker-field.is-editable .paper-picker-trigger:hover .paper-picker-action {
+  opacity: 1;
+}
+
+.paper-picker-field.is-view .paper-picker-readonly,
+.paper-picker-field.is-readonly .paper-picker-readonly {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.paper-picker-field.is-editable .paper-picker-trigger {
+  box-shadow: none;
 }
 
 .paper-picker-value {

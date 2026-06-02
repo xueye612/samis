@@ -1,3 +1,5 @@
+import type { SpecialDrugCategory } from '@/types/drugDict';
+
 export type CaseStatus =
   | '待入室'
   | '已入室'
@@ -77,8 +79,11 @@ export interface RescueRecord {
 
 export interface MedicationRecord {
   id: string;
+  drugId?: string;
   mode: '单次用药' | '持续泵入' | '间断追加';
   time?: string;
+  /** 单次/间断给药事件时间（与 time 等价，便于与后端 event_time 对齐） */
+  eventTime?: string;
   endTime?: string;
   drug: string;
   name?: string;
@@ -96,7 +101,17 @@ export interface MedicationRecord {
   totalAmount?: string;
   checker?: string;
   highAlert?: boolean;
+  /** 是否进入特殊用药说明区（与是否画线无关）；以医生最终勾选为准 */
+  isSpecial?: boolean;
+  /** 特殊用药区编号，存 1/2/3 或圈号，展示时转圈号 */
+  specialNo?: number;
+  specialCategory?: SpecialDrugCategory;
+  /** 辅助及特殊用药区说明文案 */
+  specialReason?: string;
+  displayText?: string;
   reason?: string;
+  rate?: string;
+  rateUnit?: string;
   drugCategory?: string;
   rowIndex?: number;
   status?: 'active' | 'paused' | 'voided';

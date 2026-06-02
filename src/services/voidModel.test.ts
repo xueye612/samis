@@ -33,7 +33,8 @@ describe('void model — balance summary excludes voided records', () => {
     });
     expect(summary.crystalInput).toBe(500);
     expect(summary.bloodInput).toBe(300);
-    expect(summary.totalInput).toBe(800);
+    expect(summary.totalInput).toBe(500);
+    expect(summary.bloodProductText).toBeTruthy();
   });
 
   it('excludes voided outputs from output totals', () => {

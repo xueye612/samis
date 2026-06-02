@@ -27,10 +27,11 @@ const effectOptions = ['优', '良', '差'] as const;
 const inputItems = computed(() => [
   { label: '晶体', value: props.summary.crystalTotal ?? 0 },
   { label: '胶体', value: props.summary.colloidTotal ?? 0 },
-  { label: '血液', value: props.summary.bloodTotal ?? 0 },
   { label: '自体血', value: props.autologousTotal ?? 0 },
   { label: '总', value: props.summary.inputTotal ?? 0, emphasis: true },
 ]);
+
+const bloodProductSummary = computed(() => props.summary.bloodProductSummary?.trim() ?? '');
 
 const outputItems = computed(() => [
   { label: '尿量', value: props.summary.urineTotal ?? 0 },
@@ -59,7 +60,7 @@ const onFieldUpdate = (key: string, value: string) => {
       <table>
         <thead>
           <tr>
-            <th colspan="5">入量 (ml)</th>
+            <th colspan="4">入量 (ml)</th>
             <th colspan="4">出量 (ml)</th>
           </tr>
           <tr>
@@ -72,12 +73,18 @@ const onFieldUpdate = (key: string, value: string) => {
             <td v-for="item in inputItems" :key="`in-val-${item.label}`" :class="{ emphasis: item.emphasis }">{{ item.value }}</td>
             <td v-for="item in outputItems" :key="`out-val-${item.label}`" :class="{ emphasis: item.emphasis }">{{ item.value }}</td>
           </tr>
+          <tr v-if="bloodProductSummary">
+            <td colspan="4" class="footer-blood-products-print">
+              血制品：{{ bloodProductSummary }}
+            </td>
+            <td colspan="4"></td>
+          </tr>
         </tbody>
       </table>
     </div>
 
     <div v-else class="footer-io-row">
-      <div class="footer-io-block">
+      <div class="footer-io-block footer-io-block-input">
         <strong class="footer-io-title">入量 (ml)</strong>
         <div class="footer-io-items">
           <span
@@ -90,6 +97,10 @@ const onFieldUpdate = (key: string, value: string) => {
             <b>{{ item.value }}</b>
           </span>
         </div>
+        <p v-if="bloodProductSummary" class="footer-blood-products">
+          <em>血制品</em>
+          <span>{{ bloodProductSummary }}</span>
+        </p>
       </div>
       <div class="footer-io-block">
         <strong class="footer-io-title">出量 (ml)</strong>
@@ -276,6 +287,37 @@ const onFieldUpdate = (key: string, value: string) => {
   color: #0f172a;
   font-size: 13px;
   font-weight: 700;
+}
+
+.footer-blood-products {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed #dbeafe;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.footer-blood-products em {
+  color: #64748b;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.footer-blood-products span {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.footer-blood-products-print {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0f172a;
 }
 
 .footer-io-item.emphasis b {

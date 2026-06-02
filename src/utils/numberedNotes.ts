@@ -17,6 +17,10 @@ export interface SequenceNoteMarker {
 }
 
 const NUMBERED_LINE = /^\s*(\d+)[.、)\s]\s*(.*)$/;
+const CIRCLE_NUMBERED_LINE = /^\s*([①②③④⑤⑥⑦⑧⑨⑩])\s*(.*)$/;
+const CIRCLE_INDEX: Record<string, number> = {
+  '①': 1, '②': 2, '③': 3, '④': 4, '⑤': 5, '⑥': 6, '⑦': 7, '⑧': 8, '⑨': 9, '⑩': 10,
+};
 const CLOCK_AT_START = /^\s*(\d{1,2}:\d{2})\b/;
 const CLOCK_IN_CONTENT = /(?:^|\s)(\d{1,2}:\d{2})(?:\s|$)/;
 
@@ -38,9 +42,14 @@ export function parseNumberedNoteLines(text?: string): NumberedNoteLine[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line, offset) => {
+      const circle = line.match(CIRCLE_NUMBERED_LINE);
       const matched = line.match(NUMBERED_LINE);
-      const content = matched ? matched[2].trim() : line;
-      const index = matched ? Number(matched[1]) || offset + 1 : offset + 1;
+      const content = circle ? circle[2].trim() : matched ? matched[2].trim() : line;
+      const index = circle
+        ? (CIRCLE_INDEX[circle[1]] ?? offset + 1)
+        : matched
+          ? Number(matched[1]) || offset + 1
+          : offset + 1;
       const clock = parseClockFromNoteContent(content);
       return {
         index,

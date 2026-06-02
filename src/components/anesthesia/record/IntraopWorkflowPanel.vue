@@ -42,16 +42,21 @@
         <span>{{ quickEvents.length }}项</span>
       </header>
       <a-space wrap>
-        <a-button
+        <a-tooltip
           v-for="event in quickEvents"
           :key="event.name"
-          size="small"
-          :status="event.severity === '中度' || event.severity === '重度' || event.severity === '危急' ? 'danger' : 'normal'"
-          :disabled="locked"
-          @click="$emit('quick-event', event.name)"
+          :content="quickEventTitle(event.name)"
+          :disabled="!quickEventTitle(event.name)"
         >
-          {{ event.name }}
-        </a-button>
+          <a-button
+            size="small"
+            :status="event.severity === '中度' || event.severity === '重度' || event.severity === '危急' ? 'danger' : 'normal'"
+            :disabled="locked || isQuickEventDisabled(event.name)"
+            @click="$emit('quick-event', event.name)"
+          >
+            {{ event.name }}
+          </a-button>
+        </a-tooltip>
       </a-space>
     </section>
 
@@ -132,7 +137,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { CompletionGap, IntraopStage, QuickEventOption, SurgeryScenarioKey, SurgeryScenarioOption, TemplateLandingItem } from '@/mock/anesthesiaRecordPrototype';
-import type { WorkflowGuidanceItem } from '@/services/anesthesiaRecordMethodEngine';
+import type { SurgeryCase } from '@/types/anesthesia';
+import { getQuickEventOption, isQuickEventDone, type WorkflowGuidanceItem } from '@/services/anesthesiaRecordMethodEngine';
 
 const props = defineProps<{
   stage: IntraopStage;
@@ -150,7 +156,14 @@ const props = defineProps<{
   riskItems: WorkflowGuidanceItem[];
   nextSteps: WorkflowGuidanceItem[];
   locked?: boolean;
+  caseItem?: Pick<SurgeryCase, 'events' | 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'anesthesiaEnd' | 'leaveRoomTime'>;
 }>();
+
+const isQuickEventDisabled = (name: string) => {
+  if (!props.caseItem) return false;
+  return isQuickEventDone(props.caseItem, getQuickEventOption(name));
+};
+const quickEventTitle = (name: string) => (isQuickEventDisabled(name) ? '已记录，不可重复' : undefined);
 
 const emit = defineEmits<{
   'update:stage': [stage: IntraopStage];

@@ -1,5 +1,6 @@
 import dayjs from 'dayjs';
 import type { FluidRecord, MedicationRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
+import { normalizeMedicationRecordFields } from '@/services/medicationDisplayRules';
 
 type VitalKey = 'SBP' | 'DBP' | 'HR' | 'RR' | 'SpO2' | 'EtCO2' | 'TEMP' | 'BIS';
 
@@ -70,13 +71,18 @@ export function detectAbnormalVitalSigns(vitals: VitalSign[]): AbnormalVitalSign
 }
 
 export function normalizeMedicationPayload(payload: Partial<MedicationRecord>): Omit<MedicationRecord, 'id'> {
-  const mode = payload.mode ?? '单次用药';
-  const startTime = payload.startTime ?? payload.time ?? dayjs().toISOString();
+  const normalized = normalizeMedicationRecordFields(payload);
+  const mode = normalized.mode ?? '单次用药';
+  const startTime = normalized.startTime ?? normalized.time ?? dayjs().toISOString();
   const highAlert = payload.highAlert ?? highAlertDrugs.includes(payload.drug ?? '');
+  const isSpecial = payload.isSpecial === true;
+  const specialReason = payload.specialReason ?? payload.reason;
   return {
     mode,
-    time: mode === '单次用药' ? (payload.time ?? startTime) : payload.time,
+    time: mode === '单次用药' || mode === '间断追加' ? (normalized.time ?? normalized.eventTime ?? startTime) : normalized.time,
+    eventTime: normalized.eventTime ?? (mode === '单次用药' || mode === '间断追加' ? normalized.time : undefined),
     drug: payload.drug ?? '',
+    drugId: payload.drugId,
     dose: payload.dose,
     unit: payload.unit,
     route: payload.route,
@@ -85,11 +91,17 @@ export function normalizeMedicationPayload(payload: Partial<MedicationRecord>): 
     pumpRate: payload.pumpRate,
     startTime: mode === '持续泵入' ? startTime : payload.startTime,
     adjustTime: payload.adjustTime,
-    stopTime: mode === '持续泵入' ? (payload.stopTime ?? dayjs(startTime).add(10, 'minute').toISOString()) : payload.stopTime,
+    stopTime: normalized.stopTime ?? (mode === '持续泵入' ? (payload.stopTime ?? dayjs(startTime).add(10, 'minute').toISOString()) : payload.stopTime),
+    endTime: normalized.endTime,
     totalAmount: payload.totalAmount,
     checker: payload.checker ?? '',
     highAlert,
-    reason: payload.reason ?? (mode === '持续泵入' ? '持续用药' : '单次用药'),
+    isSpecial,
+    specialNo: isSpecial ? payload.specialNo : undefined,
+    specialCategory: isSpecial ? payload.specialCategory : undefined,
+    specialReason: isSpecial ? specialReason : undefined,
+    displayText: payload.displayText,
+    reason: isSpecial ? specialReason : (payload.reason ?? (mode === '持续泵入' ? '持续用药' : '单次用药')),
   };
 }
 

@@ -149,7 +149,11 @@
         </div>
       </div>
       <a-layout-content class="app-content">
-        <router-view />
+        <div v-if="!persistenceReady" class="app-persistence-loading" aria-live="polite">
+          <a-spin dot />
+          <span>正在恢复本地数据…</span>
+        </div>
+        <router-view v-else />
       </a-layout-content>
       <footer class="app-footer">
         <span>{{ clockText }}</span>
@@ -167,17 +171,20 @@ import { useRoute, useRouter } from 'vue-router';
 import NavIconBadge from '@/components/NavIconBadge.vue';
 import { menuIconFor } from '@/config/menuTheme';
 import { getPrimaryMenuLabel, matchSecondaryKey, primaryMenuMap, primaryMenus, secondaryMenuGroupLabels, secondaryMenus } from '@/config/navigation';
+import { useAnesthesiaPersistenceGate } from '@/composables/useAnesthesiaPersistenceGate';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
 const route = useRoute();
 const router = useRouter();
 const store = useAnesthesiaStore();
+const { ready: persistenceReady, ensureReady } = useAnesthesiaPersistenceGate();
 const collapsed = ref(false);
 const patientQuery = ref('');
 const clockText = ref(dayjs().format('YYYY-MM-DD HH:mm:ss'));
 let clockTimer: number | undefined;
 
 onMounted(() => {
+  void ensureReady();
   clockTimer = window.setInterval(() => {
     clockText.value = dayjs().format('YYYY-MM-DD HH:mm:ss');
   }, 1000);
@@ -274,4 +281,5 @@ const timeRange = (item: { scheduledStart?: string; plannedStart: string; schedu
 .sider-nav-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .header-avatar { background: var(--primary); color: var(--surface); font-size: 13px; cursor: pointer; box-shadow: var(--shadow-xs); }
 .app-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 18px; border-top: 1px solid var(--border); background: rgb(255 255 255 / 86%); color: var(--text-tertiary); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; }
+.app-persistence-loading { min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text-tertiary); }
 </style>

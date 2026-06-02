@@ -10,6 +10,7 @@ defineProps<{
   recordNo?: string;
   readOnly?: boolean;
   printMode?: boolean;
+  interactionMode?: 'edit' | 'view' | 'print';
   actualSurgeryName?: string;
   surgicalPosition?: string;
   anesthesiologist?: string;
@@ -72,6 +73,7 @@ const emit = defineEmits<{
           :model-value="snapshot.diagnosisPreop"
           readonly
           :print-mode="printMode"
+          :interaction-mode="interactionMode"
           :span="12"
         />
         <PaperFormField
@@ -80,6 +82,7 @@ const emit = defineEmits<{
           :model-value="`${snapshot.preMedication || '未记录'}；${snapshot.fasting || '未记录'}`"
           readonly
           :print-mode="printMode"
+          :interaction-mode="interactionMode"
           :span="12"
         />
       </div>
@@ -93,6 +96,7 @@ const emit = defineEmits<{
           :model-value="snapshot.surgeryPlanned"
           readonly
           :print-mode="printMode"
+          :interaction-mode="interactionMode"
           :span="12"
         />
         <PaperPickerField
@@ -106,6 +110,7 @@ const emit = defineEmits<{
           :options="surgeryOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
+          :interaction-mode="interactionMode"
           :span="12"
           placeholder="点击选择，多项用+连接"
           @update:model-value="emit('update:actualSurgeryName', $event)"
@@ -118,6 +123,7 @@ const emit = defineEmits<{
           :options="positionOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
+          :interaction-mode="interactionMode"
           :span="8"
           placeholder="点击选择体位"
           :allow-custom="false"
@@ -129,6 +135,7 @@ const emit = defineEmits<{
           :auxiliary="methodAuxiliary ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
+          :interaction-mode="interactionMode"
           :span="16"
           @apply="emit('applyMethodSelection', $event)"
         />
@@ -142,6 +149,7 @@ const emit = defineEmits<{
           :options="anesthesiologistOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
+          :interaction-mode="interactionMode"
           :span="6"
           placeholder="点击选择"
           :allow-custom="false"
@@ -156,6 +164,7 @@ const emit = defineEmits<{
           :options="surgeonOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
+          :interaction-mode="interactionMode"
           :span="6"
           placeholder="点击选择"
           :allow-custom="false"
@@ -170,6 +179,7 @@ const emit = defineEmits<{
           :options="nurseOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
+          :interaction-mode="interactionMode"
           :span="6"
           placeholder="点击选择"
           :allow-custom="false"
@@ -184,6 +194,7 @@ const emit = defineEmits<{
           :options="nurseOptions ?? []"
           :readonly="readOnly"
           :print-mode="printMode"
+          :interaction-mode="interactionMode"
           :span="6"
           placeholder="点击选择"
           :allow-custom="false"

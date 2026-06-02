@@ -2,10 +2,12 @@
   <section
     class="live-record-card print-area"
     :class="{
-      'is-rescue': record.rescue && !printMode,
-      'is-print-mode': printMode,
-      'is-screen-mode': !printMode,
+      'is-rescue': rescueModeActive && !printMode,
+      'is-print-mode': printMode || interactionMode === 'print',
+      'is-screen-mode': !printMode && interactionMode !== 'print',
       'is-locked': record.locked && !printMode,
+      'is-interaction-edit': interactionMode === 'edit' && !printMode,
+      'is-interaction-view': interactionMode === 'view' && !printMode,
     }"
     @contextmenu.prevent="openMenu($event, 'grid')"
   >
@@ -20,6 +22,7 @@
       :record-no="record.recordDocument?.recordNo"
       :read-only="readOnly"
       :print-mode="printMode"
+      :interaction-mode="interactionMode"
       :actual-surgery-name="record.actualSurgeryName"
       :surgical-position="record.position"
       :anesthesiologist="record.anesthesiologist"
@@ -70,24 +73,24 @@
         >{{ plane.label }}</span>
         <template v-for="row in medicationRows" :key="row.key">
           <span
-            v-if="!row.end"
+            v-if="row.renderAsPoint"
             class="drug-point"
-            :class="{ 'is-template': row.template }"
+            :class="{ 'is-template': row.template, 'is-special': row.isSpecial }"
             :style="pointStyle(row.time, row.index, medicationRowCount)"
             @contextmenu.prevent.stop="openMenu($event, 'medication', row.source)"
             @dblclick="openMedicationEditor(row.source)"
-          >{{ row.amount }}</span>
+          >{{ row.pointLabel }}</span>
           <span
             v-else
             class="line-segment drug-line"
-            :class="{ 'is-template': row.template }"
-            :style="segmentStyle(row.time, row.end, row.index, medicationRowCount)"
+            :class="{ 'is-template': row.template, 'is-special': row.isSpecial }"
+            :style="segmentStyle(row.time, row.segmentEnd, row.index, medicationRowCount)"
             @contextmenu.prevent.stop="openMenu($event, 'medication', row.source)"
             @dblclick="openMedicationEditor(row.source)"
             @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'move', row.index, medicationRowCount)"
           >
             <i class="segment-handle segment-handle-start" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'start', row.index, medicationRowCount)"></i>
-            <span class="segment-label">{{ row.amount }}</span>
+            <span class="segment-label">{{ row.lineLabel }}</span>
             <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'end', row.index, medicationRowCount)"></i>
           </span>
         </template>
@@ -109,24 +112,24 @@
         <GridLines :grid="bandGrid(inhaledRowCount)" />
         <template v-for="row in inhaledMedicationRows" :key="row.key">
           <span
-            v-if="!row.end"
+            v-if="row.renderAsPoint"
             class="drug-point inhaled-point"
-            :class="{ 'is-template': row.template }"
+            :class="{ 'is-template': row.template, 'is-special': row.isSpecial }"
             :style="pointStyle(row.time, row.index, inhaledRowCount)"
             @contextmenu.prevent.stop="openMenu($event, 'inhaled', row.source)"
             @dblclick="openMedicationEditor(row.source)"
-          >{{ row.amount }}</span>
+          >{{ row.pointLabel }}</span>
           <span
             v-else
             class="line-segment drug-line inhaled-line"
-            :class="{ 'is-template': row.template }"
-            :style="segmentStyle(row.time, row.end, row.index, inhaledRowCount)"
+            :class="{ 'is-template': row.template, 'is-special': row.isSpecial }"
+            :style="segmentStyle(row.time, row.segmentEnd, row.index, inhaledRowCount)"
             @contextmenu.prevent.stop="openMenu($event, 'inhaled', row.source)"
             @dblclick="openMedicationEditor(row.source)"
             @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'move', row.index, inhaledRowCount)"
           >
             <i class="segment-handle segment-handle-start" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'start', row.index, inhaledRowCount)"></i>
-            <span class="segment-label">{{ row.amount }}</span>
+            <span class="segment-label">{{ row.lineLabel }}</span>
             <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'end', row.index, inhaledRowCount)"></i>
           </span>
         </template>
@@ -483,9 +486,9 @@
 
     <RecordModalShell
       v-if="lineVisible"
-      size="small"
+      :size="lineForm.kind === 'medication' ? 'clinical' : 'compact'"
       top-layer
-      :title="`${lineForm.kind === 'medication' ? '用药' : lineForm.category === '自体血回输' ? '自体血回输' : lineForm.kind === 'transfusion' ? '输血' : '输液'}数据`"
+      :title="lineModalTitle"
       @close="lineVisible = false"
     >
       <MedicationLineForm
@@ -501,8 +504,10 @@
         @shift-time="shiftLineTime"
       />
       <template #footer>
-        <a-button @click="lineVisible = false">关闭</a-button>
-        <a-button type="primary" :disabled="readOnly" @click="saveLineForm">保存</a-button>
+        <div class="footer-actions">
+          <a-button @click="lineVisible = false">取消</a-button>
+          <a-button type="primary" :disabled="readOnly" @click="saveLineForm">保存</a-button>
+        </div>
       </template>
     </RecordModalShell>
 
@@ -542,35 +547,37 @@
 
     <RecordModalShell
       v-if="monitorVisible"
-      size="large"
+      :size="monitorBatch ? 'medium' : 'compact'"
       top-layer
       :title="monitorBatch ? '批量生命体征' : monitorForm.id ? '编辑生命体征' : '新增生命体征'"
       @close="monitorVisible = false"
     >
-        <div class="live-modal-body monitor-form">
-          <label>时间<span class="time-stepper"><button type="button" @click="shiftMonitorTime('time', -1)">-</button><input v-model="monitorForm.time" type="time" step="60" /><button type="button" @click="shiftMonitorTime('time', 1)">+</button></span></label>
-          <label v-if="monitorBatch">结束<span class="time-stepper"><button type="button" @click="shiftMonitorTime('end', -1)">-</button><input v-model="monitorEndTime" type="time" step="60" /><button type="button" @click="shiftMonitorTime('end', 1)">+</button></span></label>
-          <label v-if="monitorBatch">间隔<input v-model.number="monitorInterval" type="number" min="1" /> 分钟</label>
-          <div class="monitor-item-grid">
-            <label v-for="item in monitorRows" :key="item.shortCode">
-              {{ item.shortCode }} <small>{{ item.unit }}</small>
-              <input v-model="monitorValues[item.shortCode]" :type="item.decimalPlaces ? 'number' : 'text'" />
-            </label>
-          </div>
-          <label>来源<input v-model="monitorForm.source" /></label>
-          <label>备注<input v-model="monitorForm.remark" /></label>
-        </div>
-        <template #footer>
-          <button class="btn small primary" :disabled="readOnly" @click="saveMonitorForm">保存</button>
-          <button class="btn small" @click="monitorVisible = false">关闭</button>
-        </template>
+      <VitalSignEntryForm
+        :form="monitorForm"
+        :values="monitorValues"
+        :rows="monitorRows"
+        :batch="monitorBatch"
+        :end-time="monitorEndTime"
+        :interval="monitorInterval"
+        @update:form="patchMonitorForm"
+        @update:values="patchMonitorValues"
+        @update:end-time="monitorEndTime = $event"
+        @update:interval="monitorInterval = $event"
+        @shift-time="shiftMonitorTime"
+      />
+      <template #footer>
+        <a-button @click="monitorVisible = false">关闭</a-button>
+        <a-button type="primary" :disabled="readOnly" @click="saveMonitorForm">保存</a-button>
+      </template>
     </RecordModalShell>
 
-    <RecordModalShell v-if="outputVisible" size="small" top-layer title="出入量设置" @close="outputVisible = false">
+    <RecordModalShell v-if="outputVisible" size="compact" top-layer title="出入量设置" @close="outputVisible = false">
       <OutputLineForm
         :form="outputForm"
+        :disabled="readOnly"
         @update:form="patchOutputForm"
         @shift-time="shiftOutputTime"
+        @shift-volume="shiftOutputVolume"
       />
       <template #footer>
         <a-button @click="outputVisible = false">关闭</a-button>
@@ -578,20 +585,16 @@
       </template>
     </RecordModalShell>
 
-    <RecordModalShell v-if="labVisible" size="medium" top-layer title="血气/检验结果" @close="labVisible = false">
-      <div class="line-form-grid">
-        <label>时间<input v-model="labForm.resultTime" type="time" step="60" /></label>
-        <label>类型<input v-model="labForm.labType" placeholder="动脉血气" /></label>
-        <label>显示<select v-model="labForm.displayMode"><option value="number">编号</option><option value="brief">简略</option><option value="full">完整</option></select></label>
-        <label>pH<input v-model="labForm.ph" /></label>
-        <label>pCO2<input v-model="labForm.pco2" /></label>
-        <label>pO2<input v-model="labForm.po2" /></label>
-        <label>BE<input v-model="labForm.be" /></label>
-        <label>Lac<input v-model="labForm.lac" /></label>
-      </div>
+    <RecordModalShell v-if="labVisible" size="compact" top-layer title="血气/检验结果" @close="labVisible = false">
+      <LabResultEntryForm
+        :form="labForm"
+        :disabled="readOnly"
+        @update:form="patchLabForm"
+        @shift-time="shiftLabTime"
+      />
       <template #footer>
-        <button class="btn small" @click="labVisible = false">关闭</button>
-        <button class="btn small primary" :disabled="readOnly" @click="saveLabForm">保存</button>
+        <a-button @click="labVisible = false">关闭</a-button>
+        <a-button type="primary" :disabled="readOnly" @click="saveLabForm">保存</a-button>
       </template>
     </RecordModalShell>
 
@@ -742,17 +745,30 @@ import {
   resolveKeyOperationsDisplayText,
   type MethodTimelineNode,
 } from '@/services/methodTimelineEngine';
-import { computed, defineComponent, defineExpose, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, defineComponent, defineExpose, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import RecordModalShell from './RecordModalShell.vue';
 import MedicationLineForm from '@/components/anesthesia/record/sheet/MedicationLineForm.vue';
+import VitalSignEntryForm from '@/components/anesthesia/record/sheet/VitalSignEntryForm.vue';
 import OutputLineForm from '@/components/anesthesia/record/sheet/OutputLineForm.vue';
+import LabResultEntryForm from '@/components/anesthesia/record/sheet/LabResultEntryForm.vue';
 import type { AnesthesiaEvent, AnesthesiaPlaneRecord, FluidRecord, MedicationRecord, OutputDetailRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
 import type { DynamicModuleEntry, TemplateImpact, TemplateImpactEvent, TemplateImpactMedication } from '@/mock/anesthesiaRecordPrototype';
 import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/types/system';
 import type { LabResultRecord } from '@/types/anesthesiaRecord';
 import { buildSequenceMarkersFromNotes, parseNumberedNoteLines } from '@/utils/numberedNotes';
 import {
+  assignSpecialNumbers,
+  buildMedicationDisplayModel,
+  buildSpecialMedicationSummaryText,
+  shouldRenderInSpecialMedication,
+} from '@/services/medicationDisplayRules';
+import {
+  buildMedicationLineRecommendPatch,
+  findDrugByName,
+} from '@/services/drugDictRecommend';
+import {
   buildMonitorCells,
+  selectDisplayVitalsForBand,
   buildRecordBandGrid,
   buildBalanceSummary,
   buildRecordSnapshot,
@@ -760,13 +776,16 @@ import {
   buildTempScaleTicks,
   chartYWithPadding,
   clampVitalValueByDict,
+  addMinutesToClock,
   collectRecordTimes,
   createAnesthesiaPlaneDraft,
+  LIVE_DEFAULT_SEGMENT_MINUTES,
   createFluidLineDraft,
   createMedicationLineDraft,
   dragVitalPointValue,
   dragTimeSegment,
   isoOrClockToClock,
+  resolveRecordSheetNowClock,
   minutesToClock,
   moveMonitorItemOrder,
   percentToTime,
@@ -777,6 +796,7 @@ import {
   clockToMinutes,
   vitalMarkerShape,
   resolveTimeAxisIntervals,
+  isRescueModeActive,
   resolveDefaultMonitorOrder,
   isInhaledMedication,
   hasInhaledEventHint,
@@ -805,6 +825,8 @@ const props = withDefaults(defineProps<{
   monitorOrder?: string[];
   readOnly?: boolean;
   showAnesthesiaPlane?: boolean;
+  interactionMode?: 'edit' | 'view' | 'print';
+  vitalDisplayIntervalMinutes?: number;
   sectionVisibility?: RecordSectionVisibility;
   appliedTemplateName?: string;
   appliedMethodLabels?: string[];
@@ -832,6 +854,8 @@ const props = withDefaults(defineProps<{
   transfusionReactions: () => ['无'],
   monitorOrder: () => [],
   readOnly: false,
+  interactionMode: 'edit',
+  vitalDisplayIntervalMinutes: 5,
   showAnesthesiaPlane: true,
   sectionVisibility: () => ({}),
   appliedTemplateName: '',
@@ -855,6 +879,8 @@ const props = withDefaults(defineProps<{
     nurses: [],
   }),
 });
+
+const rescueModeActive = computed(() => isRescueModeActive(props.record));
 
 const emit = defineEmits<{
   saveMedication: [record: MedicationRecord];
@@ -906,6 +932,19 @@ const menu = reactive<{ visible: boolean; x: number; y: number; type: MenuType; 
 
 const pendingDelete = ref(false);
 const lineVisible = ref(false);
+watch(lineVisible, (visible) => {
+  if (!visible) return;
+  nextTick(() => {
+    const body = document.querySelector('.record-modal-backdrop.top .record-modal-body');
+    body?.scrollTo(0, 0);
+  });
+});
+const lineModalTitle = computed(() => {
+  if (lineForm.kind === 'medication') return '用药记录';
+  if (lineForm.category === '自体血回输') return '自体血回输';
+  if (lineForm.kind === 'transfusion') return '输血记录';
+  return '输液记录';
+});
 const monitorVisible = ref(false);
 const monitorBatch = ref(false);
 const outputVisible = ref(false);
@@ -938,6 +977,13 @@ const lineForm = reactive({
   executor: '',
   checker: '',
   highAlert: false,
+  drugId: '',
+  isSpecial: false,
+  isSpecialUserTouched: false,
+  recommendIsSpecial: false,
+  specialCategory: '' as import('@/types/drugDict').SpecialDrugCategory | '',
+  specialReason: '',
+  reason: '',
   bloodType: '',
   rh: '',
   reaction: '无',
@@ -957,7 +1003,13 @@ const professionalEditor = reactive({
   value: '',
 });
 const monitorForm = reactive({ id: '', time: '', source: '手工录入', remark: '' });
-const outputForm = reactive({ id: '', time: '', type: '尿量' as OutputDetailRecord['type'], volume: 0, remark: '' });
+const outputForm = reactive<{ id: string; time: string; type: OutputDetailRecord['type']; volume?: number; remark: string }>({
+  id: '',
+  time: '',
+  type: '尿量',
+  volume: undefined,
+  remark: '',
+});
 const labForm = reactive({
   id: '',
   resultTime: '',
@@ -1090,6 +1142,10 @@ const pageVitals = computed(() => [...props.record.vitals]
   .filter((row) => !currentPage.value || isTimeOnPage(row.time, currentPage.value))
   .sort((a, b) => isoOrClockToClock(a.time).localeCompare(isoOrClockToClock(b.time))));
 const visibleVitals = computed(() => pageVitals.value.filter((row) => row.status !== 'voided'));
+const chartDisplayVitals = computed(() => selectDisplayVitalsForBand(
+  visibleVitals.value,
+  props.vitalDisplayIntervalMinutes,
+));
 const enabledVitalItems = computed(() => props.vitals.filter((item) => item.enabled));
 const selectedMonitorItems = computed(() => selectedMonitorCodes.value
   .map((code) => enabledVitalItems.value.find((item) => item.shortCode === code))
@@ -1175,9 +1231,10 @@ const referenceLegendItems = computed(() => chartVitals.value.map((item) => ({
 const eventLegendPairs = buildEventLegendPairs();
 const roomLegendItems = buildRoomLegendItems();
 const monitorCells = computed(() => {
-  const raw = buildMonitorCells(visibleVitals.value, monitorRows.value, monitorOrderCodes.value, {
+  const raw = buildMonitorCells(chartDisplayVitals.value, monitorRows.value, monitorOrderCodes.value, {
     start: sheetStart.value,
     end: sheetEnd.value,
+    gridMinutes: props.vitalDisplayIntervalMinutes,
   });
   const { objects } = resolveLayoutCollisions(buildMonitorLayoutObjects(raw));
   const map = new Map(objects.map((item) => [item.id, item]));
@@ -1187,9 +1244,10 @@ const monitorCells = computed(() => {
   });
 });
 const layoutWarningPayload = computed(() => {
-  const raw = buildMonitorCells(visibleVitals.value, monitorRows.value, monitorOrderCodes.value, {
+  const raw = buildMonitorCells(chartDisplayVitals.value, monitorRows.value, monitorOrderCodes.value, {
     start: sheetStart.value,
     end: sheetEnd.value,
+    gridMinutes: props.vitalDisplayIntervalMinutes,
   });
   const { warnings } = resolveLayoutCollisions(buildMonitorLayoutObjects(raw));
   return mergeLayoutWarnings(warnings);
@@ -1252,17 +1310,29 @@ const templateMedicationSources = computed<MedicationRecord[]>(() => (props.temp
   pumpRate: item.pumpRate,
   reason: props.appliedTemplateName ? `模板落单：${props.appliedTemplateName}` : '模板落单',
 })));
-const mapMedicationRow = (item: MedicationRecord, index: number, planeOffset: number) => ({
-  key: item.id,
-  label: item.drug,
-  amount: item.mode === '持续泵入' ? (item.pumpRate || `${item.dose ?? ''}${item.unit ?? ''}`) : `${item.dose ?? ''}${item.unit ?? ''}`,
-  time: item.time ?? item.startTime ?? props.record.plannedStart,
-  end: item.stopTime ?? item.endTime,
-  index: index + planeOffset,
-  source: item,
-  template: item.id.startsWith('template-med-'),
-});
+const mapMedicationRow = (item: MedicationRecord, index: number, planeOffset: number) => {
+  const display = buildMedicationDisplayModel(item, {
+    fallbackSheetEnd: sheetEnd.value,
+    specialNo: specialNumberByMedId.value.get(item.id),
+  });
+  return {
+    key: item.id,
+    label: item.drug,
+    amount: item.mode === '持续泵入' ? (item.pumpRate || `${item.dose ?? ''}${item.unit ?? ''}`) : `${item.dose ?? ''}${item.unit ?? ''}`,
+    time: (display.time || item.time) ?? item.startTime ?? props.record.plannedStart,
+    segmentEnd: display.segmentEnd,
+    renderAsLine: display.renderAsLine,
+    renderAsPoint: display.renderAsPoint,
+    pointLabel: display.pointLabel,
+    lineLabel: display.lineLabel,
+    isSpecial: display.showInSpecialSection,
+    index: index + planeOffset,
+    source: item,
+    template: item.id.startsWith('template-med-'),
+  };
+};
 const activeMedicationRecords = computed(() => [...props.record.medications, ...templateMedicationSources.value].filter((item) => item.status !== 'voided'));
+const specialNumberByMedId = computed(() => assignSpecialNumbers(activeMedicationRecords.value));
 const ivMedicationRecords = computed(() => activeMedicationRecords.value.filter((item) => !isInhaledMedication(item, props.drugs)));
 const inhaledMedicationRecords = computed(() => activeMedicationRecords.value.filter((item) => isInhaledMedication(item, props.drugs)));
 const allMedicationRecords = computed(() => [...props.record.medications, ...templateMedicationSources.value]);
@@ -1427,12 +1497,17 @@ const inductionMedSummary = computed(() => {
   return medicationRows.value.slice(0, 4).map((item) => `${item.label}${item.amount}`).join('、') || '';
 });
 const medSummary = computed(() => medicationRows.value.slice(0, 6).map((item) => `${item.label}${item.amount}`).join('、') || '');
+const activeMedicationsForSummary = computed(() => (
+  [...props.record.medications, ...templateMedicationSources.value].filter((item) => item.status !== 'voided')
+));
+const autoSpecialMedsSummary = computed(() => {
+  const manual = props.record.recordSummary?.notes?.specialMeds?.trim();
+  if (manual) return manual;
+  return buildSpecialMedicationSummaryText(activeMedicationsForSummary.value);
+});
 const eventSummary = computed(() => {
-  const specialMeds = props.record.medications
-    .filter((item) => item.status !== 'voided' && item.highAlert)
-    .map((item) => item.drug)
-    .join('、');
-  return specialMeds || '无';
+  const hasSpecial = activeMedicationsForSummary.value.some((item) => shouldRenderInSpecialMedication(item));
+  return hasSpecial ? autoSpecialMedsSummary.value : '无';
 });
 const operationSummary = computed(() => {
   const ops = statusEvents.value
@@ -1448,7 +1523,7 @@ const postopAnalgesiaSummary = computed(() => (
 const summaryNotes = computed(() => ({
   inductionMeds: props.record.recordSummary?.notes?.inductionMeds ?? inductionMedSummary.value,
   inductionSummary: props.record.recordSummary?.notes?.inductionSummary ?? medSummary.value,
-  specialMeds: props.record.recordSummary?.notes?.specialMeds ?? eventSummary.value,
+  specialMeds: autoSpecialMedsSummary.value || eventSummary.value,
   keyOperations: props.record.recordSummary?.notes?.keyOperations ?? operationSummary.value,
   postopAnalgesia: props.record.recordSummary?.notes?.postopAnalgesia ?? postopAnalgesiaSummary.value,
 }));
@@ -1553,7 +1628,7 @@ const isAbnormal = (row: VitalSign, item: VitalSignDictItem) => {
   return (typeof item.lowerLimit === 'number' && value < item.lowerLimit) || (typeof item.upperLimit === 'number' && value > item.upperLimit);
 };
 const { chartPoints, chartLine, symbolText, markerPath, markerFill } = useVitalChartDrawing(
-  () => visibleVitals.value,
+  () => chartDisplayVitals.value,
   () => sheetStart.value,
   () => sheetEnd.value,
 );
@@ -1593,6 +1668,10 @@ const applyLineDraft = (draft: ReturnType<typeof createMedicationLineDraft> | Re
   lineForm.executor = draft.executor ?? props.record.anesthesiologist;
   lineForm.checker = draft.checker ?? '';
   lineForm.highAlert = Boolean(draft.highAlert);
+  lineForm.isSpecial = Boolean(draft.isSpecial);
+  if (draft.specialCategory !== undefined) lineForm.specialCategory = draft.specialCategory ?? '';
+  lineForm.specialReason = draft.specialReason ?? draft.reason ?? '';
+  lineForm.reason = lineForm.specialReason;
   lineForm.bloodType = draft.bloodType ?? '';
   lineForm.rh = draft.rh ?? '';
   lineForm.reaction = draft.reaction ?? '无';
@@ -1600,28 +1679,64 @@ const applyLineDraft = (draft: ReturnType<typeof createMedicationLineDraft> | Re
   lineForm.anesthesiaConfirmed = Boolean(draft.anesthesiaConfirm);
   lineForm.circulatingConfirmed = Boolean(draft.circulatingConfirm);
 };
+const lineFormDefaultClock = () => resolveRecordSheetNowClock(props.record);
+
+const applyDrugRecommend = (drug: DrugDictItem, options: { preserveMode?: boolean; resetUserTouch?: boolean } = {}) => {
+  const patch = buildMedicationLineRecommendPatch(drug, {
+    currentIsSpecial: lineForm.isSpecial,
+    userTouchedIsSpecial: options.resetUserTouch ? false : lineForm.isSpecialUserTouched,
+    preserveMode: options.preserveMode,
+    currentMode: lineForm.mode,
+  });
+  lineForm.drugId = patch.drugId ?? '';
+  if (patch.mode) lineForm.mode = patch.mode;
+  lineForm.isSpecial = patch.isSpecial;
+  lineForm.recommendIsSpecial = patch.recommendIsSpecial;
+  lineForm.specialCategory = patch.specialCategory ?? '';
+  lineForm.specialReason = patch.specialReason;
+  lineForm.reason = patch.specialReason;
+  if (patch.route) lineForm.route = patch.route;
+  if (patch.unit) lineForm.unit = patch.unit;
+  if (patch.highAlert !== undefined) lineForm.highAlert = patch.highAlert;
+  if (options.resetUserTouch) lineForm.isSpecialUserTouched = false;
+};
+
 const openMedicationEditor = (source?: DrugDictItem | MedicationRecord) => {
   closeMenu();
   if (source && 'drug' in source) {
+    lineForm.isSpecialUserTouched = true;
+    const editTime = isoOrClockToClock(source.time ?? source.startTime) || lineFormDefaultClock();
+    let editEnd = isoOrClockToClock(source.stopTime ?? source.endTime);
+    if (source.mode === '持续泵入' && editTime && !editEnd) {
+      editEnd = addMinutesToClock(editTime, LIVE_DEFAULT_SEGMENT_MINUTES);
+    }
     applyLineDraft({
       kind: 'medication',
       id: source.id,
       name: source.drug,
       mode: source.mode,
-      time: isoOrClockToClock(source.time ?? source.startTime) || menu.at || sheetStart.value,
-      endTime: isoOrClockToClock(source.stopTime ?? source.endTime),
+      time: editTime,
+      endTime: editEnd,
       amount: source.dose,
       unit: source.unit,
       route: source.route,
       executor: source.executor,
       checker: source.checker,
       highAlert: source.highAlert,
+      isSpecial: source.isSpecial,
+      specialReason: source.specialReason ?? source.reason,
+      reason: source.specialReason ?? source.reason,
     });
+    lineForm.drugId = source.drugId ?? findDrugByName(props.drugs, source.drug)?.id ?? '';
+    lineForm.specialCategory = source.specialCategory ?? '';
+    lineForm.recommendIsSpecial = Boolean(findDrugByName(props.drugs, source.drug)?.defaultIsSpecial);
   } else if (source) {
-    applyLineDraft(createMedicationLineDraft(source, { at: menu.at || sheetStart.value, executor: props.record.anesthesiologist }));
+    lineForm.isSpecialUserTouched = false;
+    applyLineDraft(createMedicationLineDraft(source, { at: lineFormDefaultClock(), executor: props.record.anesthesiologist }));
+    applyDrugRecommend(source, { resetUserTouch: true });
   } else {
     const fallback = commonDrugs.value[0] ?? props.drugs.find((item) => item.enabled);
-    if (fallback) applyLineDraft(createMedicationLineDraft(fallback, { at: menu.at || sheetStart.value, executor: props.record.anesthesiologist }));
+    if (fallback) applyLineDraft(createMedicationLineDraft(fallback, { at: lineFormDefaultClock(), executor: props.record.anesthesiologist }));
   }
   lineVisible.value = true;
 };
@@ -1633,7 +1748,7 @@ const openFluidEditor = (source?: FluidBloodDictItem | FluidRecord) => {
       id: source.id,
       name: source.name,
       category: source.category,
-      time: isoOrClockToClock(source.startTime ?? source.time) || menu.at || sheetStart.value,
+      time: isoOrClockToClock(source.startTime ?? source.time) || lineFormDefaultClock(),
       endTime: isoOrClockToClock(source.endTime),
       amount: source.volume,
       unit: source.unit,
@@ -1650,7 +1765,7 @@ const openFluidEditor = (source?: FluidBloodDictItem | FluidRecord) => {
     lineForm.circulatingConfirmed = Boolean(source.circulatingConfirm || source.doubleCheck);
   } else if (source) {
     applyLineDraft(createFluidLineDraft(source, {
-      at: menu.at || sheetStart.value,
+      at: lineFormDefaultClock(),
       executor: props.record.anesthesiaNurse,
       bloodType: props.bloodTypes[0],
       rh: props.rhTypes[0],
@@ -1661,16 +1776,18 @@ const openFluidEditor = (source?: FluidBloodDictItem | FluidRecord) => {
       : menu.type === 'autologousGrid'
         ? autologousCatalog.value[0]
         : infusionCatalog.value[0];
-    if (fallback) applyLineDraft(createFluidLineDraft(fallback, { at: menu.at || sheetStart.value, executor: props.record.anesthesiaNurse }));
+    if (fallback) applyLineDraft(createFluidLineDraft(fallback, { at: lineFormDefaultClock(), executor: props.record.anesthesiaNurse }));
   }
   lineVisible.value = true;
 };
 const syncMedicationForm = () => {
-  const drug = props.drugs.find((item) => item.name === lineForm.name);
+  const drug = findDrugByName(props.drugs, lineForm.name);
   if (!drug) return;
   const id = lineForm.id;
+  const preserveMode = Boolean(id);
   applyLineDraft(createMedicationLineDraft(drug, { at: lineForm.time, executor: lineForm.executor }));
   lineForm.id = id;
+  applyDrugRecommend(drug, { preserveMode, resetUserTouch: !id });
 };
 const syncFluidForm = () => {
   const fluid = props.fluids.find((item) => item.name === lineForm.name);
@@ -1715,13 +1832,24 @@ const saveLineForm = () => {
       route: lineForm.route,
       executor: lineForm.executor,
       checker: lineForm.checker,
+      drugId: lineForm.drugId || undefined,
       highAlert: lineForm.highAlert,
+      isSpecial: lineForm.isSpecial,
+      specialNo: lineForm.isSpecial ? specialNumberByMedId.value.get(lineForm.id) : undefined,
+      specialCategory: lineForm.specialCategory || undefined,
+      specialReason: lineForm.isSpecial ? (lineForm.specialReason || undefined) : undefined,
+      reason: lineForm.isSpecial ? (lineForm.specialReason || undefined) : undefined,
+      eventTime: lineForm.mode === '单次用药' || lineForm.mode === '间断追加' ? lineForm.time : undefined,
     });
   } else {
     const isBlood = lineForm.kind === 'transfusion';
+    const fluidMeta = props.fluids.find((item) => item.name === lineForm.name);
+    const category = isBlood
+      ? '血液制品'
+      : (lineForm.category || fluidMeta?.subCategory || '晶体液');
     emit('saveFluid', {
       id: lineForm.id,
-      category: isBlood ? '血液制品' : lineForm.category,
+      category,
       name: lineForm.name,
       product: isBlood ? lineForm.name : undefined,
       startTime: lineForm.time,
@@ -1763,7 +1891,7 @@ const openTargetEditor = () => {
 const continueTarget = () => {
   if (menu.type === 'medication' || menu.type === 'inhaled') {
     const source = menu.target as MedicationRecord;
-    openMedicationEditor({ ...source, id: '', time: isoOrClockToClock(source.stopTime ?? source.endTime) || menu.at });
+    openMedicationEditor({ ...source, id: '', time: isoOrClockToClock(source.stopTime ?? source.endTime) || lineFormDefaultClock() });
   }
   if (menu.type === 'infusion' || menu.type === 'autologous') {
     const source = menu.target as FluidRecord;
@@ -1792,7 +1920,7 @@ const openMonitorDialog = (row?: VitalSign) => {
   monitorBatch.value = false;
   monitorVisible.value = true;
   monitorForm.id = row?.id ?? '';
-  monitorForm.time = isoOrClockToClock(row?.time) || menu.at || sheetStart.value;
+  monitorForm.time = isoOrClockToClock(row?.time) || lineFormDefaultClock();
   monitorForm.source = row?.source ?? '手工录入';
   monitorForm.remark = row?.remark ?? '';
   Object.keys(monitorValues).forEach((key) => delete monitorValues[key]);
@@ -1826,19 +1954,46 @@ const saveMonitorForm = () => {
   monitorVisible.value = false;
 };
 const shiftClockValue = (value: string, deltaMinutes: number) => minutesToClock((clockToMinutes(value) ?? clockToMinutes(sheetStart.value) ?? 0) + deltaMinutes);
-const shiftMonitorTime = (field: 'time' | 'end', deltaSteps: number) => {
+const patchMonitorForm = (patch: Record<string, unknown>) => {
+  Object.assign(monitorForm, patch);
+};
+const patchMonitorValues = (patch: Record<string, string>) => {
+  Object.assign(monitorValues, patch);
+};
+const shiftMonitorTime = (field: 'time' | 'endTime', deltaSteps: number) => {
   const delta = deltaSteps * 1;
   if (field === 'time') monitorForm.time = shiftClockValue(monitorForm.time, delta);
   else monitorEndTime.value = shiftClockValue(monitorEndTime.value, delta);
 };
 const shiftOutputTime = (deltaSteps: number) => { outputForm.time = shiftClockValue(outputForm.time, deltaSteps); };
+const shiftOutputVolume = (deltaSteps: number) => {
+  const step = 10;
+  const current = Number(outputForm.volume);
+  const base = Number.isFinite(current) ? current : 0;
+  const next = Math.max(0, base + deltaSteps * step);
+  outputForm.volume = next > 0 ? next : undefined;
+};
+const shiftLabTime = (deltaSteps: number) => {
+  labForm.resultTime = shiftClockValue(labForm.resultTime, deltaSteps);
+};
+const patchLabForm = (patch: Record<string, unknown>) => {
+  Object.assign(labForm, patch);
+};
 const shiftPlaneTime = (deltaSteps: number) => { planeForm.time = shiftClockValue(planeForm.time, deltaSteps); };
 const shiftLineTime = (field: 'time' | 'endTime', deltaSteps: number) => {
   if (field === 'time') lineForm.time = shiftClockValue(lineForm.time, deltaSteps);
   else lineForm.endTime = shiftClockValue(lineForm.endTime, deltaSteps);
 };
 const patchLineForm = (patch: Record<string, unknown>) => {
+  if (patch.isSpecial !== undefined) lineForm.isSpecialUserTouched = Boolean(patch.isSpecialUserTouched ?? true);
   Object.assign(lineForm, patch);
+  if (lineForm.kind === 'medication' && patch.mode === '持续泵入' && !lineForm.endTime && lineForm.time) {
+    lineForm.endTime = addMinutesToClock(lineForm.time, LIVE_DEFAULT_SEGMENT_MINUTES);
+  }
+  if (lineForm.kind === 'medication' && (patch.mode === '单次用药' || patch.mode === '间断追加')) {
+    lineForm.endTime = '';
+  }
+  if (patch.specialReason !== undefined) lineForm.reason = String(patch.specialReason);
 };
 const patchOutputForm = (patch: Record<string, unknown>) => {
   Object.assign(outputForm, patch);
@@ -1847,20 +2002,28 @@ const openOutputEditor = (row?: OutputDetailRecord) => {
   closeMenu();
   outputVisible.value = true;
   outputForm.id = row?.id ?? '';
-  outputForm.time = isoOrClockToClock(row?.time) || menu.at || sheetStart.value;
+  outputForm.time = isoOrClockToClock(row?.time) || lineFormDefaultClock();
   outputForm.type = row?.type ?? '尿量';
-  outputForm.volume = row?.volume ?? 0;
+  outputForm.volume = row?.volume;
   outputForm.remark = row?.remark ?? '';
 };
 const saveOutputForm = () => {
-  emit('saveOutput', { id: outputForm.id, time: outputForm.time, type: outputForm.type, volume: Number(outputForm.volume) || 0, remark: outputForm.remark });
+  const volume = Number(outputForm.volume);
+  if (!Number.isFinite(volume) || volume <= 0) return;
+  emit('saveOutput', {
+    id: outputForm.id,
+    time: outputForm.time,
+    type: outputForm.type,
+    volume,
+    remark: outputForm.remark,
+  });
   outputVisible.value = false;
 };
 const openLabEditor = (row?: LabResultRecord) => {
   closeMenu();
   labVisible.value = true;
   labForm.id = row?.id ?? '';
-  labForm.resultTime = isoOrClockToClock(row?.resultTime) || menu.at || sheetStart.value;
+  labForm.resultTime = isoOrClockToClock(row?.resultTime) || lineFormDefaultClock();
   labForm.labType = row?.labType ?? '动脉血气';
   labForm.displayMode = row?.displayMode ?? 'number';
   const findValue = (code: string) => row?.items.find((item) => item.code === code)?.value ?? '';

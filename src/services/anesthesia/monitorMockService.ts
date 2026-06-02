@@ -1,0 +1,244 @@
+import dayjs from 'dayjs';
+
+import type { SurgeryCase, VitalSign } from '@/types/anesthesia';
+
+import { resolveRecordSheetNowIso, timeToFractionalMinutes } from '@/services/anesthesiaRecordEngine';
+
+import { getAnesthesiaLocalDb } from '@/services/anesthesia/localDb';
+
+import { mapVitalToRow } from '@/services/anesthesia/anesthesiaRecordRepository';
+
+import { canDeviceOverwriteVital, findExistingDeviceRaw } from '@/services/anesthesia/anesthesiaSyncConflict';
+
+import { readEntityBaseSyncVersion, enqueueSyncItem } from '@/services/anesthesia/anesthesiaSyncQueue';
+
+import { patchAnesthesiaSyncUiState, triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthesiaSyncService';
+
+import { buildMonitorSample } from '@/services/anesthesia/deviceMockSamples';
+
+import {
+  type AbnormalSimulationType,
+  type DeviceSimulationMode,
+  isRescueDeviceSimulation,
+  pickAbnormalSimulationType,
+  readAbnormalSimulationTypes,
+  readDeviceSimulationMode,
+  resolveDeviceRawIntervalMs,
+} from '@/services/anesthesia/deviceSimulationMode';
+
+const DEVICE_ID = 'monitor_mock_01';
+
+const SOURCE_DEVICE = 'monitor_mock';
+
+export const DEFAULT_MONITOR_DISPLAY_INTERVAL_MINUTES = 5;
+
+export const RESCUE_MONITOR_DISPLAY_INTERVAL_MINUTES = 1;
+
+export const MONITOR_DISPLAY_INTERVAL_STORAGE_KEY = 'samis.anesthesia.monitorDisplayIntervalMinutes';
+
+export const DEVICE_RAW_COLLECTION_INTERVAL_MS = 4000;
+
+export function clampMonitorDisplayIntervalMinutes(value?: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_MONITOR_DISPLAY_INTERVAL_MINUTES;
+  return Math.max(1, Math.min(5, Math.round(parsed)));
+}
+
+export function resolveMonitorDisplayIntervalMinutes(options?: {
+  rescueMode?: boolean;
+  simulationMode?: DeviceSimulationMode;
+  displayIntervalMinutes?: number;
+}): number {
+  if (options?.rescueMode || options?.simulationMode === 'rescue') {
+    return RESCUE_MONITOR_DISPLAY_INTERVAL_MINUTES;
+  }
+  return clampMonitorDisplayIntervalMinutes(options?.displayIntervalMinutes);
+}
+
+export function readMonitorDisplayIntervalMinutes(): number {
+  if (typeof localStorage === 'undefined') return DEFAULT_MONITOR_DISPLAY_INTERVAL_MINUTES;
+  return clampMonitorDisplayIntervalMinutes(Number(localStorage.getItem(MONITOR_DISPLAY_INTERVAL_STORAGE_KEY)));
+}
+
+function resolveVitalBucketKey(ts: string, displayIntervalMinutes: number) {
+  const mins = timeToFractionalMinutes(dayjs(ts).format('HH:mm:ss'));
+  if (mins === null) return `${displayIntervalMinutes}-0`;
+  return `${displayIntervalMinutes}-${Math.floor(mins / displayIntervalMinutes)}`;
+}
+
+function resolveCollectStatus(mode: DeviceSimulationMode): string {
+  return isRescueDeviceSimulation(mode) ? '抢救采集中' : '采集中';
+}
+
+export interface MonitorMockHandle {
+  stop: () => void;
+}
+
+export interface MonitorMockOptions {
+  rescueMode?: boolean;
+  displayIntervalMinutes?: number;
+  simulationMode?: DeviceSimulationMode;
+  abnormalTypes?: AbnormalSimulationType[];
+}
+
+export function startMonitorMockService(
+  caseItem: SurgeryCase,
+  onVitalAppended: (caseId: string, vital: VitalSign) => void,
+  options?: MonitorMockOptions,
+): MonitorMockHandle {
+  let stopped = false;
+  const simulationMode = options?.simulationMode ?? readDeviceSimulationMode();
+  const abnormalTypes = options?.abnormalTypes ?? readAbnormalSimulationTypes();
+  const rescueMode = options?.rescueMode ?? isRescueDeviceSimulation(simulationMode);
+  const displayIntervalMinutes = resolveMonitorDisplayIntervalMinutes({
+    rescueMode,
+    simulationMode,
+    displayIntervalMinutes: options?.displayIntervalMinutes,
+  });
+  const rawIntervalMs = resolveDeviceRawIntervalMs(simulationMode);
+  let lastVitalBucketKey = '';
+
+  patchAnesthesiaSyncUiState({ monitorRunning: true, rescueMode });
+
+  const buildSample = (forDisplay: boolean) => {
+    if (simulationMode === 'abnormal' && forDisplay) {
+      return buildMonitorSample({
+        abnormal: true,
+        abnormalType: pickAbnormalSimulationType(abnormalTypes),
+      });
+    }
+    if (simulationMode === 'abnormal' && Math.random() < 0.25) {
+      return buildMonitorSample({
+        abnormal: true,
+        abnormalType: pickAbnormalSimulationType(abnormalTypes),
+      });
+    }
+    return buildMonitorSample({ rescueChaos: simulationMode === 'rescue' });
+  };
+
+  const persistRaw = async (ts: string, sample: ReturnType<typeof buildMonitorSample>) => {
+    const db = getAnesthesiaLocalDb();
+    const localId = `monitor-${Date.now()}`;
+    const existingRaw = await findExistingDeviceRaw('monitor_raw', caseItem.id, localId, ts);
+    if (existingRaw) return;
+
+    await db.monitor_raw.put({
+      local_id: localId,
+      record_local_id: caseItem.id,
+      operation_id: caseItem.id,
+      collect_time: ts,
+      ...sample,
+      source_device: SOURCE_DEVICE,
+      device_id: DEVICE_ID,
+      raw_payload: JSON.stringify(sample),
+      sync_status: 'local_only',
+      sync_version: 1,
+      created_at: ts,
+      updated_at: ts,
+    });
+
+    const rawBaseVersion = await readEntityBaseSyncVersion(caseItem.id, 'monitor_raw', localId);
+    await enqueueSyncItem({
+      recordLocalId: caseItem.id,
+      operationId: caseItem.id,
+      entityType: 'monitor_raw',
+      entityLocalId: localId,
+      operationType: 'create',
+      baseSyncVersion: rawBaseVersion,
+      apiPath: '/api-samis/pc/v1/anesthesiaDevice/batchPushMonitorData',
+      payload: {
+        localId,
+        collectTime: dayjs(ts).format('YYYY-MM-DD HH:mm:ss.SSS'),
+        ...sample,
+        mapValue: sample.map_value,
+        rawPayload: JSON.stringify(sample),
+      },
+    });
+    triggerAnesthesiaSyncAfterChange('monitor_raw');
+  };
+
+  const maybePersistDisplayVital = async (ts: string, sample: ReturnType<typeof buildMonitorSample>) => {
+    const bucketKey = resolveVitalBucketKey(ts, displayIntervalMinutes);
+    if (bucketKey === lastVitalBucketKey) return;
+
+    const displaySample = simulationMode === 'abnormal'
+      ? buildMonitorSample({ abnormal: true, abnormalType: pickAbnormalSimulationType(abnormalTypes) })
+      : sample;
+
+    const existingIndex = caseItem.vitals.findIndex((v) =>
+      Math.abs(dayjs(v.time).diff(ts, 'minute')) < displayIntervalMinutes,
+    );
+    if (existingIndex >= 0 && !canDeviceOverwriteVital(caseItem.vitals[existingIndex], '设备采集')) {
+      lastVitalBucketKey = bucketKey;
+      return;
+    }
+
+    const vital: VitalSign = {
+      id: `vital-${Date.now()}`,
+      time: ts,
+      HR: displaySample.hr,
+      SBP: displaySample.sbp,
+      DBP: displaySample.dbp,
+      MAP: displaySample.map_value,
+      SpO2: displaySample.spo2,
+      TEMP: displaySample.temperature,
+      RR: displaySample.respiration,
+      BIS: displaySample.bis,
+      EtCO2: displaySample.etco2,
+      source: '设备采集',
+    };
+    if (existingIndex >= 0) {
+      const existing = caseItem.vitals[existingIndex];
+      vital.id = existing.id ?? vital.id;
+      caseItem.vitals[existingIndex] = { ...existing, ...vital };
+    } else {
+      caseItem.vitals.push(vital);
+    }
+    const savedVital = existingIndex >= 0 ? caseItem.vitals[existingIndex] : vital;
+    const db = getAnesthesiaLocalDb();
+    await db.vital_signs.put(mapVitalToRow(caseItem.id, savedVital, 1));
+    const vitalBaseVersion = await readEntityBaseSyncVersion(caseItem.id, 'vital_sign', savedVital.id!);
+    await enqueueSyncItem({
+      recordLocalId: caseItem.id,
+      operationId: caseItem.id,
+      entityType: 'vital_sign',
+      entityLocalId: savedVital.id!,
+      operationType: 'create',
+      baseSyncVersion: vitalBaseVersion,
+      apiPath: '/api-samis/pc/v1/anesthesiaRecord/batchSaveVitalSigns',
+      payload: savedVital,
+    });
+    triggerAnesthesiaSyncAfterChange('vital_sign');
+    onVitalAppended(caseItem.id, savedVital);
+    lastVitalBucketKey = bucketKey;
+
+    if (caseItem.device) {
+      caseItem.device.lastCollectTime = ts;
+      caseItem.device.collectStatus = resolveCollectStatus(simulationMode);
+    }
+  };
+
+  const rawTick = async () => {
+    if (stopped) return;
+    const ts = resolveRecordSheetNowIso(caseItem);
+    const sample = buildSample(false);
+    sample.pulse = sample.hr;
+    sample.map_value = Math.round((sample.sbp + sample.dbp * 2) / 3);
+    await persistRaw(ts, sample);
+    await maybePersistDisplayVital(ts, sample);
+    patchAnesthesiaSyncUiState({ monitorRunning: true, lastCollectTime: ts, rescueMode });
+    if (!stopped) setTimeout(rawTick, rawIntervalMs);
+  };
+
+  if (caseItem.device) {
+    caseItem.device.collectStatus = resolveCollectStatus(simulationMode);
+  }
+
+  setTimeout(rawTick, rawIntervalMs);
+  return {
+    stop: () => {
+      stopped = true;
+      patchAnesthesiaSyncUiState({ monitorRunning: false, rescueMode });
+    },
+  };
+}

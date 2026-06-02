@@ -10,6 +10,7 @@ import type {
 import type { QualityDefect } from '@/types/quality';
 import type { DrugDictItem, FluidBloodDictItem, FluidBloodSubCategory, VitalSignDictItem } from '@/types/system';
 import { runRecordQualityChecks } from '@/services/anesthesiaRecordHelpers';
+import dayjs from 'dayjs';
 
 export const LIVE_TIME_STEP_MINUTES = 1;
 export const LIVE_DEFAULT_SEGMENT_MINUTES = 10;
@@ -89,6 +90,9 @@ export interface RecordLineDraft {
   executor?: string;
   checker?: string;
   highAlert?: boolean;
+  isSpecial?: boolean;
+  specialNo?: number;
+  reason?: string;
   bloodType?: string;
   rh?: string;
   reaction?: string;
@@ -107,7 +111,15 @@ export interface VitalMarkerShape {
   fill: boolean;
 }
 
+export interface BloodProductIntakeLine {
+  label: string;
+  volume: number;
+  unit: string;
+  display: string;
+}
+
 export interface BalanceSummary {
+  /** 晶体 + 胶体 + 自体血（ml），不含血制品。 */
   totalInput: number;
   totalOutput: number;
   urine: number;
@@ -116,8 +128,64 @@ export interface BalanceSummary {
   otherOutput: number;
   crystalInput: number;
   colloidInput: number;
+  /** 血制品按单位汇总后的展示行（红细胞 U、血浆 ml、血小板 治疗量、冷沉淀 U 等）。 */
+  bloodProductLines: BloodProductIntakeLine[];
+  bloodProductText: string;
+  /** @deprecated 仅保留数字合计，请用 bloodProductText；勿与 ml 总量混加。 */
   bloodInput: number;
   autologousInput: number;
+}
+
+const BLOOD_PRODUCT_LABEL_ORDER = ['红细胞', '血浆', '血小板', '冷沉淀'] as const;
+
+const BLOOD_PRODUCT_SHORT_LABELS: Record<string, string> = {
+  悬浮红细胞: '红细胞',
+  红细胞: '红细胞',
+  新鲜冰冻血浆: '血浆',
+  血浆: '血浆',
+  血小板: '血小板',
+  冷沉淀: '冷沉淀',
+};
+
+export function formatFluidIntakeAmount(volume: number, unit = 'ml') {
+  const value = Number(volume) || 0;
+  if (!value) return '';
+  if (unit === 'ml') return `${value}ml`;
+  if (unit === '治疗量') return `${value}治疗量`;
+  return `${value}${unit}`;
+}
+
+export function buildBloodProductIntakeSummary(fluids: FluidRecord[] = []): { lines: BloodProductIntakeLine[]; text: string } {
+  const buckets = new Map<string, BloodProductIntakeLine>();
+  fluids
+    .filter((row) => row.category === '血液制品' && row.status !== 'voided')
+    .forEach((row) => {
+      const unit = row.unit ?? 'U';
+      const label = BLOOD_PRODUCT_SHORT_LABELS[row.name] ?? row.name;
+      const key = `${label}::${unit}`;
+      const volume = Number(row.volume) || 0;
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.volume += volume;
+        existing.display = `${label} ${formatFluidIntakeAmount(existing.volume, existing.unit)}`.trim();
+        existing.label = label;
+        return;
+      }
+      buckets.set(key, {
+        label,
+        volume,
+        unit,
+        display: `${label} ${formatFluidIntakeAmount(volume, unit)}`.trim(),
+      });
+    });
+
+  const lines = [...buckets.values()].sort((a, b) => {
+    const ai = BLOOD_PRODUCT_LABEL_ORDER.indexOf(a.label as typeof BLOOD_PRODUCT_LABEL_ORDER[number]);
+    const bi = BLOOD_PRODUCT_LABEL_ORDER.indexOf(b.label as typeof BLOOD_PRODUCT_LABEL_ORDER[number]);
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi) || a.label.localeCompare(b.label, 'zh-Hans-CN');
+  });
+  const text = lines.map((line) => line.display).filter(Boolean).join('  ');
+  return { lines, text };
 }
 
 export interface MonitorCell {
@@ -173,6 +241,16 @@ export function buildVitalCatalog(items: VitalSignDictItem[]) {
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
+/** 解析字典名称「心率 HR」为弹窗展示用的中文名与英文缩写。 */
+export function formatVitalMonitorLabel(item: Pick<VitalSignDictItem, 'name' | 'shortCode' | 'unit'>) {
+  const raw = item.name?.trim() || '';
+  const split = raw.match(/^(.+?)\s+([A-Za-z][A-Za-z0-9]*)$/);
+  if (split) {
+    return { labelZh: split[1], labelCode: split[2], unit: item.unit };
+  }
+  return { labelZh: raw || item.shortCode, labelCode: item.shortCode, unit: item.unit };
+}
+
 export function resolveDefaultMonitorOrder(items: VitalSignDictItem[]) {
   const enabled = items.filter((item) => item.enabled);
   const enabledCodes = new Set(enabled.map((item) => item.shortCode));
@@ -220,8 +298,10 @@ export function buildFluidCatalog(items: FluidBloodDictItem[], subCategory?: Flu
 
 export function normalizeMedicationFromDrug(drug: DrugDictItem, executor = ''): Omit<MedicationRecord, 'id'> {
   const mode = drug.defaultMode ?? '单次用药';
+  const isSpecial = Boolean(drug.defaultIsSpecial);
   return {
     mode,
+    drugId: drug.id,
     drug: drug.name,
     name: drug.name,
     dose: typeof drug.defaultDose === 'number' ? drug.defaultDose : Number(drug.defaultDose) || undefined,
@@ -229,7 +309,10 @@ export function normalizeMedicationFromDrug(drug: DrugDictItem, executor = ''): 
     route: drug.defaultRoute,
     executor,
     highAlert: Boolean(drug.highAlert),
-    reason: mode === '持续泵入' ? '持续用药' : '术中给药',
+    isSpecial,
+    specialCategory: isSpecial ? drug.specialCategory : undefined,
+    specialReason: isSpecial ? drug.specialReasonTemplate : undefined,
+    reason: isSpecial ? drug.specialReasonTemplate : (mode === '持续泵入' ? '持续用药' : '术中给药'),
   };
 }
 
@@ -253,19 +336,24 @@ export function createMedicationLineDraft(
   options: { at?: string; executor?: string; id?: string } = {},
 ): RecordLineDraft {
   const normalized = normalizeMedicationFromDrug(drug, options.executor);
-  const time = options.at ?? isoOrClockToClock(new Date().toISOString());
+  const time = options.at ?? resolveRecordSheetNowClock();
   return {
     kind: 'medication',
     id: options.id,
     name: normalized.drug,
     mode: normalized.mode,
     time,
-    endTime: normalized.mode === '持续泵入' ? minutesToClock((clockToMinutes(time) ?? 0) + LIVE_DEFAULT_SEGMENT_MINUTES) : undefined,
+    endTime: normalized.mode === '持续泵入' ? addMinutesToClock(time, LIVE_DEFAULT_SEGMENT_MINUTES) : undefined,
     amount: normalized.dose,
     unit: normalized.unit,
     route: normalized.route,
     executor: normalized.executor,
     highAlert: normalized.highAlert,
+    isSpecial: normalized.isSpecial,
+    specialCategory: normalized.specialCategory,
+    specialReason: normalized.specialReason,
+    reason: normalized.reason,
+    pumpRate: normalized.pumpRate,
   };
 }
 
@@ -274,7 +362,7 @@ export function createFluidLineDraft(
   options: { at?: string; executor?: string; id?: string; bloodType?: string; rh?: string } = {},
 ): RecordLineDraft {
   const normalized = normalizeFluidFromDict(fluid, options.executor);
-  const time = options.at ?? isoOrClockToClock(new Date().toISOString());
+  const time = options.at ?? resolveRecordSheetNowClock();
   const isBlood = fluid.subCategory === '血液制品';
   const isAutologous = isAutologousFluidCategory(fluid.subCategory, fluid.name);
   return {
@@ -283,7 +371,7 @@ export function createFluidLineDraft(
     name: normalized.name,
     category: isAutologous ? '自体血回输' : normalized.category,
     time,
-    endTime: minutesToClock((clockToMinutes(time) ?? 0) + LIVE_DEFAULT_SEGMENT_MINUTES),
+    endTime: addMinutesToClock(time, LIVE_DEFAULT_SEGMENT_MINUTES),
     amount: normalized.volume,
     unit: normalized.unit,
     executor: normalized.executor,
@@ -328,11 +416,167 @@ export function detectDictionaryDrivenAbnormalVitals(vitals: VitalSign[], dict: 
   );
 }
 
+export interface AggregatedAbnormalVital {
+  id: string;
+  metric: string;
+  label: string;
+  unit: string;
+  consecutiveCount: number;
+  latestValue: number;
+  latestTime: string;
+  severity: 'mild' | 'severe';
+  handled: boolean;
+  summary: string;
+  low?: number;
+  high?: number;
+}
+
+export function vitalSourcePriority(source?: string, corrected?: boolean): number {
+  if (corrected) return 100;
+  if (source === '手工修正' || source?.includes('修正')) return 100;
+  if (source === '手工录入' || source?.includes('手工')) return 90;
+  if (source?.includes('设备')) return 10;
+  return 50;
+}
+
+/** 趋势图/监护带：按显示间隔分桶，每桶保留优先级最高的一条 vital_signs。 */
+export function selectDisplayVitalsForBand(
+  vitals: VitalSign[],
+  gridMinutes = 5,
+): VitalSign[] {
+  const active = vitals.filter((row) => row.status !== 'voided');
+  const buckets = new Map<number, VitalSign>();
+  active.forEach((row) => {
+    const clock = isoOrClockToClock(row.time);
+    const mins = timeToFractionalMinutes(clock);
+    if (mins === null) return;
+    const bucket = Math.floor(mins / Math.max(1, gridMinutes));
+    const existing = buckets.get(bucket);
+    const rowPriority = vitalSourcePriority(row.source, Boolean(row.correctedValue));
+    if (!existing) {
+      buckets.set(bucket, row);
+      return;
+    }
+    const existingPriority = vitalSourcePriority(existing.source, Boolean(existing.correctedValue));
+    if (rowPriority > existingPriority || (rowPriority === existingPriority && String(row.time).localeCompare(String(existing.time)) > 0)) {
+      buckets.set(bucket, row);
+    }
+  });
+  return [...buckets.values()].sort((a, b) => String(a.time).localeCompare(String(b.time)));
+}
+
+/** 右侧面板：合并同类异常，轻度单点不进面板，连续/严重才提醒。 */
+export function aggregateAbnormalVitalsForPanel(
+  vitals: VitalSign[],
+  dict: VitalSignDictItem[],
+  options?: { consecutiveThreshold?: number; maxItems?: number },
+): AggregatedAbnormalVital[] {
+  const threshold = options?.consecutiveThreshold ?? 3;
+  const maxItems = options?.maxItems ?? 3;
+  const raw = detectDictionaryDrivenAbnormalVitals(vitals, dict).filter((item) => !item.handled);
+  const byMetric = new Map<string, AbnormalVitalByDictionary[]>();
+  raw.forEach((item) => {
+    const list = byMetric.get(item.metric) ?? [];
+    list.push(item);
+    byMetric.set(item.metric, list);
+  });
+
+  const results: AggregatedAbnormalVital[] = [];
+  byMetric.forEach((items, metric) => {
+    const sorted = [...items].sort((a, b) => a.time.localeCompare(b.time));
+    let maxRun = 1;
+    let currentRun = 1;
+    for (let index = 1; index < sorted.length; index += 1) {
+      const gap = Math.abs(dayjs(sorted[index].time).diff(sorted[index - 1].time, 'minute'));
+      if (gap <= 10) {
+        currentRun += 1;
+        maxRun = Math.max(maxRun, currentRun);
+      } else {
+        currentRun = 1;
+      }
+    }
+    const latest = sorted[sorted.length - 1];
+    const tooHigh = typeof latest.high === 'number' && latest.value > latest.high;
+    const tooLow = typeof latest.low === 'number' && latest.value < latest.low;
+    const deviation = tooHigh && typeof latest.high === 'number'
+      ? (latest.value - latest.high) / latest.high
+      : tooLow && typeof latest.low === 'number'
+        ? (latest.low - latest.value) / latest.low
+        : 0;
+    const severe = deviation >= 0.15 || maxRun >= threshold;
+    if (!severe && maxRun < threshold) return;
+
+    const direction = tooHigh ? '偏高' : '偏低';
+    results.push({
+      id: `${metric}-${latest.time}`,
+      metric,
+      label: latest.label,
+      unit: latest.unit,
+      consecutiveCount: maxRun,
+      latestValue: latest.value,
+      latestTime: latest.time,
+      severity: severe ? 'severe' : 'mild',
+      handled: false,
+      low: latest.low,
+      high: latest.high,
+      summary: maxRun >= 2 ? `${latest.metric} ${direction}，连续 ${maxRun} 次` : `${latest.metric} ${direction}`,
+    });
+  });
+
+  return results
+    .sort((a, b) => Number(b.severity === 'severe') - Number(a.severity === 'severe') || b.consecutiveCount - a.consecutiveCount)
+    .slice(0, maxItems);
+}
+
 export function clockToMinutes(time?: string) {
   if (!time) return null;
-  const [hour, minute] = time.split(':').map(Number);
+  const parts = time.split(':').map(Number);
+  const [hour, minute] = parts;
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
   return hour * 60 + minute;
+}
+
+/** 含秒/毫秒的小数分钟，用于趋势图与设备高频点位横轴定位。 */
+export function timeToFractionalMinutes(time?: string): number | null {
+  if (!time) return null;
+  if (/^\d{2}:\d{2}$/.test(time)) {
+    const [hour, minute] = time.split(':').map(Number);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+    return hour * 60 + minute;
+  }
+  if (/^\d{2}:\d{2}:\d{2}$/.test(time)) {
+    const [hour, minute, second] = time.split(':').map(Number);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute) || !Number.isFinite(second)) return null;
+    return hour * 60 + minute + second / 60;
+  }
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60 + date.getMilliseconds() / 60000;
+}
+
+export function snapMonitorBandLeftPercent(
+  leftPercent: number,
+  start = '08:00',
+  end = '11:30',
+  gridMinutes = 5,
+): number {
+  const startMinutes = clockToMinutes(start);
+  const endMinutes = clockToMinutes(end);
+  if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) return leftPercent;
+  const range = endMinutes - startMinutes;
+  const absolute = startMinutes + (leftPercent / 100) * range;
+  const snapped = Math.round(absolute / Math.max(1, gridMinutes)) * Math.max(1, gridMinutes);
+  const clamped = Math.max(startMinutes, Math.min(endMinutes, snapped));
+  return Number((((clamped - startMinutes) / range) * 100).toFixed(6));
+}
+
+export function dedupeVitalsById(vitals: VitalSign[] = []): VitalSign[] {
+  const map = new Map<string, VitalSign>();
+  vitals.forEach((row, index) => {
+    const key = row.id ?? `${row.time}-${row.source ?? 'unknown'}-${index}`;
+    map.set(key, row);
+  });
+  return [...map.values()].sort((a, b) => String(a.time).localeCompare(String(b.time)));
 }
 
 export function minutesToClock(totalMinutes: number) {
@@ -340,6 +584,54 @@ export function minutesToClock(totalMinutes: number) {
   const hour = Math.floor(normalized / 60);
   const minute = normalized % 60;
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+export function addMinutesToClock(clock: string, minutes: number) {
+  return minutesToClock((clockToMinutes(clock) ?? 0) + minutes);
+}
+
+/** 记录单录入弹窗默认时刻：手术日锚定下的当前时分。 */
+export function resolveRecordSheetNowClock(
+  record?: Pick<SurgeryCase, 'plannedStart' | 'anesthesiaStart'>,
+): string {
+  const now = new Date();
+  const base = record?.plannedStart || record?.anesthesiaStart;
+  if (base) {
+    const anchor = new Date(base);
+    if (!Number.isNaN(anchor.getTime())) {
+      anchor.setHours(now.getHours(), now.getMinutes(), 0, 0);
+      return isoOrClockToClock(anchor.toISOString());
+    }
+  }
+  return isoOrClockToClock(now.toISOString());
+}
+
+/** 设备/录入用：锚定手术日期的当前时刻 ISO（保留秒）。 */
+export function resolveRecordSheetNowIso(
+  record?: Pick<SurgeryCase, 'plannedStart' | 'anesthesiaStart' | 'roomInTime' | 'actualStart'>,
+): string {
+  const now = new Date();
+  const base = record?.anesthesiaStart || record?.plannedStart;
+  if (base) {
+    const anchor = new Date(base);
+    if (!Number.isNaN(anchor.getTime())) {
+      anchor.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+      if (record) {
+        const axisStartClock = isoOrClockToClock(
+          record.roomInTime ?? record.anesthesiaStart ?? record.actualStart ?? record.plannedStart,
+        ) || '08:00';
+        const axisStartMinutes = clockToMinutes(axisStartClock);
+        const anchorMinutes = anchor.getHours() * 60 + anchor.getMinutes() + anchor.getSeconds() / 60;
+        if (axisStartMinutes !== null && anchorMinutes < axisStartMinutes) {
+          const hour = Math.floor(axisStartMinutes / 60);
+          const minute = Math.floor(axisStartMinutes % 60);
+          anchor.setHours(hour, minute, now.getSeconds(), now.getMilliseconds());
+        }
+      }
+      return anchor.toISOString();
+    }
+  }
+  return now.toISOString();
 }
 
 export function isoOrClockToClock(value?: string) {
@@ -456,16 +748,17 @@ export function buildMonitorCells(
   rows: VitalSign[],
   items: VitalSignDictItem[],
   selectedOrder: string[] = [],
-  timeline: { start?: string; end?: string; cellOffsetPercent?: number } = {},
+  timeline: { start?: string; end?: string; cellOffsetPercent?: number; gridMinutes?: number } = {},
 ): MonitorCell[] {
   const order = selectedOrder.length ? selectedOrder : items.map((item) => item.shortCode);
   const orderedItems = order
     .map((code) => items.find((item) => item.shortCode === code))
     .filter((item): item is VitalSignDictItem => Boolean(item));
   const rowCount = Math.max(1, orderedItems.length);
+  const gridMinutes = timeline.gridMinutes ?? 5;
 
-  return [...rows]
-    .sort((a, b) => isoOrClockToClock(a.time).localeCompare(isoOrClockToClock(b.time)))
+  const cells = [...rows]
+    .sort((a, b) => String(a.time).localeCompare(String(b.time)))
     .flatMap((row) =>
       orderedItems.flatMap((item, rowIndex) => {
         const value = row[item.shortCode as keyof VitalSign];
@@ -475,6 +768,13 @@ export function buildMonitorCells(
           Number.isFinite(numeric) &&
           ((typeof item.lowerLimit === 'number' && numeric < item.lowerLimit) ||
             (typeof item.upperLimit === 'number' && numeric > item.upperLimit));
+        const rawLeft = timeToPercent(row.time, timeline.start, timeline.end) + (timeline.cellOffsetPercent ?? 0);
+        const leftPercent = snapMonitorBandLeftPercent(
+          rawLeft,
+          timeline.start,
+          timeline.end,
+          gridMinutes,
+        );
         return [{
           key: `${row.id ?? row.time}-${item.shortCode}`,
           row,
@@ -483,13 +783,23 @@ export function buildMonitorCells(
           time: row.time,
           rowIndex,
           rowCount,
-          leftPercent: Number(Math.max(0, Math.min(100, timeToPercent(row.time, timeline.start, timeline.end) + (timeline.cellOffsetPercent ?? 0))).toFixed(6)),
+          leftPercent: Number(Math.max(0, Math.min(100, leftPercent)).toFixed(6)),
           topPercent: monitorCellTopPercent(rowIndex, rowCount),
           abnormal,
           unit: item.unit,
         }];
       }),
     );
+
+  const deduped = new Map<string, MonitorCell>();
+  cells.forEach((cell) => {
+    const bucketKey = `${cell.metric}-${cell.leftPercent.toFixed(4)}`;
+    const existing = deduped.get(bucketKey);
+    if (!existing || String(cell.time).localeCompare(String(existing.time)) > 0) {
+      deduped.set(bucketKey, cell);
+    }
+  });
+  return [...deduped.values()].sort((a, b) => a.leftPercent - b.leftPercent || a.rowIndex - b.rowIndex);
 }
 
 export function moveMonitorItemOrder(order: string[], code: string, mode: 'up' | 'down' | 'to-index', targetIndex?: number) {
@@ -551,8 +861,8 @@ export function findVitalUpsertIndex(rows: VitalSign[], next: Pick<VitalSign, 'i
     if (byId >= 0) return byId;
   }
   const nextTime = isoOrClockToClock(next.time);
-  if (!next.id && nextTime) return rows.findIndex((row) => !row.id && isoOrClockToClock(row.time) === nextTime);
-  return -1;
+  if (!nextTime) return -1;
+  return rows.findIndex((row) => isoOrClockToClock(row.time) === nextTime);
 }
 
 export function vitalMarkerShape(item: Pick<VitalSignDictItem, 'shortCode' | 'chartSymbol'>): VitalMarkerShape {
@@ -596,14 +906,17 @@ export function buildBalanceSummary(item: Pick<SurgeryCase, 'fluids' | 'outputs'
   const otherOutput = outputByType('其他');
   const crystalInput = inputByCategory('晶体液');
   const colloidInput = inputByCategory('胶体液');
-  const bloodInput = inputByCategory('血液制品');
   const autologousInput = inputByCategory('自体血回输');
+  const { lines: bloodProductLines, text: bloodProductText } = buildBloodProductIntakeSummary(item.fluids);
+  const bloodInput = bloodProductLines.reduce((sum, line) => sum + line.volume, 0);
   return {
     crystalInput,
     colloidInput,
+    bloodProductLines,
+    bloodProductText,
     bloodInput,
     autologousInput,
-    totalInput: crystalInput + colloidInput + bloodInput + autologousInput,
+    totalInput: crystalInput + colloidInput + autologousInput,
     urine,
     bloodLoss,
     drainage,
@@ -615,7 +928,7 @@ export function buildBalanceSummary(item: Pick<SurgeryCase, 'fluids' | 'outputs'
 export function timeToPercent(time?: string, start = '08:00', end = '11:30') {
   const startMinutes = clockToMinutes(start);
   const endMinutes = clockToMinutes(end);
-  const valueMinutes = clockToMinutes(isoOrClockToClock(time));
+  const valueMinutes = timeToFractionalMinutes(time);
   if (startMinutes === null || endMinutes === null || valueMinutes === null || endMinutes <= startMinutes) return 0;
   return Number(Math.max(0, Math.min(100, ((valueMinutes - startMinutes) / (endMinutes - startMinutes)) * 100)).toFixed(6));
 }
@@ -752,8 +1065,12 @@ export function roundAxisStartTime(time = '08:00', roundMinutes = 30): string {
   return minutesToClock(rounded);
 }
 
+export function isRescueModeActive(record: Pick<SurgeryCase, 'rescue'>): boolean {
+  return Boolean(record.rescue?.startTime && !record.rescue?.endTime);
+}
+
 export function resolveTimeAxisIntervals(record: SurgeryCase): { minorInterval: 5 | 1 | 3 | 10 | 15; majorInterval: number } {
-  if (record.vitalFrequency === '抢救1分钟' || record.rescue?.startTime) {
+  if (isRescueModeActive(record) || record.vitalFrequency === '抢救1分钟') {
     return { minorInterval: 1, majorInterval: 15 };
   }
   const minor = record.recordDocument?.minorInterval ?? 5;
@@ -842,14 +1159,15 @@ export function buildRecordSummaryFields(record: SurgeryCase): RecordSummaryFiel
   const recoveryTime = summary.recoveryTime ?? record.recoveryRecord?.leaveTime;
   const destination = summary.destination ?? record.transferTo ?? record.recoveryRecord?.destination;
   return {
-    crystalTotal: summary.crystalTotal ?? balance.crystalInput,
-    colloidTotal: summary.colloidTotal ?? balance.colloidInput,
-    bloodTotal: summary.bloodTotal ?? balance.bloodInput,
-    urineTotal: summary.urineTotal ?? balance.urine,
-    bloodLossTotal: summary.bloodLossTotal ?? balance.bloodLoss,
-    drainageTotal: summary.drainageTotal ?? balance.drainage,
-    inputTotal: summary.inputTotal ?? balance.totalInput,
-    outputTotal: summary.outputTotal ?? balance.totalOutput,
+    crystalTotal: balance.crystalInput,
+    colloidTotal: balance.colloidInput,
+    bloodTotal: balance.bloodInput,
+    bloodProductSummary: balance.bloodProductText,
+    urineTotal: balance.urine,
+    bloodLossTotal: balance.bloodLoss,
+    drainageTotal: balance.drainage,
+    inputTotal: balance.totalInput,
+    outputTotal: balance.totalOutput,
     anesthesiaEffect: summary.anesthesiaEffect ?? '良',
     analgesiaMethod: summary.analgesiaMethod ?? (record.postoperativeAnalgesia ? 'PCA' : '未记录'),
     extubationTime: extubationTime ? isoOrClockToClock(extubationTime) : undefined,

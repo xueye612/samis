@@ -9,9 +9,12 @@ import {
   buildMonitorCells,
   buildRecordBandGrid,
   buildBalanceSummary,
+  buildBloodProductIntakeSummary,
+  buildRecordSummaryFields,
   buildRecordSnapshot,
   roundAxisStartTime,
   resolveDefaultMonitorOrder,
+  resolveRecordSheetNowIso,
   isInhaledMedication,
   hasInhaledMethodHint,
   hasInhaledEventHint,
@@ -26,10 +29,17 @@ import {
   clampVitalValueByDict,
   createAnesthesiaPlaneDraft,
   createFluidLineDraft,
+  addMinutesToClock,
+  clockToMinutes,
   createMedicationLineDraft,
+  isoOrClockToClock,
+  resolveRecordSheetNowClock,
   buildVitalCatalog,
+  formatVitalMonitorLabel,
   dragVitalPointValue,
   findVitalUpsertIndex,
+  isRescueModeActive,
+  resolveTimeAxisIntervals,
   monitorCellTopPercent,
   moveMonitorItemOrder,
   vitalMarkerShape,
@@ -41,6 +51,8 @@ import {
   runLiveRecordQualityChecks,
   saveRecordLocalState,
   timeToPercent,
+  timeToFractionalMinutes,
+  dedupeVitalsById,
 } from '@/services/anesthesiaRecordEngine';
 
 const drugs: DrugDictItem[] = [
@@ -176,6 +188,18 @@ const baseCase = (): SurgeryCase => ({
 describe('anesthesiaRecordEngine dictionary linkage', () => {
   it('builds catalogs from enabled dictionaries and carries defaults into record editors', () => {
     expect(buildDrugCatalog(drugs).map((item) => item.name)).toEqual(['阿托品', '丙泊酚']);
+    expect(formatVitalMonitorLabel({ name: '心率 HR', shortCode: 'HR', unit: 'bpm' })).toEqual({
+      labelZh: '心率',
+      labelCode: 'HR',
+      unit: 'bpm',
+    });
+    expect(formatVitalMonitorLabel(vitals[0])).toEqual({ labelZh: '收缩压', labelCode: 'SBP', unit: 'mmHg' });
+    expect(formatVitalMonitorLabel({ name: 'SpO2', shortCode: 'SpO2', unit: '%' })).toEqual({
+      labelZh: 'SpO2',
+      labelCode: 'SpO2',
+      unit: '%',
+    });
+
     expect(buildVitalCatalog(vitals).map((item) => [item.shortCode, item.lowerLimit, item.upperLimit])).toEqual([
       ['SBP', 90, 160],
       ['TEMP', 35.5, 38.5],
@@ -235,6 +259,15 @@ describe('anesthesiaRecordEngine dictionary linkage', () => {
       doubleCheck: false,
       executor: '赵护士',
     });
+
+    const continuousDrug = { ...drugs[0], defaultMode: '持续泵入' as const };
+    expect(createMedicationLineDraft(continuousDrug, { at: '09:15', executor: '刘医生' })).toMatchObject({
+      mode: '持续泵入',
+      time: '09:15',
+      endTime: '09:25',
+    });
+    expect(addMinutesToClock('09:15', 30)).toBe('09:45');
+    expect(resolveRecordSheetNowClock({ plannedStart: '2026-06-02T08:00:00.000Z' })).toMatch(/^\d{2}:\d{2}$/);
   });
 
   it('uses vital dictionaries for abnormal detection instead of hard-coded columns', () => {
@@ -251,6 +284,15 @@ describe('anesthesiaRecordEngine time axis', () => {
     const scale = buildLiveTimeScale('08:00', '11:30');
     expect(scale.majorTicks.map((tick) => tick.label)).toContain('09:30');
     expect(timeToPercent('09:45', '08:00', '11:30')).toBe(50);
+    expect(timeToFractionalMinutes('09:45:30')).toBeCloseTo(9 * 60 + 45.5, 5);
+    const base = timeToPercent('09:00:00', '08:00', '11:30');
+    const later = timeToPercent('09:00:30', '08:00', '11:30');
+    expect(later).toBeGreaterThan(base);
+    expect(dedupeVitalsById([
+      { id: 'a', time: '09:00', HR: 80 },
+      { id: 'a', time: '09:01', HR: 82 },
+      { id: 'b', time: '09:02', HR: 84 },
+    ])).toHaveLength(2);
     expect(dragTimeSegment({ start: '09:00', end: '09:30' }, { mode: 'move', deltaPercent: 14.2857, sheetStart: '08:00', sheetEnd: '11:30', snapMinutes: 1 })).toEqual({
       start: '09:30',
       end: '10:00',
@@ -329,9 +371,23 @@ describe('anesthesiaRecordEngine printable chart layout', () => {
       rows,
       ['SBP'],
       { start: '08:00', end: '10:00', cellOffsetPercent: 0.8 },
-    )[0].leftPercent).toBe(50.8);
+    )[0].leftPercent).toBe(50);
     expect(cells[0].topPercent).toBeGreaterThan(0);
     expect(cells[1].topPercent).toBeLessThan(100);
+  });
+
+  it('dedupes monitor band cells to latest value per grid column and metric', () => {
+    const rows = [
+      { id: 'vital-1', time: '09:00:10', SBP: 120, HR: 70 },
+      { id: 'vital-2', time: '09:00:40', SBP: 130, HR: 72 },
+    ];
+    const items = [
+      { ...vitals[0], shortCode: 'SBP', sortOrder: 1 },
+      { ...vitals[0], id: 'vital-hr', shortCode: 'HR', name: '心率 HR', unit: '次/分', sortOrder: 2 },
+    ];
+    const cells = buildMonitorCells(rows, items, ['SBP', 'HR'], { start: '08:00', end: '10:00' });
+    expect(cells.filter((item) => item.metric === 'SBP')).toHaveLength(1);
+    expect(cells.find((item) => item.metric === 'SBP')?.value).toBe(130);
   });
 
   it('moves monitor item order with stable boundaries', () => {
@@ -354,6 +410,19 @@ describe('anesthesiaRecordEngine printable chart layout', () => {
     expect(findVitalUpsertIndex([{ time: '09:00', SBP: 120 }], { time: '09:00' })).toBe(0);
     expect(findVitalUpsertIndex([{ id: 'v1', time: '09:00', SBP: 120 }], { id: 'v1', time: '09:05' })).toBe(0);
     expect(findVitalUpsertIndex([{ time: '09:00', SBP: 120 }], { time: '09:05' })).toBe(-1);
+    expect(findVitalUpsertIndex(
+      [{ id: 'v1', time: '2026-05-27T09:00:00.000Z', SBP: 120 }],
+      { id: 'v2', time: '2026-05-27T09:00:30.000Z', SBP: 118 },
+    )).toBe(0);
+  });
+
+  it('treats rescue mode as active only before endTime is recorded', () => {
+    const active = { rescue: { startTime: '2026-05-27T10:00:00.000Z', measures: '', medications: '', participants: [], supplementReminder: true } };
+    const ended = { rescue: { ...active.rescue, endTime: '2026-05-27T10:30:00.000Z' } };
+    expect(isRescueModeActive(active)).toBe(true);
+    expect(isRescueModeActive(ended)).toBe(false);
+    expect(resolveTimeAxisIntervals({ ...anesthesiaCases[0], ...active, vitalFrequency: '5分钟' }).minorInterval).toBe(1);
+    expect(resolveTimeAxisIntervals({ ...anesthesiaCases[0], ...ended, vitalFrequency: '5分钟' }).minorInterval).toBe(5);
   });
 
   it('creates editable anesthesia plane drafts for the first medication row', () => {
@@ -375,6 +444,45 @@ describe('anesthesiaRecordEngine printable chart layout', () => {
     expect(roundAxisStartTime('08:47')).toBe('08:30');
   });
 
+  it('derives footer intake totals from fluids even when cached summary totals are zero', () => {
+    const item = baseCase();
+    item.recordSummary = { inputTotal: 0, crystalTotal: 0, colloidTotal: 0 };
+    item.fluids.push({
+      id: 'f-infusion',
+      category: '晶体液',
+      name: '乳酸钠林格液',
+      startTime: '2026-05-26T09:00:00.000Z',
+      volume: 500,
+      unit: 'ml',
+      executor: '赵护士',
+    });
+    expect(buildRecordSummaryFields(item)).toMatchObject({
+      crystalTotal: 500,
+      inputTotal: 500,
+    });
+  });
+
+  it('summarizes blood products by clinical unit (U, ml, 治疗量)', () => {
+    const summary = buildBloodProductIntakeSummary([
+      { id: 'b1', category: '血液制品', name: '悬浮红细胞', startTime: '09:00', volume: 2, unit: 'U', executor: 'n' },
+      { id: 'b2', category: '血液制品', name: '新鲜冰冻血浆', startTime: '09:10', volume: 300, unit: 'ml', executor: 'n' },
+      { id: 'b3', category: '血液制品', name: '血小板', startTime: '09:20', volume: 1, unit: '治疗量', executor: 'n' },
+      { id: 'b4', category: '血液制品', name: '冷沉淀', startTime: '09:30', volume: 10, unit: 'U', executor: 'n' },
+    ]);
+    expect(summary.text).toBe('红细胞 2U  血浆 300ml  血小板 1治疗量  冷沉淀 10U');
+    const balance = buildBalanceSummary({
+      fluids: [
+        { id: 'c1', category: '晶体液', name: '林格', startTime: '08:00', volume: 1000, unit: 'ml', executor: 'n' },
+        { id: 'b1', category: '血液制品', name: '悬浮红细胞', startTime: '09:00', volume: 2, unit: 'U', executor: 'n' },
+        { id: 'b3', category: '血液制品', name: '血小板', startTime: '09:20', volume: 1, unit: '治疗量', executor: 'n' },
+      ],
+      outputs: { urine: 0, bloodLoss: 0, drainage: 0 },
+    });
+    expect(balance.totalInput).toBe(1000);
+    expect(balance.bloodProductText).toContain('红细胞 2U');
+    expect(balance.bloodProductText).toContain('血小板 1治疗量');
+  });
+
   it('builds record snapshot and print preflight checks', () => {
     const snapshot = buildRecordSnapshot(anesthesiaCases[0]);
     expect(snapshot.patientName).toBeTruthy();
@@ -392,7 +500,7 @@ describe('anesthesiaRecordEngine printable chart layout', () => {
     ];
 
     expect(buildBalanceSummary(item)).toMatchObject({
-      totalInput: 502,
+      totalInput: 500,
       totalOutput: 525,
       urine: 200,
       bloodLoss: 300,
@@ -454,6 +562,21 @@ describe('anesthesiaRecordEngine band helpers', () => {
     const draft = createFluidLineDraft(autologousFluid, { at: '09:00', executor: '测试' });
     expect(draft.category).toBe('自体血回输');
     expect(draft.kind).toBe('infusion');
+  });
+});
+
+describe('resolveRecordSheetNowIso', () => {
+  it('anchors to anesthesiaStart and clamps before axis start', () => {
+    const record: SurgeryCase = {
+      ...baseCase(),
+      plannedStart: '2026-06-02T14:00:00.000+08:00',
+      anesthesiaStart: '2026-06-02T14:05:00.000+08:00',
+    };
+    const iso = resolveRecordSheetNowIso(record);
+    const clock = isoOrClockToClock(iso);
+    const minutes = clockToMinutes(clock);
+    expect(minutes).not.toBeNull();
+    expect(minutes!).toBeGreaterThanOrEqual(clockToMinutes('14:05')!);
   });
 });
 

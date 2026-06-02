@@ -1,3 +1,5 @@
+import type { SpecialDrugCategory } from '@/types/drugDict';
+
 export interface AuditLogEntry {
   id: string;
   time: string;
@@ -86,12 +88,28 @@ export interface AnesthesiaMethodCategory {
 export interface DrugDictItem extends DictItem {
   doseUnit: string;
   specification: string;
+  drugAlias?: string;
+  /** 药理/业务分类（非 special_category） */
+  drugCategory?: string;
   defaultRoute?: string;
   defaultDose?: number | string;
-  defaultMode?: '单次用药' | '持续泵入';
+  defaultRateUnit?: string;
+  defaultMode?: '单次用药' | '持续泵入' | '间断追加';
+  /** 是否默认推荐勾选特殊用药；医生可覆盖 */
+  defaultIsSpecial?: boolean;
+  specialCategory?: SpecialDrugCategory;
+  specialReasonTemplate?: string;
+  specialDisplayTemplate?: string;
+  allowManualOverride?: boolean;
   highAlert?: boolean;
+  isRescueDrug?: boolean;
+  isVasoactive?: boolean;
+  isAnticoagulant?: boolean;
+  isObstetricDrug?: boolean;
+  isElectrolyteDrug?: boolean;
   common?: boolean;
   sortOrder?: number;
+  remark?: string;
 }
 
 export type FluidBloodSubCategory = '晶体液' | '胶体液' | '血液制品' | '自体血回输';

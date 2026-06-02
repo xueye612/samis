@@ -224,6 +224,57 @@ export function getQuickEventOption(name: string): QuickEventOption {
   };
 }
 
+const TOP_TOOLBAR_QUICK_EVENT_ORDER = ['给药', '低血压', '升压药', '手术开始', '麻醉开始', '手术结束', '麻醉结束', '离室'] as const;
+const VOIDED_EVENT_STATUSES = new Set(['voided', '作废', '已作废']);
+
+/** 带 syncField 的里程碑事件是否已记录（可重复事件如给药、低血压始终返回 false） */
+export function isQuickEventDone(
+  item: Pick<SurgeryCase, 'events' | 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'anesthesiaEnd' | 'leaveRoomTime'>,
+  option: Pick<QuickEventOption, 'name' | 'syncField'>,
+): boolean {
+  if (!option.syncField) return false;
+  if (item[option.syncField]) return true;
+  return item.events
+    .filter((event) => !VOIDED_EVENT_STATUSES.has(event.status ?? ''))
+    .some((event) => event.type === option.name);
+}
+
+export interface TopToolbarQuickEventButton {
+  name: string;
+  disabled: boolean;
+  title?: string;
+}
+
+/** 顶栏快捷事件：固定优先级、去重，里程碑已记录则置灰 */
+export function resolveTopToolbarQuickEvents(
+  item: Pick<SurgeryCase, 'events' | 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'anesthesiaEnd' | 'leaveRoomTime'>,
+  stage: IntraopStage,
+  methods: AnesthesiaMethodKey[],
+  selectedTemplate = '',
+  scenario?: SurgeryScenarioKey,
+): TopToolbarQuickEventButton[] {
+  const pool = getStageQuickEvents(stage, methods, selectedTemplate, scenario);
+  const seen = new Set<string>();
+  const ordered: QuickEventOption[] = [];
+  const push = (name: string) => {
+    if (seen.has(name)) return;
+    const option = pool.find((event) => event.name === name) ?? quickEventOptions.find((event) => event.name === name);
+    if (!option) return;
+    seen.add(name);
+    ordered.push(option);
+  };
+  TOP_TOOLBAR_QUICK_EVENT_ORDER.forEach((name) => push(name));
+  pool.forEach((event) => push(event.name));
+  return ordered.slice(0, 4).map((option) => {
+    const disabled = isQuickEventDone(item, option);
+    return {
+      name: option.name,
+      disabled,
+      title: disabled ? '已记录，不可重复' : undefined,
+    };
+  });
+}
+
 export function deriveCurrentStage(item: Pick<SurgeryCase, 'events' | 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'leaveRoomTime'>): IntraopStage {
   const eventTypes = item.events.map((event) => event.type);
   if (item.leaveRoomTime || eventTypes.some((type) => type.includes('离室'))) return '离室';

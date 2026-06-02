@@ -9,6 +9,7 @@ const props = withDefaults(defineProps<{
   placeholder?: string;
   span?: number;
   printMode?: boolean;
+  interactionMode?: 'edit' | 'view' | 'print';
   compact?: boolean;
 }>(), {
   modelValue: '',
@@ -17,6 +18,7 @@ const props = withDefaults(defineProps<{
   placeholder: '',
   span: 1,
   printMode: false,
+  interactionMode: 'edit',
   compact: false,
 });
 
@@ -24,7 +26,19 @@ const emit = defineEmits<{
   'update:modelValue': [value: string];
 }>();
 
-const displayValue = computed(() => props.modelValue || props.placeholder || '');
+const isEditable = computed(() => !props.readonly && !props.printMode && props.interactionMode === 'edit');
+const isPrintLike = computed(() => props.printMode || props.interactionMode === 'print');
+const isViewLike = computed(() => props.interactionMode === 'view' && !props.printMode);
+
+const displayValue = computed(() => {
+  if (props.modelValue?.trim()) return props.modelValue;
+  if (isEditable.value && props.placeholder) return props.placeholder;
+  return '';
+});
+
+const inputPlaceholder = computed(() => (
+  isEditable.value ? (props.placeholder || '点击填写') : ''
+));
 
 const onInput = (event: Event) => {
   emit('update:modelValue', (event.target as HTMLInputElement | HTMLTextAreaElement).value);
@@ -35,28 +49,31 @@ const onInput = (event: Event) => {
   <div
     class="paper-field"
     :class="{
-      'is-readonly': readonly,
-      'is-print': printMode,
+      'is-readonly': readonly || isViewLike,
+      'is-print': isPrintLike,
+      'is-view': isViewLike,
+      'is-editable': isEditable,
       'is-multiline': multiline,
       compact,
+      'is-empty': !modelValue?.trim(),
     }"
     :style="span > 1 ? { gridColumn: `span ${span}` } : undefined"
   >
     <label class="paper-field-label">{{ label }}</label>
     <textarea
-      v-if="multiline && !readonly && !printMode"
+      v-if="multiline && isEditable"
       class="paper-field-input"
       :value="modelValue"
-      :placeholder="placeholder"
+      :placeholder="inputPlaceholder"
       rows="1"
       @input="onInput"
     />
     <input
-      v-else-if="!readonly && !printMode"
+      v-else-if="isEditable"
       class="paper-field-input"
       type="text"
       :value="modelValue"
-      :placeholder="placeholder"
+      :placeholder="inputPlaceholder"
       @input="onInput"
     />
     <span
@@ -107,6 +124,14 @@ const onInput = (event: Event) => {
   letter-spacing: 0;
 }
 
+.paper-field.is-editable.is-empty .paper-field-input::placeholder {
+  color: #94a3b8;
+}
+
+.paper-field.is-editable:hover .paper-field-input {
+  border-bottom-color: #94a3b8;
+}
+
 .paper-field-input:focus {
   outline: none;
   background: #fff;
@@ -118,10 +143,21 @@ const onInput = (event: Event) => {
   resize: vertical;
 }
 
-.paper-field.is-readonly .paper-field-value {
+.paper-field.is-readonly .paper-field-value,
+.paper-field.is-view .paper-field-value {
   color: #111827;
   border-bottom-color: #e2e8f0;
   background: transparent;
+}
+
+.paper-field.is-print .paper-field-value,
+.paper-field.is-print .paper-field-input {
+  border-bottom-color: #555;
+}
+
+.paper-field.is-print .paper-field-input::placeholder,
+.paper-field.is-print .paper-field-value:empty {
+  color: transparent;
 }
 
 .paper-field-value {
@@ -134,11 +170,6 @@ const onInput = (event: Event) => {
 .paper-field.compact.field-full .paper-field-value,
 .paper-field.compact.is-multiline .paper-field-value {
   white-space: nowrap;
-}
-
-.paper-field.is-print .paper-field-value,
-.paper-field.is-print .paper-field-input {
-  border-bottom-color: #555;
 }
 
 @media print {

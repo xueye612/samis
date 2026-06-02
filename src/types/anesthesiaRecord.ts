@@ -121,6 +121,8 @@ export interface RecordSummaryFields {
   crystalTotal?: number;
   colloidTotal?: number;
   bloodTotal?: number;
+  /** 血制品入量摘要，如「红细胞 2U  血浆 300ml  血小板 1治疗量  冷沉淀 10U」。 */
+  bloodProductSummary?: string;
   urineTotal?: number;
   bloodLossTotal?: number;
   drainageTotal?: number;

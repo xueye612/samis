@@ -79,10 +79,24 @@ describe('recordPaginationEngine', () => {
     expect(clipped?.continuesToNext).toBe(true);
   });
 
-  it('detects time on page', () => {
-    const pages = buildTimeAxisPages('08:00', '11:30');
+  it('detects time on page with half-open boundaries', () => {
+    const pages = buildTimeAxisPages('08:00', '11:30', { pageDurationMinutes: 180 });
+    expect(pages[0].pageEndTime).toBe('11:00');
+    expect(pages[1].pageStartTime).toBe('11:00');
     expect(isTimeOnPage('09:00', pages[0])).toBe(true);
+    expect(isTimeOnPage('10:59', pages[0])).toBe(true);
+    expect(isTimeOnPage('11:00', pages[0])).toBe(false);
+    expect(isTimeOnPage('11:00', pages[1])).toBe(true);
     expect(isTimeOnPage('12:00', pages[0])).toBe(false);
+  });
+
+  it('includes axis end on the last page only', () => {
+    const pages = buildTimeAxisPages('08:00', '11:30', { pageDurationMinutes: 120 });
+    const last = pages[pages.length - 1];
+    expect(isTimeOnPage('11:30', last)).toBe(true);
+    if (pages.length > 1) {
+      expect(isTimeOnPage('11:30', pages[0])).toBe(false);
+    }
   });
 
   it('uses the exact room in time for axis start', () => {

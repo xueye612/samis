@@ -5,6 +5,7 @@ import {
   collectRecordTimes,
   isoOrClockToClock,
   minutesToClock,
+  timeToFractionalMinutes,
 } from '@/services/anesthesiaRecordEngine';
 import type { SurgeryCase } from '@/types/anesthesia';
 
@@ -63,13 +64,16 @@ export function buildRecordPagination(record: SurgeryCase, options: PaginationOp
   return { axisStart, axisEnd, pages };
 }
 
+/** 页内时间归属：非末页 [start, end)，末页 [start, end] 以包含轴终点。 */
 export function isTimeOnPage(time: string | undefined, page: TimeAxisPageConfig): boolean {
   if (!time) return false;
-  const value = clockToMinutes(isoOrClockToClock(time));
+  const value = timeToFractionalMinutes(isoOrClockToClock(time));
   const start = clockToMinutes(page.pageStartTime);
   const end = clockToMinutes(page.pageEndTime);
   if (value === null || start === null || end === null) return false;
-  return value >= start && value <= end;
+  const isLastPage = page.pageNo >= page.pageCount;
+  if (isLastPage) return value >= start && value <= end;
+  return value >= start && value < end;
 }
 
 export function isSegmentCrossingPage(

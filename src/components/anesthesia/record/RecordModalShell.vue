@@ -9,7 +9,7 @@
         <div class="record-modal-body">
           <slot />
         </div>
-        <footer v-if="$slots.footer">
+        <footer v-if="$slots.footer" :class="{ 'modal-footer-stack': size === 'clinical' }">
           <slot name="footer" />
         </footer>
       </section>
@@ -20,7 +20,7 @@
 <script setup lang="ts">
 withDefaults(defineProps<{
   title: string;
-  size?: 'small' | 'medium' | 'large' | 'wide';
+  size?: 'small' | 'medium' | 'compact' | 'clinical' | 'large' | 'wide';
   topLayer?: boolean;
 }>(), {
   size: 'medium',
@@ -45,13 +45,17 @@ defineEmits<{ close: [] }>();
 
 .record-modal-backdrop.top {
   z-index: 5200;
+  place-items: center;
+  padding: 24px 16px;
 }
 
 .record-modal {
+  position: relative;
+  z-index: 1;
   width: min(680px, 96vw);
   max-height: calc(100vh - 96px);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid #dbeafe;
   border-radius: 12px;
@@ -61,7 +65,16 @@ defineEmits<{ close: [] }>();
 }
 
 .record-modal.small {
-  width: min(420px, 96vw);
+  width: min(460px, 96vw);
+}
+
+.record-modal.compact {
+  width: min(540px, 96vw);
+}
+
+.record-modal.clinical {
+  width: min(600px, 96vw);
+  max-height: min(calc(100vh - 80px), 720px);
 }
 
 .record-modal.large {
@@ -78,6 +91,7 @@ defineEmits<{ close: [] }>();
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-shrink: 0;
   padding: 14px 18px;
   background: linear-gradient(180deg, #f8fbff 0%, #f1f5f9 100%);
   border-bottom: 1px solid #e2e8f0;
@@ -115,9 +129,43 @@ defineEmits<{ close: [] }>();
 }
 
 .record-modal-body {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 16px 18px 18px;
+}
+
+</style>
+
+<style>
+.record-modal footer.modal-footer-stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.record-modal footer.modal-footer-stack .record-modal-footer-hint {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.record-modal footer.modal-footer-stack .footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+</style>
+
+<!-- 弹窗遮罩 z-index 5200；下拉可能挂在 trigger-popup 内，需整体抬高 -->
+<style>
+.arco-select-dropdown,
+.arco-trigger-popup {
+  z-index: 6000 !important;
 }
 </style>

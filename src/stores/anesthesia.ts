@@ -38,7 +38,9 @@ import {
   normalizeMedicationFromDrug,
   runUnifiedRecordQualityChecks,
   detectDictionaryDrivenAbnormalVitals,
+  aggregateAbnormalVitalsForPanel,
   findVitalUpsertIndex,
+  isRescueModeActive,
   buildRecordSnapshot,
   ensureRecordDocument,
   syncTransfusionEventsFromFluids,
@@ -46,7 +48,10 @@ import {
   runPrintPreflightChecks,
   resolveDefaultMonitorOrder,
   isoOrClockToClock,
+  dedupeVitalsById,
   DEFAULT_HOSPITAL_NAME,
+  clockToMinutes,
+  minutesToClock,
 } from '@/services/anesthesiaRecordEngine';
 import { buildRecordPagination } from '@/services/recordPaginationEngine';
 import type { LabResultRecord, LayoutWarning, RecordSummaryFields, RecordSummaryNotes } from '@/types/anesthesiaRecord';
@@ -152,7 +157,42 @@ import {
   buildSurgeryRequests,
   buildWorkloadStats,
 } from '@/mock/clinicalModulesSeed';
+import {
+  hydrateAnesthesiaCasesFromLocalDb,
+  schedulePersistCase,
+} from '@/services/anesthesia/anesthesiaPersistenceBridge';
+import {
+  patchRecordDeviceCollectMeta,
+  saveDeviceVitalOnly,
+  loadAllCasesFromLocalDb,
+} from '@/services/anesthesia/anesthesiaRecordRepository';
+import {
+  patchAnesthesiaSyncUiState,
+  setAnesthesiaSyncRecordScope,
+  startAnesthesiaSyncService,
+  subscribeAnesthesiaSyncState,
+  syncStatesEqual,
+} from '@/services/anesthesia/anesthesiaSyncService';
+import { startMonitorMockService, readMonitorDisplayIntervalMinutes, type MonitorMockHandle } from '@/services/anesthesia/monitorMockService';
+import { startVentilatorMockService, type VentilatorMockHandle } from '@/services/anesthesia/ventilatorMockService';
+import type { AnesthesiaSyncState, RecordPersistMeta, SyncConflictResolveAction } from '@/types/anesthesiaLocalDb';
+import {
+  listPendingConflicts,
+  resolveSyncConflict,
+  injectMockSyncConflict,
+} from '@/services/anesthesia/anesthesiaSyncConflict';
+import {
+  readAbnormalSimulationTypes,
+  readDeviceSimulationMode,
+  writeAbnormalSimulationTypes,
+  writeDeviceSimulationMode,
+  type AbnormalSimulationType,
+  type DeviceSimulationMode,
+} from '@/services/anesthesia/deviceSimulationMode';
+import { runStartupLocalCleanupIfDue } from '@/services/anesthesia/anesthesiaLocalCleanupService';
 
+let activeMonitorMock: MonitorMockHandle | null = null;
+let activeVentilatorMock: VentilatorMockHandle | null = null;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const browserStorage = () => (typeof localStorage === 'undefined' ? undefined : localStorage);
 const initialRecordLocalState = (): RecordLocalState => {
@@ -195,6 +235,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     followUps: clone(initialClinical.followUps),
     currentDoctorName: '王睿',
     rescueModeCaseId: '',
+    rescueFromDeviceSimCaseId: '',
     qualityFilter: defaultFilter(),
     selectedIndicatorCode: 'AQI-TMR-07',
     favoriteIndicatorCodes: ['AQI-DNR-01', 'AQI-ACC-02', 'AQI-PAO-03'] as string[],
@@ -222,6 +263,21 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       frequencyOptions: [...(persistedRecordState.genericDicts?.frequencyOptions ?? seedFrequencyOptions)],
     } as Record<string, string[]>,
     recordDrafts: clone(persistedRecordState.drafts ?? {}) as Record<string, unknown>,
+    recordPageDrafts: {} as Record<string, number>,
+    localDbReady: false,
+    localPersistenceReady: false,
+    isHydrating: false,
+    hasRestoredLocalData: false,
+    anesthesiaSyncState: {
+      pendingCount: 0,
+      failedCount: 0,
+      conflictCount: 0,
+      uploading: false,
+      online: typeof navigator === 'undefined' ? true : navigator.onLine,
+      monitorRunning: false,
+      ventilatorRunning: false,
+      rescueMode: false,
+    } as AnesthesiaSyncState,
     pdcaRecords: [
       {
         id: 'pdca-1',
@@ -364,6 +420,10 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const target = state.cases.find((item) => item.id === caseId);
       return target ? detectDictionaryDrivenAbnormalVitals(target.vitals, state.configVitals) : [];
     },
+    panelAbnormalVitals: (state) => (caseId: string) => {
+      const target = state.cases.find((item) => item.id === caseId);
+      return target ? aggregateAbnormalVitalsForPanel(target.vitals, state.configVitals) : [];
+    },
     flatMethodFilterOptions(state) {
       return flattenMethodOptions(state.configMethods);
     },
@@ -403,6 +463,248 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     qualityReportCache: () => getQualityReportCache(),
   },
   actions: {
+    async bootstrapAnesthesiaLocalPersistence() {
+      if (this.localPersistenceReady) return;
+      this.isHydrating = true;
+      const localCases = await loadAllCasesFromLocalDb();
+      this.hasRestoredLocalData = localCases.length > 0;
+      this.cases = await hydrateAnesthesiaCasesFromLocalDb(this.cases);
+      this.localDbReady = true;
+      this.localPersistenceReady = true;
+      this.isHydrating = false;
+      startAnesthesiaSyncService();
+      subscribeAnesthesiaSyncState((state) => {
+        if (syncStatesEqual(this.anesthesiaSyncState, state)) return;
+        this.anesthesiaSyncState = state;
+      });
+      void this.refreshSyncConflicts();
+      void runStartupLocalCleanupIfDue();
+    },
+    validateDeviceMockContext(caseId: string): { ok: boolean; message?: string } {
+      if (!this.localPersistenceReady || this.isHydrating) {
+        return { ok: false, message: '请先等待本地数据恢复完成' };
+      }
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target) {
+        return { ok: false, message: '请先打开或创建麻醉记录单后再启动设备模拟' };
+      }
+      const operationId = target.id;
+      const patientId = target.patientId ?? target.id;
+      if (!operationId || !patientId) {
+        return { ok: false, message: '请先打开或创建麻醉记录单后再启动设备模拟' };
+      }
+      if (target.locked) {
+        return { ok: false, message: '记录已锁定，无法启动设备模拟' };
+      }
+      return { ok: true };
+    },
+    setRecordPageDraft(caseId: string, pageNo: number) {
+      this.recordPageDrafts[caseId] = pageNo;
+    },
+    afterRecordMutation(caseId: string, meta?: RecordPersistMeta) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target) return;
+      const pageNo = this.recordPageDrafts[caseId] ?? 1;
+      schedulePersistCase(target, pageNo, meta);
+      this.anesthesiaSyncState = {
+        ...this.anesthesiaSyncState,
+        localSavedAt: new Date().toISOString(),
+      };
+    },
+    onDeviceVitalAppended(caseId: string, vital: import('@/types/anesthesia').VitalSign) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target) return;
+      target.vitals = dedupeVitalsById(target.vitals);
+      target.vitals.sort((a, b) => a.time.localeCompare(b.time));
+      if (target.device) {
+        target.device.lastCollectTime = vital.time;
+      }
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+      void saveDeviceVitalOnly(target, vital);
+      void patchRecordDeviceCollectMeta(caseId, {
+        lastCollectTime: vital.time,
+        collectStatus: target.device?.collectStatus,
+      });
+    },
+    setActiveAnesthesiaRecordScope(caseId: string) {
+      this.stopMonitorDeviceMock();
+      this.stopVentilatorDeviceMock();
+      const target = this.cases.find((item) => item.id === caseId);
+      setAnesthesiaSyncRecordScope(caseId);
+      patchAnesthesiaSyncUiState({
+        monitorRunning: false,
+        ventilatorRunning: false,
+        lastCollectTime: target?.device?.lastCollectTime,
+        rescueMode: Boolean(target && isRescueModeActive(target)),
+      });
+    },
+    startMonitorDeviceMock(caseId: string, displayIntervalMinutes?: number) {
+      const check = this.validateDeviceMockContext(caseId);
+      if (!check.ok) return check;
+      const target = this.cases.find((item) => item.id === caseId)!;
+      const simulationMode = readDeviceSimulationMode();
+      const mockOptions = {
+        rescueMode: isRescueModeActive(target) || simulationMode === 'rescue',
+        displayIntervalMinutes,
+        simulationMode,
+        abnormalTypes: readAbnormalSimulationTypes(),
+      };
+      activeMonitorMock?.stop();
+      activeMonitorMock = startMonitorMockService(
+        target,
+        (id, vital) => {
+          this.onDeviceVitalAppended(id, vital);
+        },
+        mockOptions,
+      );
+      if (target.device) {
+        target.device.collectStatus = '采集中';
+        target.device.monitor = '模拟采集中';
+        void patchRecordDeviceCollectMeta(caseId, {
+          collectStatus: '采集中',
+          monitor: '模拟采集中',
+        });
+      }
+      return { ok: true };
+    },
+    stopMonitorDeviceMock() {
+      activeMonitorMock?.stop();
+      activeMonitorMock = null;
+    },
+    startVentilatorDeviceMock(caseId: string, displayIntervalMinutes?: number) {
+      const check = this.validateDeviceMockContext(caseId);
+      if (!check.ok) return check;
+      const target = this.cases.find((item) => item.id === caseId)!;
+      const simulationMode = readDeviceSimulationMode();
+      const mockOptions = {
+        rescueMode: isRescueModeActive(target) || simulationMode === 'rescue',
+        displayIntervalMinutes,
+        simulationMode,
+        abnormalTypes: readAbnormalSimulationTypes(),
+      };
+      activeVentilatorMock?.stop();
+      activeVentilatorMock = startVentilatorMockService(
+        target,
+        (id, vital) => {
+          this.onDeviceVitalAppended(id, vital);
+        },
+        mockOptions,
+      );
+      if (target.device) {
+        target.device.anesthesiaMachine = '模拟采集中';
+        void patchRecordDeviceCollectMeta(caseId, {
+          anesthesiaMachine: '模拟采集中',
+        });
+      }
+      return { ok: true };
+    },
+    stopVentilatorDeviceMock() {
+      activeVentilatorMock?.stop();
+      activeVentilatorMock = null;
+    },
+    restartDeviceMocksForInterval(caseId: string) {
+      const monitorRunning = this.anesthesiaSyncState.monitorRunning;
+      const ventilatorRunning = this.anesthesiaSyncState.ventilatorRunning;
+      const intervalMinutes = readMonitorDisplayIntervalMinutes();
+      if (monitorRunning) {
+        this.stopMonitorDeviceMock();
+        this.startMonitorDeviceMock(caseId, intervalMinutes);
+      }
+      if (ventilatorRunning) {
+        this.stopVentilatorDeviceMock();
+        this.startVentilatorDeviceMock(caseId, intervalMinutes);
+      }
+      const target = this.cases.find((item) => item.id === caseId);
+      patchAnesthesiaSyncUiState({ rescueMode: Boolean(target && (isRescueModeActive(target) || readDeviceSimulationMode() === 'rescue')) });
+    },
+    setDeviceSimulationMode(caseId: string, mode: DeviceSimulationMode) {
+      writeDeviceSimulationMode(mode);
+      const target = this.cases.find((item) => item.id === caseId);
+      if (mode === 'rescue' && target && !isRescueModeActive(target)) {
+        this.enterRescueRecordMode(caseId);
+        this.rescueFromDeviceSimCaseId = caseId;
+      } else if (mode !== 'rescue' && this.rescueFromDeviceSimCaseId === caseId && target && isRescueModeActive(target)) {
+        this.exitRescueRecordMode(caseId, '设备模拟退出抢救模式');
+        this.rescueFromDeviceSimCaseId = '';
+      }
+      if (target?.device) {
+        target.device.collectStatus = mode === 'rescue' ? '抢救采集中' : '采集中';
+      }
+      this.restartDeviceMocksForInterval(caseId);
+    },
+    setAbnormalSimulationTypes(types: AbnormalSimulationType[]) {
+      writeAbnormalSimulationTypes(types);
+    },
+    async injectMockSyncConflict(caseId: string) {
+      await injectMockSyncConflict(caseId);
+      await this.refreshSyncConflicts(caseId);
+    },
+    seedBoundaryVitalsForTest(caseId: string) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target) return null;
+      if (!target.surgeryEnd) {
+        target.surgeryEnd = dayjs(target.roomInTime ?? target.plannedStart).add(420, 'minute').toISOString();
+      }
+      this.syncRecordDocument(caseId);
+      const { pages } = buildRecordPagination(target);
+      if (pages.length < 2) return { pages: pages.length, boundary: pages[0]?.pageEndTime };
+      const page0 = pages[0];
+      const boundaryMinutes = clockToMinutes(page0.pageEndTime);
+      if (boundaryMinutes === null) return null;
+      const datePrefix = dayjs(target.roomInTime ?? target.plannedStart).format('YYYY-MM-DD');
+      const beforeTime = `${datePrefix}T${minutesToClock(boundaryMinutes - 2)}:00`;
+      const boundaryTime = `${datePrefix}T${page0.pageEndTime}:00`;
+      const vitals: VitalSign[] = [
+        {
+          id: `vital-boundary-before-${Date.now()}`,
+          time: beforeTime,
+          HR: 78,
+          SBP: 118,
+          DBP: 72,
+          SpO2: 98,
+          source: '设备采集',
+        },
+        {
+          id: `vital-boundary-after-${Date.now() + 1}`,
+          time: boundaryTime,
+          HR: 80,
+          SBP: 120,
+          DBP: 74,
+          SpO2: 99,
+          source: '设备采集',
+        },
+      ];
+      target.vitals.push(...vitals);
+      target.vitals = dedupeVitalsById(target.vitals);
+      target.vitals.sort((a, b) => a.time.localeCompare(b.time));
+      this.afterRecordMutation(caseId);
+      return {
+        page0End: page0.pageEndTime,
+        page1Start: pages[1].pageStartTime,
+        beforeTime: isoOrClockToClock(beforeTime),
+        boundaryTime: page0.pageEndTime,
+      };
+    },
+    async refreshSyncConflicts(caseId?: string) {
+      const conflicts = await listPendingConflicts(caseId);
+      this.anesthesiaSyncState = {
+        ...this.anesthesiaSyncState,
+        conflictCount: conflicts.length,
+      };
+      return conflicts;
+    },
+    async resolveRecordSyncConflict(caseId: string, conflictId: string, action: SyncConflictResolveAction, mergedPayload?: unknown) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target) return;
+      await resolveSyncConflict(conflictId, action, target, { mergedPayload });
+      this.syncRecordDocument(caseId);
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+      await this.refreshSyncConflicts(caseId);
+    },
     persistRecordLocalState() {
       const storage = browserStorage();
       if (!storage) return;
@@ -481,31 +783,45 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       target.device.logs.unshift({ time: now, content: '从设备采集占位带入生命体征' });
       this.appendVital(caseId, payload as unknown as VitalSign);
     },
-    enterRescueRecordMode(caseId: string) {
+    enterRescueRecordMode(caseId: string): boolean {
       const target = this.cases.find((item) => item.id === caseId);
-      if (!target || target.locked) return;
+      if (!target || target.locked || isRescueModeActive(target)) return false;
       const now = dayjs().toISOString();
       this.rescueModeCaseId = caseId;
-      target.recordStatus = '采集中';
       target.vitalFrequency = '抢救1分钟';
       target.rescue = {
         startTime: now,
         measures: '启动抢救模式，持续评估循环、呼吸和氧合。',
         medications: '',
-        participants: [target.anesthesiologist, target.anesthesiaNurse],
+        participants: [target.anesthesiologist, target.anesthesiaNurse].filter(Boolean) as string[],
         supplementReminder: true,
       };
       this.appendEvent(caseId, { type: '抢救', stage: '术中', severity: '危急', treatment: '进入抢救模式，生命体征记录频率提高至1分钟。' });
+      this.syncRecordDocument(caseId);
+      patchAnesthesiaSyncUiState({ rescueMode: true });
+      this.restartDeviceMocksForInterval(caseId);
+      return true;
     },
-    exitRescueRecordMode(caseId: string, result = '抢救结束，生命体征趋于稳定。') {
+    exitRescueRecordMode(caseId: string, result = '抢救结束，生命体征趋于稳定。'): boolean {
       const target = this.cases.find((item) => item.id === caseId);
-      if (!target?.rescue || target.locked) return;
-      target.rescue.endTime = dayjs().toISOString();
-      target.rescue.result = result;
-      target.rescue.supplementReminder = false;
+      if (!target || target.locked || !isRescueModeActive(target)) return false;
+      const endTime = dayjs().toISOString();
+      target.rescue = {
+        ...target.rescue!,
+        endTime,
+        result,
+        supplementReminder: true,
+      };
       target.vitalFrequency = '5分钟';
       if (this.rescueModeCaseId === caseId) this.rescueModeCaseId = '';
       this.appendEvent(caseId, { type: '抢救结束', stage: '术中', severity: '重度', treatment: result });
+      this.syncRecordDocument(caseId);
+      patchAnesthesiaSyncUiState({ rescueMode: false });
+      this.restartDeviceMocksForInterval(caseId);
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+      return true;
     },
     appendMedicationFromDict(caseId: string, drugName: string) {
       const drug = this.configDrugs.find((item) => item.enabled && item.name === drugName);
@@ -728,6 +1044,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         clock,
       );
       this.recordFieldChange(caseId, '关键时间', '', `${node.label} ${isoTime}`, '时间轴节点');
+      this.syncRecordDocument(caseId);
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
@@ -776,17 +1093,32 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       });
       if (event.type === '抢救') {
         this.rescueModeCaseId = caseId;
+        target.vitalFrequency = '抢救1分钟';
+        if (!isRescueModeActive(target)) {
+          const startTime = event.time ?? dayjs().toISOString();
+          target.rescue = {
+            startTime,
+            measures: event.treatment || '请补记抢救措施、复苏过程和会诊情况。',
+            medications: '',
+            participants: [target.anesthesiologist, target.anesthesiaNurse].filter(Boolean) as string[],
+            supplementReminder: true,
+          };
+        }
+      }
+      if (event.type === '抢救结束' && target.rescue && !target.rescue.endTime) {
         target.rescue = {
-          startTime: dayjs().toISOString(),
-          measures: '请补记抢救措施、复苏过程和会诊情况。',
-          medications: '',
-          participants: [target.anesthesiologist, target.anesthesiaNurse],
+          ...target.rescue,
+          endTime: event.time ?? dayjs().toISOString(),
+          result: event.treatment,
           supplementReminder: true,
         };
+        if (target.vitalFrequency === '抢救1分钟') target.vitalFrequency = '5分钟';
+        if (this.rescueModeCaseId === caseId) this.rescueModeCaseId = '';
       }
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, { entityType: 'timeline_event', entityLocalId: target.events[target.events.length - 1]?.id, operationType: 'create', apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveTimelineEvent' });
     },
     appendVital(caseId: string, vital: VitalSign) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -795,6 +1127,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, { entityType: 'vital_sign', entityLocalId: vital.id, operationType: 'create', apiPath: '/api-samis/pc/v1/anesthesiaRecord/batchSaveVitalSigns' });
     },
     upsertVital(caseId: string, vital: VitalSign) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -808,6 +1141,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, { entityType: 'vital_sign', entityLocalId: row.id, operationType: index >= 0 ? 'update' : 'create', apiPath: '/api-samis/pc/v1/anesthesiaRecord/batchSaveVitalSigns' });
     },
     deleteVital(caseId: string, vitalId: string) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -818,6 +1152,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, { entityType: 'vital_sign', entityLocalId: vitalId, operationType: 'delete', apiPath: '/api-samis/pc/v1/anesthesiaRecord/batchSaveVitalSigns' });
     },
     appendMedication(caseId: string, medication: Omit<MedicationRecord, 'id'>) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -826,6 +1161,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, { entityType: 'medication', entityLocalId: target.medications[target.medications.length - 1]?.id, operationType: 'create', apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveMedication' });
     },
     upsertMedication(caseId: string, medication: MedicationRecord) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -839,6 +1175,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, { entityType: 'medication', entityLocalId: row.id, operationType: index >= 0 ? 'update' : 'create', apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveMedication' });
     },
     deleteMedication(caseId: string, medicationId: string) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -849,11 +1186,13 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, { entityType: 'medication', entityLocalId: medicationId, operationType: 'delete', apiPath: '/api-samis/pc/v1/anesthesiaRecord/deleteMedication' });
     },
     appendFluid(caseId: string, fluid: Omit<FluidRecord, 'id'>) {
       const target = this.cases.find((item) => item.id === caseId);
       if (!target || target.locked) return;
       target.fluids.push({ id: `fluid-${Date.now()}`, ...fluid });
+      this.syncRecordDocument(caseId);
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
@@ -867,6 +1206,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       if (index >= 0) target.fluids[index] = row;
       else target.fluids.push(row);
       this.recordFieldChange(caseId, row.category === '血液制品' ? '输血记录' : '输液记录', before, `${row.name}${row.volume}${row.unit ?? ''}`, '右键/列表维护');
+      this.syncRecordDocument(caseId);
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
@@ -892,6 +1232,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       else target.outputRecords.push(row);
       recalculateOutputs(target);
       this.recordFieldChange(caseId, '出入量', before, `${row.type}${row.volume}ml`, '右键/列表维护');
+      this.syncRecordDocument(caseId);
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
@@ -903,6 +1244,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       target.outputRecords = (target.outputRecords ?? []).filter((item) => item.id !== outputId);
       recalculateOutputs(target);
       this.recordFieldChange(caseId, '出入量', before ? `${before.type}${before.volume}` : outputId, '已删除', '右键/列表删除');
+      this.syncRecordDocument(caseId);
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
@@ -948,6 +1290,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       };
       target.transfusionEvents = syncTransfusionEventsFromFluids(target);
       target.recordSummary = buildRecordSummaryFields(target);
+      this.afterRecordMutation(caseId, { entityType: 'record', entityLocalId: caseId, operationType: 'update', apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveRecord' });
     },
     upsertLabResult(caseId: string, lab: LabResultRecord) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -1018,6 +1361,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, { entityType: kind === 'fluid' ? 'fluid' : kind === 'vital' ? 'vital_sign' : kind === 'output' ? 'io_record' : 'medication', entityLocalId: id, operationType: voided ? 'void' : 'update' });
     },
     voidRecord(
       caseId: string,
@@ -1161,6 +1505,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, { entityType: 'record', entityLocalId: caseId, operationType: 'lock', apiPath: '/api-samis/pc/v1/anesthesiaRecord/lockRecord' });
       return true;
     },
     importDeviceVitalsLayered(caseId: string) {
@@ -1174,15 +1519,23 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         const value = last[key];
         if (value !== undefined) original[key] = value;
       });
-      target.vitals.push({
+      const vital: VitalSign = {
         ...last,
-        id: `vital-${Date.now()}`,
         time: now,
         source: '设备采集',
         originalValue: original,
         displayValue: { ...original },
         remark: '设备采集模拟',
-      });
+      };
+      const upsertIndex = findVitalUpsertIndex(target.vitals, vital);
+      if (upsertIndex >= 0) {
+        vital.id = target.vitals[upsertIndex].id;
+        target.vitals[upsertIndex] = vital;
+      } else {
+        vital.id = `vital-${Date.now()}`;
+        target.vitals.push(vital);
+      }
+      target.vitals.sort((a, b) => a.time.localeCompare(b.time));
       if (target.device) {
         target.device.lastCollectTime = now;
         target.device.collectStatus = '采集中';
