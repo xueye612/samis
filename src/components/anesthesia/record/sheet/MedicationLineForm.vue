@@ -126,7 +126,11 @@ const patchMode = (mode: string) => {
 
 const patchStartTime = (time: string) => {
   const next: Record<string, unknown> = { time };
-  if (isContinuous.value && !props.form.endTime) {
+  if (isMedication.value) {
+    if (isContinuous.value && !props.form.endTime) {
+      next.endTime = addMinutesToClock(time, LIVE_DEFAULT_SEGMENT_MINUTES);
+    }
+  } else if (!props.form.endTime) {
     next.endTime = addMinutesToClock(time, LIVE_DEFAULT_SEGMENT_MINUTES);
   }
   emit('update:form', next);
@@ -181,9 +185,9 @@ const applyDurationPreset = (minutes: number) => {
       </section>
 
       <section class="clinical-block">
-        <div v-if="isPointMode" class="detail-grid detail-grid--point">
+        <div class="detail-grid detail-grid--med">
           <div class="detail-cell">
-            <label class="field-label">给药时间</label>
+            <label class="field-label">{{ isPointMode ? '给药时间' : '开始时间' }}</label>
             <RecordTimeField
               :model-value="form.time"
               @update:model-value="patchStartTime"
@@ -191,62 +195,47 @@ const applyDurationPreset = (minutes: number) => {
             />
           </div>
           <div class="detail-cell">
-            <label class="field-label">剂量</label>
+            <label class="field-label">{{ isPointMode ? '剂量' : '结束时间' }}</label>
             <a-input-number
+              v-if="isPointMode"
               :model-value="form.amount"
               :min="0"
               hide-button
               @update:model-value="patch('amount', $event ?? 0)"
             />
-          </div>
-          <div class="detail-cell">
-            <label class="field-label">单位</label>
-            <a-input :model-value="form.unit" @update:model-value="patch('unit', $event)" />
-          </div>
-          <div class="detail-cell">
-            <label class="field-label">给药途径</label>
-            <a-input :model-value="form.route" @update:model-value="patch('route', $event)" />
-          </div>
-          <div class="detail-cell">
-            <label class="field-label">执行人</label>
-            <a-input :model-value="form.executor" @update:model-value="patch('executor', $event)" />
-          </div>
-          <div class="detail-cell">
-            <label class="field-label">核对人</label>
-            <a-input :model-value="form.checker" placeholder="可选" @update:model-value="patch('checker', $event)" />
-          </div>
-        </div>
-
-        <div v-else class="detail-grid detail-grid--continuous">
-          <div class="detail-cell">
-            <label class="field-label">开始时间</label>
             <RecordTimeField
-              :model-value="form.time"
-              @update:model-value="patchStartTime"
-              @step="emit('shiftTime', 'time', $event)"
-            />
-          </div>
-          <div class="detail-cell">
-            <label class="field-label">结束时间</label>
-            <RecordTimeField
+              v-else
               :model-value="form.endTime"
               @update:model-value="patch('endTime', $event)"
               @step="emit('shiftTime', 'endTime', $event)"
             />
           </div>
-          <div class="duration-quick span-row">
-            <span class="duration-quick-label">快捷时长</span>
-            <a-button
-              v-for="minutes in durationPresets"
-              :key="minutes"
-              size="mini"
-              type="outline"
-              @click="applyDurationPreset(minutes)"
-            >{{ minutes }}分</a-button>
+          <div class="detail-cell">
+            <label class="field-label">{{ isPointMode ? '单位' : '快捷时长' }}</label>
+            <a-input
+              v-if="isPointMode"
+              :model-value="form.unit"
+              @update:model-value="patch('unit', $event)"
+            />
+            <div v-else class="duration-quick-inline">
+              <a-button
+                v-for="minutes in durationPresets"
+                :key="minutes"
+                size="mini"
+                type="outline"
+                @click="applyDurationPreset(minutes)"
+              >{{ minutes }}分</a-button>
+            </div>
           </div>
           <div class="detail-cell">
-            <label class="field-label">剂量/浓度</label>
+            <label class="field-label">{{ isPointMode ? '给药途径' : '剂量/浓度' }}</label>
+            <a-input
+              v-if="isPointMode"
+              :model-value="form.route"
+              @update:model-value="patch('route', $event)"
+            />
             <a-input-number
+              v-else
               :model-value="form.amount"
               :min="0"
               hide-button
@@ -254,20 +243,61 @@ const applyDurationPreset = (minutes: number) => {
             />
           </div>
           <div class="detail-cell">
-            <label class="field-label">单位</label>
-            <a-input :model-value="form.unit" placeholder="如 μg/kg/min" @update:model-value="patch('unit', $event)" />
+            <label class="field-label">{{ isPointMode ? '执行人' : '单位' }}</label>
+            <a-input
+              v-if="isPointMode"
+              :model-value="form.executor"
+              @update:model-value="patch('executor', $event)"
+            />
+            <a-input
+              v-else
+              :model-value="form.unit"
+              placeholder="如 μg/kg/min"
+              @update:model-value="patch('unit', $event)"
+            />
           </div>
           <div class="detail-cell">
-            <label class="field-label">给药途径</label>
-            <a-input :model-value="form.route" placeholder="如 泵注" @update:model-value="patch('route', $event)" />
+            <label class="field-label">{{ isPointMode ? '核对人' : '给药途径' }}</label>
+            <a-input
+              v-if="isPointMode"
+              :model-value="form.checker"
+              placeholder="可选"
+              @update:model-value="patch('checker', $event)"
+            />
+            <a-input
+              v-else
+              :model-value="form.route"
+              placeholder="如 泵注"
+              @update:model-value="patch('route', $event)"
+            />
           </div>
-          <div class="detail-cell">
-            <label class="field-label">执行人</label>
-            <a-input :model-value="form.executor" @update:model-value="patch('executor', $event)" />
+          <div class="detail-cell" :class="{ 'detail-cell--reserve': isPointMode }">
+            <template v-if="!isPointMode">
+              <label class="field-label">执行人</label>
+              <a-input :model-value="form.executor" @update:model-value="patch('executor', $event)" />
+            </template>
+            <template v-else>
+              <span class="field-label" aria-hidden="true">&nbsp;</span>
+              <span class="field-spacer" aria-hidden="true" />
+            </template>
           </div>
-          <div class="detail-cell">
-            <label class="field-label">核对人</label>
-            <a-input :model-value="form.checker" placeholder="可选" @update:model-value="patch('checker', $event)" />
+          <div class="detail-cell" :class="{ 'detail-cell--reserve': isPointMode }">
+            <template v-if="!isPointMode">
+              <label class="field-label">核对人</label>
+              <a-input
+                :model-value="form.checker"
+                placeholder="可选"
+                @update:model-value="patch('checker', $event)"
+              />
+            </template>
+            <template v-else>
+              <span class="field-label" aria-hidden="true">&nbsp;</span>
+              <span class="field-spacer" aria-hidden="true" />
+            </template>
+          </div>
+          <div class="detail-cell detail-cell--reserve" aria-hidden="true">
+            <span class="field-label">&nbsp;</span>
+            <span class="field-spacer" />
           </div>
         </div>
       </section>
@@ -307,22 +337,24 @@ const applyDurationPreset = (minutes: number) => {
 
     </template>
 
-    <!-- 输液 / 输血：保持紧凑临床表单 -->
+    <!-- 输液 / 输血 -->
     <template v-else>
-      <section class="clinical-section">
-        <header class="section-head">{{ form.kind === 'transfusion' ? '输血' : '输液' }}</header>
-        <div class="field-block">
-          <label class="field-label">名称</label>
+      <section class="clinical-block">
+        <div class="fluid-row">
+          <label class="field-label field-label--inline">名称</label>
           <a-select
-            :model-value="form.name"
+            class="fluid-select"
+            :model-value="form.name || undefined"
             allow-search
+            placeholder="选择"
             popup-container="body"
+            :trigger-props="selectTriggerProps"
             @update:model-value="patch('name', $event); emit('syncFluid')"
           >
             <a-option v-for="fluid in fluidCatalog" :key="fluid.id" :value="fluid.name">{{ fluid.name }}</a-option>
           </a-select>
         </div>
-        <div class="detail-grid detail-grid--continuous">
+        <div class="detail-grid detail-grid--fluid">
           <div class="detail-cell">
             <label class="field-label">开始时间</label>
             <RecordTimeField
@@ -340,6 +372,18 @@ const applyDurationPreset = (minutes: number) => {
             />
           </div>
           <div class="detail-cell">
+            <label class="field-label">快捷时长</label>
+            <div class="duration-quick-inline">
+              <a-button
+                v-for="minutes in durationPresets"
+                :key="minutes"
+                size="mini"
+                type="outline"
+                @click="applyDurationPreset(minutes)"
+              >{{ minutes }}分</a-button>
+            </div>
+          </div>
+          <div class="detail-cell">
             <label class="field-label">容量</label>
             <a-input-number :model-value="form.amount" :min="0" hide-button @update:model-value="patch('amount', $event ?? 0)" />
           </div>
@@ -353,18 +397,29 @@ const applyDurationPreset = (minutes: number) => {
           </div>
         </div>
       </section>
-      <section v-if="form.kind === 'transfusion'" class="clinical-section">
-        <header class="section-head">输血核对</header>
-        <div class="detail-grid detail-grid--point">
+      <section v-if="form.kind === 'transfusion'" class="clinical-block clinical-block--verify">
+        <div class="detail-grid detail-grid--fluid">
           <div class="detail-cell">
             <label class="field-label">血型</label>
-            <a-select :model-value="form.bloodType" allow-clear @update:model-value="patch('bloodType', $event ?? '')">
+            <a-select
+              :model-value="form.bloodType || undefined"
+              allow-clear
+              popup-container="body"
+              :trigger-props="selectTriggerProps"
+              @update:model-value="patch('bloodType', $event ?? '')"
+            >
               <a-option v-for="item in bloodTypes" :key="item" :value="item">{{ item }}</a-option>
             </a-select>
           </div>
           <div class="detail-cell">
             <label class="field-label">Rh</label>
-            <a-select :model-value="form.rh" allow-clear @update:model-value="patch('rh', $event ?? '')">
+            <a-select
+              :model-value="form.rh || undefined"
+              allow-clear
+              popup-container="body"
+              :trigger-props="selectTriggerProps"
+              @update:model-value="patch('rh', $event ?? '')"
+            >
               <a-option v-for="item in rhTypes" :key="item" :value="item">{{ item }}</a-option>
             </a-select>
           </div>
@@ -374,15 +429,21 @@ const applyDurationPreset = (minutes: number) => {
           </div>
           <div class="detail-cell">
             <label class="field-label">反应</label>
-            <a-select :model-value="form.reaction" @update:model-value="patch('reaction', $event)">
+            <a-select
+              :model-value="form.reaction || undefined"
+              popup-container="body"
+              :trigger-props="selectTriggerProps"
+              @update:model-value="patch('reaction', $event)"
+            >
               <a-option v-for="item in transfusionReactions" :key="item" :value="item">{{ item }}</a-option>
             </a-select>
           </div>
-          <div class="detail-cell span-row">
-            <a-space>
+          <div class="detail-cell detail-cell--checks">
+            <label class="field-label">核对</label>
+            <div class="verify-checks">
               <a-checkbox :model-value="form.anesthesiaConfirmed" @update:model-value="patch('anesthesiaConfirmed', $event)">麻醉医师</a-checkbox>
               <a-checkbox :model-value="form.circulatingConfirmed" @update:model-value="patch('circulatingConfirmed', $event)">巡回护士</a-checkbox>
-            </a-space>
+            </div>
           </div>
         </div>
       </section>
@@ -412,15 +473,39 @@ const applyDurationPreset = (minutes: number) => {
   overflow: visible;
 }
 
-.drug-row {
+.drug-row,
+.fluid-row {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
 }
 
-.drug-select {
+.drug-select,
+.fluid-select {
   min-width: 0;
+}
+
+.detail-grid--fluid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(52px, auto));
+}
+
+.clinical-block--verify {
+  border-color: #fecaca;
+  background: #fff5f5;
+}
+
+.detail-cell--checks {
+  grid-column: span 2;
+}
+
+.verify-checks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
 }
 
 .field-block {
@@ -486,9 +571,9 @@ const applyDurationPreset = (minutes: number) => {
   gap: 8px 10px;
 }
 
-.detail-grid--point,
-.detail-grid--continuous {
+.detail-grid--med {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(52px, auto));
 }
 
 .detail-cell {
@@ -497,21 +582,31 @@ const applyDurationPreset = (minutes: number) => {
   min-width: 0;
 }
 
-.span-row {
-  grid-column: 1 / -1;
+.detail-cell--reserve {
+  visibility: hidden;
+  pointer-events: none;
 }
 
-.duration-quick {
+.field-spacer {
+  display: block;
+  min-height: 36px;
+}
+
+.duration-quick-inline {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  min-height: 36px;
 }
 
-.duration-quick-label {
-  color: #64748b;
+.duration-quick-inline :deep(.arco-btn-size-mini) {
+  padding: 0 6px;
   font-size: 12px;
-  font-weight: 600;
+}
+
+.span-row {
+  grid-column: 1 / -1;
 }
 
 .special-fields {
@@ -538,17 +633,4 @@ const applyDurationPreset = (minutes: number) => {
   margin-bottom: 0;
 }
 
-.clinical-section {
-  padding: 10px 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.section-head {
-  margin: 0 0 8px;
-  color: #1e3a5f;
-  font-size: 13px;
-  font-weight: 700;
-}
 </style>

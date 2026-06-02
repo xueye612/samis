@@ -1,6 +1,12 @@
 import dayjs from 'dayjs';
 import type { MedicationRecord } from '@/types/anesthesia';
-import { clockToMinutes, isoOrClockToClock, LIVE_DEFAULT_SEGMENT_MINUTES, addMinutesToClock } from '@/services/anesthesiaRecordEngine';
+import {
+  clockToMinutes,
+  isoOrClockToClock,
+  LIVE_DEFAULT_SEGMENT_MINUTES,
+  addMinutesToClock,
+  timeToPercent,
+} from '@/services/anesthesiaRecordEngine';
 import { resolveMedicationSpecialReason } from '@/services/drugDictRecommend';
 
 /** 前端录入用中文 mode；持久化/API 可用 single | continuous | intermittent */
@@ -18,6 +24,15 @@ const CODE_TO_MODE: Record<MedicationModeCode, MedicationModeLabel> = {
   continuous: '持续泵入',
   intermittent: '间断追加',
 };
+
+/** 线段宽度低于此比例不显示文字（避免压网格） */
+export const LINE_LABEL_MIN_PERCENT = 5;
+/** 非特殊持续用药：低于此比例不显示剂量 */
+export const LINE_LABEL_DOSE_MIN_PERCENT = 10;
+/** 特殊持续用药：低于此比例仅显示编号 */
+export const LINE_LABEL_SPECIAL_COMFORT_PERCENT = 14;
+
+export type MedicationLineLabelMode = 'hidden' | 'special-no' | 'short' | 'full-short';
 
 export function normalizeMedicationMode(mode?: string): MedicationModeLabel {
   if (!mode) return '单次用药';
@@ -67,7 +82,7 @@ export function shouldRenderAsPoint(record: Pick<MedicationRecord, 'mode' | 'tim
   return !shouldRenderAsLine(record);
 }
 
-/** 是否进入下方特殊用药说明区（与是否画线无关） */
+/** 是否进入下方特殊用药说明区（仅 is_special=true） */
 export function shouldRenderInSpecialMedication(record: Pick<MedicationRecord, 'isSpecial'>): boolean {
   return Boolean(record.isSpecial);
 }
@@ -89,14 +104,140 @@ export function parseSpecialNoFromDisplay(text?: string): number | undefined {
   return Number.isFinite(num) && num > 0 ? num : undefined;
 }
 
+/** 时间轴点标记：仅剂量+单位（不含药名） */
+export function formatMedicationDoseLabel(record: Pick<MedicationRecord, 'dose' | 'unit' | 'pumpRate'>): string {
+  const dose = `${record.dose ?? ''}${record.unit ?? ''}`.trim();
+  if (dose) return dose;
+  return record.pumpRate?.trim() ?? '';
+}
+
+/** 线段上简短标注：泵速优先，否则剂量（不含药名） */
+export function formatMedicationShortLineLabel(record: Pick<MedicationRecord, 'dose' | 'unit' | 'pumpRate'>): string {
+  const pump = record.pumpRate?.trim();
+  if (pump) return pump;
+  return formatMedicationDoseLabel(record);
+}
+
+export function computeMedicationSegmentWidthPercent(
+  start?: string,
+  end?: string,
+  sheetStart?: string,
+  sheetEnd?: string,
+): number {
+  if (!start || !sheetStart || !sheetEnd) return 0;
+  const left = timeToPercent(isoOrClockToClock(start), sheetStart, sheetEnd);
+  const right = timeToPercent(isoOrClockToClock(end ?? start), sheetStart, sheetEnd);
+  return Math.max(0, Number((right - left).toFixed(4)));
+}
+
+export function resolveMedicationPointLabel(
+  record: MedicationRecord,
+  options: { showInSpecialSection: boolean; specialNoDisplay: string },
+): string {
+  if (options.showInSpecialSection && options.specialNoDisplay) {
+    return options.specialNoDisplay;
+  }
+  const dose = formatMedicationDoseLabel(record);
+  return dose || '·';
+}
+
+export function resolveMedicationLineLabel(
+  record: MedicationRecord,
+  options: {
+    segmentWidthPercent: number;
+    showInSpecialSection: boolean;
+    specialNoDisplay: string;
+  },
+): { lineLabel: string; lineLabelMode: MedicationLineLabelMode } {
+  const width = options.segmentWidthPercent;
+  const short = formatMedicationShortLineLabel(record);
+  const specialNo = options.showInSpecialSection ? options.specialNoDisplay : '';
+
+  if (width < LINE_LABEL_MIN_PERCENT) {
+    return { lineLabel: '', lineLabelMode: 'hidden' };
+  }
+
+  if (options.showInSpecialSection) {
+    if (width < LINE_LABEL_SPECIAL_COMFORT_PERCENT && specialNo) {
+      return { lineLabel: specialNo, lineLabelMode: 'special-no' };
+    }
+    if (short && width >= LINE_LABEL_SPECIAL_COMFORT_PERCENT) {
+      return { lineLabel: short, lineLabelMode: 'full-short' };
+    }
+    if (specialNo) return { lineLabel: specialNo, lineLabelMode: 'special-no' };
+    return short
+      ? { lineLabel: short, lineLabelMode: 'short' }
+      : { lineLabel: '', lineLabelMode: 'hidden' };
+  }
+
+  if (!short || width < LINE_LABEL_DOSE_MIN_PERCENT) {
+    return { lineLabel: '', lineLabelMode: 'hidden' };
+  }
+  return {
+    lineLabel: short,
+    lineLabelMode: width >= LINE_LABEL_SPECIAL_COMFORT_PERCENT ? 'full-short' : 'short',
+  };
+}
+
+export function buildFluidMarkerTooltip(
+  record: { name: string; volume?: number; unit?: string; time?: string; startTime?: string; endTime?: string; remark?: string },
+  bandLabel?: string,
+): string {
+  const parts: string[] = [record.name];
+  if (bandLabel) parts.unshift(bandLabel);
+  const start = isoOrClockToClock(record.startTime ?? record.time);
+  const end = isoOrClockToClock(record.endTime);
+  if (start && end && end !== start) {
+    parts.push(`${start} — ${end}`);
+    const duration = formatSegmentDurationLabel(start, end);
+    if (duration) parts.push(`时长 ${duration}`);
+  } else if (start) {
+    parts.push(start);
+  }
+  const amount = `${record.volume ?? ''}${record.unit ?? ''}`.trim();
+  if (amount) parts.push(amount);
+  if (record.remark?.trim()) parts.push(record.remark.trim());
+  return parts.join(' · ');
+}
+
+export function buildMedicationMarkerTooltip(
+  record: MedicationRecord,
+  options: { specialNo?: number; sheetStart?: string; sheetEnd?: string } = {},
+): string {
+  const parts: string[] = [record.drug];
+  const mode = normalizeMedicationMode(record.mode);
+  const start = isoOrClockToClock(medicationStartTime(record) ?? medicationEventTime(record));
+  const end = isoOrClockToClock(medicationEndTime(record));
+  if (mode === '持续泵入' && start) {
+    parts.push(end && end !== start ? `${start} — ${end}` : start);
+    const duration = formatSegmentDurationLabel(start, end);
+    if (duration) parts.push(`时长 ${duration}`);
+  } else if (start) {
+    parts.push(start);
+  }
+  const dose = formatMedicationDoseLabel(record);
+  if (dose) parts.push(dose);
+  if (record.pumpRate?.trim() && record.pumpRate.trim() !== dose) {
+    parts.push(record.pumpRate.trim());
+  }
+  if (record.route?.trim()) parts.push(record.route.trim());
+  if (options.specialNo) parts.push(`特殊用药 ${formatSpecialNo(options.specialNo)}`);
+  const detail = resolveMedicationSpecialReason(record);
+  if (detail) parts.push(detail);
+  return parts.join(' · ');
+}
+
 export interface MedicationDisplayModel {
   renderAsLine: boolean;
   renderAsPoint: boolean;
   showInSpecialSection: boolean;
   time: string;
   segmentEnd?: string;
+  segmentWidthPercent: number;
   pointLabel: string;
   lineLabel: string;
+  lineLabelMode: MedicationLineLabelMode;
+  markerTooltip: string;
   specialNo?: number;
   specialNoDisplay: string;
 }
@@ -115,33 +256,57 @@ export function resolveSegmentEndForLine(
   return fallbackEnd ?? start;
 }
 
+export function formatSegmentDurationLabel(start?: string, end?: string, sheetStart?: string, sheetEnd?: string): string {
+  const startM = clockToMinutes(isoOrClockToClock(start));
+  const endM = clockToMinutes(isoOrClockToClock(end));
+  if (startM === null || endM === null || endM <= startM) return '';
+  const mins = endM - startM;
+  if (mins < 60) return `${mins}分`;
+  const hours = Math.floor(mins / 60);
+  const rest = mins % 60;
+  return rest ? `${hours}时${rest}分` : `${hours}时`;
+}
+
 export function buildMedicationDisplayModel(
   record: MedicationRecord,
-  options: { fallbackSheetEnd?: string; specialNo?: number } = {},
+  options: { fallbackSheetEnd?: string; specialNo?: number; sheetStart?: string; sheetEnd?: string } = {},
 ): MedicationDisplayModel {
   const renderAsLine = shouldRenderAsLine(record);
   const renderAsPoint = shouldRenderAsPoint(record);
   const showInSpecialSection = shouldRenderInSpecialMedication(record);
   const time = medicationEventTime(record) ?? medicationStartTime(record) ?? '';
   const segmentEnd = renderAsLine ? resolveSegmentEndForLine(record, options.fallbackSheetEnd) : undefined;
-  const doseText = `${record.dose ?? ''}${record.unit ?? ''}`.trim();
   const specialNo = record.specialNo ?? options.specialNo;
-  const specialNoDisplay = formatSpecialNo(specialNo);
-  const pointLabel = showInSpecialSection && renderAsPoint && specialNoDisplay
-    ? specialNoDisplay
-    : (record.displayText?.trim() || doseText || record.pumpRate || record.drug);
-  const lineLabel = record.pumpRate
-    ? `${record.drug} ${record.pumpRate}`
-    : (record.displayText?.trim() || `${record.drug} ${doseText}`.trim());
+  const specialNoDisplay = showInSpecialSection ? formatSpecialNo(specialNo) : '';
+  const segmentWidthPercent = renderAsLine
+    ? computeMedicationSegmentWidthPercent(time, segmentEnd, options.sheetStart, options.sheetEnd)
+    : 0;
+  const pointLabel = renderAsPoint
+    ? resolveMedicationPointLabel(record, { showInSpecialSection, specialNoDisplay })
+    : '';
+  const { lineLabel, lineLabelMode } = renderAsLine
+    ? resolveMedicationLineLabel(record, { segmentWidthPercent, showInSpecialSection, specialNoDisplay })
+    : { lineLabel: '', lineLabelMode: 'hidden' as MedicationLineLabelMode };
+  const resolvedSpecialNo = showInSpecialSection
+    ? (typeof specialNo === 'number' ? specialNo : parseSpecialNoFromDisplay(String(specialNo ?? '')))
+    : undefined;
+
   return {
     renderAsLine,
     renderAsPoint,
     showInSpecialSection,
     time,
     segmentEnd,
+    segmentWidthPercent,
     pointLabel,
-    lineLabel: lineLabel.trim() || record.drug,
-    specialNo: typeof specialNo === 'number' ? specialNo : parseSpecialNoFromDisplay(String(specialNo ?? '')),
+    lineLabel,
+    lineLabelMode,
+    markerTooltip: buildMedicationMarkerTooltip(record, {
+      specialNo: resolvedSpecialNo,
+      sheetStart: options.sheetStart,
+      sheetEnd: options.sheetEnd,
+    }),
+    specialNo: resolvedSpecialNo,
     specialNoDisplay,
   };
 }
@@ -240,6 +405,9 @@ export function normalizeMedicationRecordFields(
   if (mode === '单次用药' || mode === '间断追加') {
     patch.endTime = undefined;
     patch.stopTime = undefined;
+  }
+  if (!isSpecial) {
+    patch.specialNo = undefined;
   }
   return patch;
 }

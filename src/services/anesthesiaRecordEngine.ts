@@ -1116,8 +1116,14 @@ export function buildRecordSnapshot(record: SurgeryCase, hospitalName = DEFAULT_
 }
 
 export function ensureRecordDocument(record: SurgeryCase): AnesthesiaRecordDocument {
-  if (record.recordDocument) return record.recordDocument;
   const { minorInterval, majorInterval } = resolveTimeAxisIntervals(record);
+  if (record.recordDocument) {
+    return {
+      ...record.recordDocument,
+      minorInterval,
+      majorInterval,
+    };
+  }
   return {
     recordNo: record.id,
     recordType: 'intraoperative',

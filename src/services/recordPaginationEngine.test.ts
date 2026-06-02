@@ -6,6 +6,7 @@ import {
   clipSegmentToPage,
   isTimeOnPage,
   resolveRecordAxisStart,
+  resolveRecordPageNoForTime,
 } from '@/services/recordPaginationEngine';
 import { roundAxisStartTime } from '@/services/anesthesiaRecordEngine';
 
@@ -101,5 +102,14 @@ describe('recordPaginationEngine', () => {
 
   it('uses the exact room in time for axis start', () => {
     expect(resolveRecordAxisStart(baseCase())).toBe('07:52');
+  });
+
+  it('resolves page number for a clock time inside the case', () => {
+    const record = baseCase();
+    record.surgeryEnd = '2026-05-30T16:10:00';
+    const pageNo = resolveRecordPageNoForTime(record, '2026-05-30T12:30:00', { pageDurationMinutes: 210 });
+    expect(pageNo).toBeGreaterThanOrEqual(1);
+    const { pages } = buildRecordPagination(record, { pageDurationMinutes: 210 });
+    expect(isTimeOnPage('12:30', pages[pageNo - 1])).toBe(true);
   });
 });

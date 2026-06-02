@@ -75,4 +75,4 @@
 ## 历史参考（非主接口）
 
 - `/anesthesia/records` legacy mock 路由仍保留
-- `docs/主文档集/04_主源参考/已实现接口.md` 中 `/api/anes/*` 为护理后端规划
+- shuhu-surgianes 中 `/api/anes/*` 为护理后端规划（非 samisweb 主链路）

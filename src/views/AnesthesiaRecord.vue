@@ -513,7 +513,7 @@ import SyncConflictPanel from '@/components/anesthesia/record/SyncConflictPanel.
 import { buildSurgeryNameOptions, SURGICAL_POSITION_OPTIONS } from '@/config/recordHeaderOptions';
 import { OPTIONAL_RECORD_SECTIONS, resolveSectionVisible, type RecordSectionKey, type RecordSectionVisibility, type SectionVisibilityMode } from '@/config/recordSections';
 import type { AggregatedAbnormalVital } from '@/services/anesthesiaRecordEngine';
-import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog, buildRecordSummaryFields, isRescueModeActive, resolveDefaultMonitorOrder, runPrintPreflightChecks } from '@/services/anesthesiaRecordEngine';
+import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog, buildRecordSummaryFields, isRescueModeActive, resolveDefaultMonitorOrder, resolveTimeAxisIntervals, runPrintPreflightChecks } from '@/services/anesthesiaRecordEngine';
 import { buildRecordPendingFields } from '@/services/anesthesia/recordFieldCompleteness';
 import {
   readAbnormalSimulationTypes,
@@ -522,7 +522,7 @@ import {
   type DeviceSimulationMode,
 } from '@/services/anesthesia/deviceSimulationMode';
 import { buildRecordReturnTarget, buildRecordRoute, normalizeRecordEntrySource } from '@/services/recordNavigation';
-import { buildRecordPagination } from '@/services/recordPaginationEngine';
+import { buildRecordPagination, resolveRecordPageNoForTime } from '@/services/recordPaginationEngine';
 import {
   buildCompletionGaps,
   buildConfirmedTemplateImpact,
@@ -1043,19 +1043,45 @@ const importVitals = () => {
 };
 const enterRescue = () => {
   if (store.enterRescueRecordMode(selectedId.value)) {
+    const record = current.value;
+    focusLivePageToTime(
+      record?.device?.lastCollectTime
+        ?? record?.vitals[record.vitals.length - 1]?.time
+        ?? new Date().toISOString(),
+    );
     Message.success('已进入抢救模式，监测频率 1 分钟');
     return;
   }
   if (current.value && isRescueModeActive(current.value)) Message.info('当前已在抢救模式中');
   else Message.warning('无法进入抢救模式');
 };
+const focusLivePageToTime = (time?: string) => {
+  const record = current.value;
+  if (!record) return;
+  const intervals = resolveTimeAxisIntervals(record);
+  livePageNo.value = resolveRecordPageNoForTime(record, time, {
+    minorInterval: intervals.minorInterval,
+    majorInterval: intervals.majorInterval,
+  });
+  store.setRecordPageDraft(selectedId.value, livePageNo.value);
+};
 const exitRescue = () => {
   if (store.exitRescueRecordMode(selectedId.value, '抢救结束，请补记相关记录')) {
-    Message.success('已退出抢救模式');
+    const record = current.value;
+    const focusTime = record?.rescue?.endTime
+      ?? record?.device?.lastCollectTime
+      ?? record?.vitals[record.vitals.length - 1]?.time;
+    focusLivePageToTime(focusTime);
+    Message.success('已退出抢救模式，时间轴已恢复 5 分钟刻度');
     return;
   }
   Message.warning('当前未处于抢救模式');
 };
+watch(rescueModeActive, (active, wasActive) => {
+  if (wasActive && !active && current.value?.rescue?.endTime) {
+    focusLivePageToTime(current.value.rescue.endTime);
+  }
+});
 const runQuality = () => {
   qualityVisible.value = true;
   activeTab.value = 'quality';

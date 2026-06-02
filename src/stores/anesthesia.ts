@@ -41,6 +41,7 @@ import {
   aggregateAbnormalVitalsForPanel,
   findVitalUpsertIndex,
   isRescueModeActive,
+  resolveTimeAxisIntervals,
   buildRecordSnapshot,
   ensureRecordDocument,
   syncTransfusionEventsFromFluids,
@@ -1277,13 +1278,16 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     syncRecordDocument(caseId: string) {
       const target = this.cases.find((item) => item.id === caseId);
       if (!target) return;
+      const intervals = resolveTimeAxisIntervals(target);
       const doc = ensureRecordDocument(target);
       const { pages } = buildRecordPagination(target, {
-        minorInterval: doc.minorInterval,
-        majorInterval: doc.majorInterval,
+        minorInterval: intervals.minorInterval,
+        majorInterval: intervals.majorInterval,
       });
       target.recordDocument = {
         ...doc,
+        minorInterval: intervals.minorInterval,
+        majorInterval: intervals.majorInterval,
         hospitalName: doc.hospitalName || DEFAULT_HOSPITAL_NAME,
         pageCount: pages.length,
         timeAxisPages: pages,

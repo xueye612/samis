@@ -68,8 +68,10 @@
           :key="plane.key"
           class="plane-marker"
           :style="pointStyle(plane.time, 0, medicationRowCount)"
+          :title="printMode ? undefined : plane.markerTooltip"
           @contextmenu.prevent.stop="openMenu($event, 'plane', plane.source)"
           @dblclick="openPlaneEditor(plane.source)"
+          @pointerdown.stop="startPlaneDrag($event, plane.source)"
         >{{ plane.label }}</span>
         <template v-for="row in medicationRows" :key="row.key">
           <span
@@ -77,28 +79,43 @@
             class="drug-point"
             :class="{ 'is-template': row.template, 'is-special': row.isSpecial }"
             :style="pointStyle(row.time, row.index, medicationRowCount)"
+            :title="printMode ? undefined : row.markerTooltip"
             @contextmenu.prevent.stop="openMenu($event, 'medication', row.source)"
             @dblclick="openMedicationEditor(row.source)"
+            @pointerdown.stop="startMedicationPointDrag($event, row.source, row.index, medicationRowCount)"
           >{{ row.pointLabel }}</span>
           <span
             v-else
             class="line-segment drug-line"
-            :class="{ 'is-template': row.template, 'is-special': row.isSpecial }"
+            :class="{ 'is-template': row.template, 'is-special': row.isSpecial, [`line-label--${row.lineLabelMode}`]: Boolean(row.lineLabelMode) }"
             :style="segmentStyle(row.time, row.segmentEnd, row.index, medicationRowCount)"
+            :title="printMode ? undefined : row.markerTooltip"
             @contextmenu.prevent.stop="openMenu($event, 'medication', row.source)"
             @dblclick="openMedicationEditor(row.source)"
             @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'move', row.index, medicationRowCount)"
           >
             <i class="segment-handle segment-handle-start" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'start', row.index, medicationRowCount)"></i>
-            <span class="segment-label">{{ row.lineLabel }}</span>
+            <span v-if="row.lineLabel" class="segment-label">{{ row.lineLabel }}</span>
             <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'end', row.index, medicationRowCount)"></i>
           </span>
         </template>
-        <span
-          v-if="segmentDragPreview.active && segmentDragPreview.band === 'medication'"
-          class="line-segment drag-preview drug-line"
-          :style="segmentDragPreview.style"
-        ><span class="segment-label">{{ segmentDragPreview.label }}</span></span>
+        <template v-if="segmentDragPreview.active && segmentDragPreview.band === 'medication'">
+          <span
+            v-if="segmentDragPreview.isPoint && segmentDragPreview.isPlane"
+            class="plane-marker drag-preview"
+            :style="segmentDragPreview.style"
+          >{{ segmentDragPreview.label }}</span>
+          <span
+            v-else-if="segmentDragPreview.isPoint"
+            class="drug-point drag-preview"
+            :style="segmentDragPreview.style"
+          >{{ segmentDragPreview.label }}</span>
+          <span v-else class="line-segment drag-preview drug-line" :style="segmentDragPreview.style">
+            <span class="segment-label">{{ segmentDragPreview.label }}</span>
+          </span>
+          <span class="segment-drag-start-guide" :style="segmentDragPreview.startGuideStyle" />
+          <span class="segment-drag-tooltip" :style="segmentDragPreview.tooltipStyle">{{ segmentDragPreview.timeHint }}</span>
+        </template>
       </div>
     </div>
 
@@ -116,28 +133,38 @@
             class="drug-point inhaled-point"
             :class="{ 'is-template': row.template, 'is-special': row.isSpecial }"
             :style="pointStyle(row.time, row.index, inhaledRowCount)"
+            :title="printMode ? undefined : row.markerTooltip"
             @contextmenu.prevent.stop="openMenu($event, 'inhaled', row.source)"
             @dblclick="openMedicationEditor(row.source)"
+            @pointerdown.stop="startMedicationPointDrag($event, row.source, row.index, inhaledRowCount)"
           >{{ row.pointLabel }}</span>
           <span
             v-else
             class="line-segment drug-line inhaled-line"
-            :class="{ 'is-template': row.template, 'is-special': row.isSpecial }"
+            :class="{ 'is-template': row.template, 'is-special': row.isSpecial, [`line-label--${row.lineLabelMode}`]: Boolean(row.lineLabelMode) }"
             :style="segmentStyle(row.time, row.segmentEnd, row.index, inhaledRowCount)"
+            :title="printMode ? undefined : row.markerTooltip"
             @contextmenu.prevent.stop="openMenu($event, 'inhaled', row.source)"
             @dblclick="openMedicationEditor(row.source)"
             @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'move', row.index, inhaledRowCount)"
           >
             <i class="segment-handle segment-handle-start" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'start', row.index, inhaledRowCount)"></i>
-            <span class="segment-label">{{ row.lineLabel }}</span>
+            <span v-if="row.lineLabel" class="segment-label">{{ row.lineLabel }}</span>
             <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'medication', row.source, 'end', row.index, inhaledRowCount)"></i>
           </span>
         </template>
-        <span
-          v-if="segmentDragPreview.active && segmentDragPreview.band === 'inhaled'"
-          class="line-segment drag-preview drug-line inhaled-line"
-          :style="segmentDragPreview.style"
-        ><span class="segment-label">{{ segmentDragPreview.label }}</span></span>
+        <template v-if="segmentDragPreview.active && segmentDragPreview.band === 'inhaled'">
+          <span
+            v-if="segmentDragPreview.isPoint"
+            class="drug-point inhaled-point drag-preview"
+            :style="segmentDragPreview.style"
+          >{{ segmentDragPreview.label }}</span>
+          <span v-else class="line-segment drag-preview drug-line inhaled-line" :style="segmentDragPreview.style">
+            <span class="segment-label">{{ segmentDragPreview.label }}</span>
+          </span>
+          <span class="segment-drag-start-guide" :style="segmentDragPreview.startGuideStyle" />
+          <span class="segment-drag-tooltip" :style="segmentDragPreview.tooltipStyle">{{ segmentDragPreview.timeHint }}</span>
+        </template>
       </div>
     </div>
 
@@ -154,6 +181,7 @@
           :key="row.key"
           class="line-segment fluid-line"
           :style="segmentStyle(row.time, row.end, row.index, infusionRowCount)"
+          :title="printMode ? undefined : row.markerTooltip"
           @contextmenu.prevent.stop="openMenu($event, 'infusion', row.source)"
           @dblclick="openFluidEditor(row.source)"
           @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'move', row.index, infusionRowCount)"
@@ -162,11 +190,13 @@
           <span class="segment-label">{{ row.amount }}</span>
           <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'end', row.index, infusionRowCount)"></i>
         </span>
-        <span
-          v-if="segmentDragPreview.active && segmentDragPreview.band === 'infusion'"
-          class="line-segment drag-preview fluid-line"
-          :style="segmentDragPreview.style"
-        ><span class="segment-label">{{ segmentDragPreview.label }}</span></span>
+        <template v-if="segmentDragPreview.active && segmentDragPreview.band === 'infusion'">
+          <span class="line-segment drag-preview fluid-line" :style="segmentDragPreview.style">
+            <span class="segment-label">{{ segmentDragPreview.label }}</span>
+          </span>
+          <span class="segment-drag-start-guide" :style="segmentDragPreview.startGuideStyle" />
+          <span class="segment-drag-tooltip" :style="segmentDragPreview.tooltipStyle">{{ segmentDragPreview.timeHint }}</span>
+        </template>
       </div>
     </div>
 
@@ -183,6 +213,7 @@
           :key="row.key"
           class="line-segment autologous-line"
           :style="segmentStyle(row.time, row.end, row.index, autologousRowCount)"
+          :title="printMode ? undefined : row.markerTooltip"
           @contextmenu.prevent.stop="openMenu($event, 'autologous', row.source)"
           @dblclick="openFluidEditor(row.source)"
           @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'move', row.index, autologousRowCount)"
@@ -191,11 +222,13 @@
           <span class="segment-label">{{ row.amount }}</span>
           <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'end', row.index, autologousRowCount)"></i>
         </span>
-        <span
-          v-if="segmentDragPreview.active && segmentDragPreview.band === 'autologous'"
-          class="line-segment drag-preview autologous-line"
-          :style="segmentDragPreview.style"
-        ><span class="segment-label">{{ segmentDragPreview.label }}</span></span>
+        <template v-if="segmentDragPreview.active && segmentDragPreview.band === 'autologous'">
+          <span class="line-segment drag-preview autologous-line" :style="segmentDragPreview.style">
+            <span class="segment-label">{{ segmentDragPreview.label }}</span>
+          </span>
+          <span class="segment-drag-start-guide" :style="segmentDragPreview.startGuideStyle" />
+          <span class="segment-drag-tooltip" :style="segmentDragPreview.tooltipStyle">{{ segmentDragPreview.timeHint }}</span>
+        </template>
       </div>
     </div>
 
@@ -212,6 +245,7 @@
           :key="row.key"
           class="line-segment blood-line"
           :style="segmentStyle(row.time, row.end, row.index, transfusionRowCount)"
+          :title="printMode ? undefined : row.markerTooltip"
           @contextmenu.prevent.stop="openMenu($event, 'transfusion', row.source)"
           @dblclick="openFluidEditor(row.source)"
           @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'move', row.index, transfusionRowCount)"
@@ -220,11 +254,13 @@
           <span class="segment-label">{{ row.amount }}</span>
           <i class="segment-handle segment-handle-end" @pointerdown.stop="startSegmentDrag($event, 'fluid', row.source, 'end', row.index, transfusionRowCount)"></i>
         </span>
-        <span
-          v-if="segmentDragPreview.active && segmentDragPreview.band === 'transfusion'"
-          class="line-segment drag-preview blood-line"
-          :style="segmentDragPreview.style"
-        ><span class="segment-label">{{ segmentDragPreview.label }}</span></span>
+        <template v-if="segmentDragPreview.active && segmentDragPreview.band === 'transfusion'">
+          <span class="line-segment drag-preview blood-line" :style="segmentDragPreview.style">
+            <span class="segment-label">{{ segmentDragPreview.label }}</span>
+          </span>
+          <span class="segment-drag-start-guide" :style="segmentDragPreview.startGuideStyle" />
+          <span class="segment-drag-tooltip" :style="segmentDragPreview.tooltipStyle">{{ segmentDragPreview.timeHint }}</span>
+        </template>
       </div>
     </div>
 
@@ -486,7 +522,7 @@
 
     <RecordModalShell
       v-if="lineVisible"
-      :size="lineForm.kind === 'medication' ? 'clinical' : 'compact'"
+      :size="lineForm.kind === 'medication' || lineForm.kind === 'infusion' || lineForm.kind === 'transfusion' ? 'clinical' : 'compact'"
       top-layer
       :title="lineModalTitle"
       @close="lineVisible = false"
@@ -547,7 +583,7 @@
 
     <RecordModalShell
       v-if="monitorVisible"
-      :size="monitorBatch ? 'medium' : 'compact'"
+      :size="monitorBatch ? 'medium' : 'clinical'"
       top-layer
       :title="monitorBatch ? '批量生命体征' : monitorForm.id ? '编辑生命体征' : '新增生命体征'"
       @close="monitorVisible = false"
@@ -760,6 +796,8 @@ import {
   assignSpecialNumbers,
   buildMedicationDisplayModel,
   buildSpecialMedicationSummaryText,
+  buildFluidMarkerTooltip,
+  formatSegmentDurationLabel,
   shouldRenderInSpecialMedication,
 } from '@/services/medicationDisplayRules';
 import {
@@ -1030,10 +1068,11 @@ const planeForm = reactive({
 });
 const dragState = reactive<{
   active: boolean;
-  kind: 'medication' | 'fluid';
+  isPoint: boolean;
+  kind: 'medication' | 'fluid' | 'plane';
   band: 'medication' | 'inhaled' | 'infusion' | 'autologous' | 'transfusion';
   mode: 'move' | 'start' | 'end';
-  source: MedicationRecord | FluidRecord | null;
+  source: MedicationRecord | FluidRecord | AnesthesiaPlaneRecord | null;
   startX: number;
   left: number;
   width: number;
@@ -1041,6 +1080,7 @@ const dragState = reactive<{
   rowTotal: number;
 }>({
   active: false,
+  isPoint: false,
   kind: 'medication',
   band: 'medication',
   mode: 'move',
@@ -1053,14 +1093,24 @@ const dragState = reactive<{
 });
 const segmentDragPreview = reactive<{
   active: boolean;
+  isPoint: boolean;
+  isPlane: boolean;
   band: 'medication' | 'inhaled' | 'infusion' | 'autologous' | 'transfusion';
   style: Record<string, string>;
   label: string;
+  timeHint: string;
+  startGuideStyle: Record<string, string>;
+  tooltipStyle: Record<string, string>;
 }>({
   active: false,
+  isPoint: false,
+  isPlane: false,
   band: 'medication',
   style: {},
   label: '',
+  timeHint: '',
+  startGuideStyle: {},
+  tooltipStyle: {},
 });
 const vitalDragState = reactive<{
   active: boolean;
@@ -1206,12 +1256,18 @@ const showPostopAnalgesiaNote = computed(() => {
   return resolveSectionVisible(props.sectionVisibility.postopAnalgesia, !props.readOnly || hasContent);
 });
 const planeRowOffset = computed(() => props.showAnesthesiaPlane ? 1 : 0);
-const planeRows = computed(() => (props.showAnesthesiaPlane ? (props.record.anesthesiaPlanes ?? []).filter((item) => item.status !== 'voided') : []).map((item) => ({
-  key: item.id,
-  label: `${item.level}${planeDirectionText(item.direction)}`,
-  time: item.time,
-  source: item,
-})));
+const planeRows = computed(() => (props.showAnesthesiaPlane ? (props.record.anesthesiaPlanes ?? []).filter((item) => item.status !== 'voided') : []).map((item) => {
+  const time = isoOrClockToClock(item.time);
+  const parts = [`麻醉平面 ${item.level}${planeDirectionText(item.direction)}`, time];
+  if (item.remark?.trim()) parts.push(item.remark.trim());
+  return {
+    key: item.id,
+    label: `${item.level}${planeDirectionText(item.direction)}`,
+    time: item.time,
+    markerTooltip: parts.filter(Boolean).join(' · '),
+    source: item,
+  };
+}));
 const medicationRowCount = computed(() => Math.max(5, medicationRows.value.length + planeRowOffset.value));
 const inhaledRowCount = computed(() => Math.max(2, inhaledMedicationRows.value.length));
 const infusionRowCount = computed(() => Math.max(3, infusionRows.value.length));
@@ -1314,6 +1370,8 @@ const mapMedicationRow = (item: MedicationRecord, index: number, planeOffset: nu
   const display = buildMedicationDisplayModel(item, {
     fallbackSheetEnd: sheetEnd.value,
     specialNo: specialNumberByMedId.value.get(item.id),
+    sheetStart: sheetStart.value,
+    sheetEnd: sheetEnd.value,
   });
   return {
     key: item.id,
@@ -1325,6 +1383,8 @@ const mapMedicationRow = (item: MedicationRecord, index: number, planeOffset: nu
     renderAsPoint: display.renderAsPoint,
     pointLabel: display.pointLabel,
     lineLabel: display.lineLabel,
+    lineLabelMode: display.lineLabelMode,
+    markerTooltip: display.markerTooltip,
     isSpecial: display.showInSpecialSection,
     index: index + planeOffset,
     source: item,
@@ -1340,33 +1400,49 @@ const tableIvMedications = computed(() => allMedicationRecords.value.filter((ite
 const tableInhaledMedications = computed(() => allMedicationRecords.value.filter((item) => isInhaledMedication(item, props.drugs)));
 const medicationRows = computed(() => ivMedicationRecords.value.map((item, index) => mapMedicationRow(item, index, planeRowOffset.value)));
 const inhaledMedicationRows = computed(() => inhaledMedicationRecords.value.map((item, index) => mapMedicationRow(item, index, 0)));
-const infusionRows = computed(() => props.record.fluids.filter((item) => isInfusionFluidCategory(item.category) && item.status !== 'voided').map((item, index) => ({
-  key: item.id,
-  label: item.name,
-  amount: `${item.volume}${item.unit ?? 'ml'}`,
-  time: item.startTime ?? item.time ?? props.record.plannedStart,
-  end: item.endTime,
-  index,
-  source: item,
-})));
-const autologousRows = computed(() => props.record.fluids.filter((item) => isAutologousFluidCategory(item.category, item.name) && item.status !== 'voided').map((item, index) => ({
-  key: item.id,
-  label: item.name,
-  amount: `${item.volume}${item.unit ?? 'ml'}`,
-  time: item.startTime ?? item.time ?? props.record.plannedStart,
-  end: item.endTime,
-  index,
-  source: item,
-})));
-const transfusionRows = computed(() => props.record.fluids.filter((item) => isBloodProductCategory(item.category) && item.status !== 'voided').map((item, index) => {
-  const dict = props.fluids.find((fluid) => fluid.name === item.name);
+const infusionRows = computed(() => props.record.fluids.filter((item) => isInfusionFluidCategory(item.category) && item.status !== 'voided').map((item, index) => {
+  const start = isoOrClockToClock(item.startTime ?? item.time) || props.record.plannedStart;
+  const end = isoOrClockToClock(item.endTime);
+  const amount = `${item.volume}${item.unit ?? 'ml'}`;
   return {
     key: item.id,
     label: item.name,
-    amount: `${item.volume}${item.unit ?? dict?.defaultUnit ?? 'U'}`,
-    time: item.startTime ?? item.time ?? props.record.plannedStart,
-    end: item.endTime,
+    amount,
+    time: start,
+    end,
     index,
+    markerTooltip: buildFluidMarkerTooltip(item, '输液'),
+    source: item,
+  };
+}));
+const autologousRows = computed(() => props.record.fluids.filter((item) => isAutologousFluidCategory(item.category, item.name) && item.status !== 'voided').map((item, index) => {
+  const start = isoOrClockToClock(item.startTime ?? item.time) || props.record.plannedStart;
+  const end = isoOrClockToClock(item.endTime);
+  const amount = `${item.volume}${item.unit ?? 'ml'}`;
+  return {
+    key: item.id,
+    label: item.name,
+    amount,
+    time: start,
+    end,
+    index,
+    markerTooltip: buildFluidMarkerTooltip(item, '自体血回输'),
+    source: item,
+  };
+}));
+const transfusionRows = computed(() => props.record.fluids.filter((item) => isBloodProductCategory(item.category) && item.status !== 'voided').map((item, index) => {
+  const dict = props.fluids.find((fluid) => fluid.name === item.name);
+  const start = isoOrClockToClock(item.startTime ?? item.time) || props.record.plannedStart;
+  const end = isoOrClockToClock(item.endTime);
+  const amount = `${item.volume}${item.unit ?? dict?.defaultUnit ?? 'U'}`;
+  return {
+    key: item.id,
+    label: item.name,
+    amount,
+    time: start,
+    end,
+    index,
+    markerTooltip: buildFluidMarkerTooltip({ ...item, unit: item.unit ?? dict?.defaultUnit }, '输血'),
     source: item,
   };
 }));
@@ -1594,8 +1670,14 @@ const medicationDoseText = (row: MedicationRecord) => {
 };
 const fluidTimeText = (row: FluidRecord) => `${isoOrClockToClock(row.startTime ?? row.time) || '-'} - ${isoOrClockToClock(row.endTime) || '进行中'}`;
 const planeDirectionText = (direction?: AnesthesiaPlaneRecord['direction']) => direction === 'up' ? '↑' : direction === 'fixed' ? '－' : '↓';
+const previewDragClockTime = (event: PointerEvent) => {
+  if (!dragState.active) return '';
+  const targetPercent = ((event.clientX - dragState.left) / dragState.width) * 100;
+  return percentToTime(targetPercent, sheetStart.value, sheetEnd.value);
+};
+
 const previewSegmentTimes = (event: PointerEvent) => {
-  if (!dragState.active || !dragState.source) return null;
+  if (!dragState.active || !dragState.source || dragState.isPoint || dragState.kind === 'plane') return null;
   const deltaPercent = ((event.clientX - dragState.startX) / dragState.width) * 100;
   const targetPercent = ((event.clientX - dragState.left) / dragState.width) * 100;
   if (dragState.kind === 'medication') {
@@ -1612,15 +1694,77 @@ const previewSegmentTimes = (event: PointerEvent) => {
   );
 };
 const updateSegmentDragPreview = (event: PointerEvent) => {
+  if (!dragState.active || !dragState.source) return;
+
+  if (dragState.kind === 'plane') {
+    const time = previewDragClockTime(event);
+    const source = dragState.source as AnesthesiaPlaneRecord;
+    segmentDragPreview.active = true;
+    segmentDragPreview.isPoint = true;
+    segmentDragPreview.isPlane = true;
+    segmentDragPreview.band = 'medication';
+    segmentDragPreview.style = pointStyle(time, 0, dragState.rowTotal);
+    segmentDragPreview.label = `${source.level}${planeDirectionText(source.direction)}`;
+    segmentDragPreview.timeHint = `平面 ${time}`;
+    segmentDragPreview.startGuideStyle = { left: leftFor(time) };
+    segmentDragPreview.tooltipStyle = {
+      left: leftFor(time),
+      top: topFor(0, dragState.rowTotal),
+      transform: 'translate(-50%, calc(100% + 12px))',
+    };
+    return;
+  }
+
+  if (dragState.isPoint) {
+    const time = previewDragClockTime(event);
+    const source = dragState.source as MedicationRecord;
+    const display = buildMedicationDisplayModel(source, {
+      fallbackSheetEnd: sheetEnd.value,
+      specialNo: specialNumberByMedId.value.get(source.id),
+      sheetStart: sheetStart.value,
+      sheetEnd: sheetEnd.value,
+    });
+    segmentDragPreview.active = true;
+    segmentDragPreview.isPoint = true;
+    segmentDragPreview.isPlane = false;
+    segmentDragPreview.band = dragState.band;
+    segmentDragPreview.style = pointStyle(time, dragState.rowIndex, dragState.rowTotal);
+    segmentDragPreview.label = display.pointLabel;
+    segmentDragPreview.timeHint = display.showInSpecialSection && display.specialNoDisplay
+      ? `标定 ${time} · ${display.specialNoDisplay}`
+      : `标定 ${time}`;
+    segmentDragPreview.startGuideStyle = { left: leftFor(time) };
+    segmentDragPreview.tooltipStyle = {
+      left: leftFor(time),
+      top: topFor(dragState.rowIndex, dragState.rowTotal),
+      transform: 'translate(-50%, calc(-100% - 8px))',
+    };
+    return;
+  }
+
   const moved = previewSegmentTimes(event);
-  if (!moved || !dragState.source) return;
+  if (!moved) return;
+  const durationLabel = formatSegmentDurationLabel(moved.start, moved.end);
   segmentDragPreview.active = true;
+  segmentDragPreview.isPoint = false;
+  segmentDragPreview.isPlane = false;
   segmentDragPreview.band = dragState.band;
   segmentDragPreview.style = segmentStyle(moved.start, moved.end, dragState.rowIndex, dragState.rowTotal);
-  const source = dragState.source as MedicationRecord & FluidRecord;
-  segmentDragPreview.label = dragState.kind === 'medication'
-    ? `${source.drug ?? source.name ?? ''} ${moved.start}-${moved.end}`
-    : `${source.name ?? ''} ${moved.start}-${moved.end}`;
+  segmentDragPreview.label = durationLabel || moved.start;
+  segmentDragPreview.startGuideStyle = { left: leftFor(moved.start) };
+  const pointerLeft = `${Math.max(0, Math.min(100, ((event.clientX - dragState.left) / dragState.width) * 100))}%`;
+  segmentDragPreview.tooltipStyle = {
+    left: dragState.mode === 'end' ? pointerLeft : leftFor(moved.start),
+    top: topFor(dragState.rowIndex, dragState.rowTotal),
+    transform: 'translate(-50%, calc(-100% - 8px))',
+  };
+  if (dragState.mode === 'end') {
+    segmentDragPreview.timeHint = `结束 ${moved.end}${durationLabel ? ` · ${durationLabel}` : ''}`;
+  } else if (dragState.mode === 'start') {
+    segmentDragPreview.timeHint = `开始 ${moved.start}${durationLabel ? ` · ${durationLabel}` : ''}`;
+  } else {
+    segmentDragPreview.timeHint = `开始 ${moved.start} · 结束 ${moved.end}`;
+  }
 };
 const isAbnormal = (row: VitalSign, item: VitalSignDictItem) => {
   const value = row[item.shortCode as keyof VitalSign];
@@ -2101,12 +2245,55 @@ const closeObserveSetting = () => {
   persistMonitorOrder();
   observeVisible.value = false;
 };
+const startPlaneDrag = (event: PointerEvent, source: AnesthesiaPlaneRecord) => {
+  if (props.readOnly || event.button !== 0) return;
+  const track = (event.currentTarget as HTMLElement).closest('.band-track');
+  if (!track) return;
+  const rect = track.getBoundingClientRect();
+  dragState.active = true;
+  dragState.isPoint = true;
+  dragState.kind = 'plane';
+  dragState.band = 'medication';
+  dragState.mode = 'move';
+  dragState.source = source;
+  dragState.startX = event.clientX;
+  dragState.left = rect.left;
+  dragState.width = Math.max(1, rect.width);
+  dragState.rowIndex = 0;
+  dragState.rowTotal = medicationRowCount.value;
+  updateSegmentDragPreview(event);
+  window.addEventListener('pointermove', updateSegmentDragPreview);
+  window.addEventListener('pointerup', finishSegmentDrag, { once: true });
+};
+
+const startMedicationPointDrag = (event: PointerEvent, source: MedicationRecord, rowIndex = 0, rowTotal = 1) => {
+  if (props.readOnly || event.button !== 0) return;
+  const track = (event.currentTarget as HTMLElement).closest('.band-track');
+  if (!track) return;
+  const rect = track.getBoundingClientRect();
+  dragState.active = true;
+  dragState.isPoint = true;
+  dragState.kind = 'medication';
+  dragState.band = isInhaledMedication(source, props.drugs) ? 'inhaled' : 'medication';
+  dragState.mode = 'move';
+  dragState.source = source;
+  dragState.startX = event.clientX;
+  dragState.left = rect.left;
+  dragState.width = Math.max(1, rect.width);
+  dragState.rowIndex = rowIndex;
+  dragState.rowTotal = rowTotal;
+  updateSegmentDragPreview(event);
+  window.addEventListener('pointermove', updateSegmentDragPreview);
+  window.addEventListener('pointerup', finishSegmentDrag, { once: true });
+};
+
 const startSegmentDrag = (event: PointerEvent, kind: 'medication' | 'fluid', source: MedicationRecord | FluidRecord, mode: 'move' | 'start' | 'end', rowIndex = 0, rowTotal = 1) => {
   if (props.readOnly || event.button !== 0) return;
   const track = (event.currentTarget as HTMLElement).closest('.band-track');
   if (!track) return;
   const rect = track.getBoundingClientRect();
   dragState.active = true;
+  dragState.isPoint = false;
   dragState.kind = kind;
   if (kind === 'medication') {
     dragState.band = isInhaledMedication(source as MedicationRecord, props.drugs) ? 'inhaled' : 'medication';
@@ -2178,6 +2365,35 @@ const finishSegmentDrag = (event: PointerEvent) => {
   const targetPercent = ((event.clientX - dragState.left) / dragState.width) * 100;
   if (dragState.mode === 'move' && Math.abs(deltaPercent) < 0.2) {
     dragState.active = false;
+    dragState.isPoint = false;
+    dragState.source = null;
+    segmentDragPreview.active = false;
+    window.removeEventListener('pointermove', updateSegmentDragPreview);
+    return;
+  }
+  if (dragState.isPoint && dragState.kind === 'medication') {
+    const source = dragState.source as MedicationRecord;
+    const time = previewDragClockTime(event);
+    emit('saveMedication', {
+      ...source,
+      time,
+      eventTime: time,
+      endTime: undefined,
+      stopTime: undefined,
+    });
+    dragState.active = false;
+    dragState.isPoint = false;
+    dragState.source = null;
+    segmentDragPreview.active = false;
+    window.removeEventListener('pointermove', updateSegmentDragPreview);
+    return;
+  }
+  if (dragState.kind === 'plane') {
+    const source = dragState.source as AnesthesiaPlaneRecord;
+    const time = previewDragClockTime(event);
+    emit('savePlane', { ...source, time });
+    dragState.active = false;
+    dragState.isPoint = false;
     dragState.source = null;
     segmentDragPreview.active = false;
     window.removeEventListener('pointermove', updateSegmentDragPreview);
@@ -2205,6 +2421,7 @@ const finishSegmentDrag = (event: PointerEvent) => {
     emit('saveFluid', { ...source, startTime: moved.start, time: moved.start, endTime: moved.end });
   }
   dragState.active = false;
+  dragState.isPoint = false;
   dragState.source = null;
   segmentDragPreview.active = false;
   window.removeEventListener('pointermove', updateSegmentDragPreview);
@@ -2781,10 +2998,31 @@ onBeforeUnmount(() => {
 }
 
 .drug-point {
+  max-width: 52px;
   padding: 0 4px;
   border: 1px solid var(--sheet-drug-ink);
   background: var(--sheet-drug-fill);
   font-weight: 700;
+  cursor: grab;
+}
+
+.drug-point.is-special {
+  max-width: 28px;
+  border-color: #b45309;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.drug-point:active {
+  cursor: grabbing;
+}
+
+.drug-point.drag-preview {
+  z-index: 6;
+  opacity: 0.72;
+  pointer-events: none;
+  border-style: dashed;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
 }
 
 .drug-point.is-template {
@@ -2828,11 +3066,18 @@ onBeforeUnmount(() => {
   color: var(--sheet-abnormal);
 }
 
+.medication-band .band-track,
+.inhaled-band .band-track {
+  overflow: hidden;
+}
+
 .line-segment {
   position: absolute;
   z-index: 3;
   transform: translateY(-4px);
   min-width: 24px;
+  max-width: 100%;
+  overflow: visible;
   border-top: var(--sheet-segment-width) solid var(--sheet-monitor);
   color: var(--sheet-monitor);
   font-size: 12px;
@@ -2840,6 +3085,10 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   cursor: grab;
   user-select: none;
+}
+
+.line-segment.line-label--special-no {
+  color: #b45309;
 }
 
 .line-segment::before,
@@ -2883,8 +3132,19 @@ onBeforeUnmount(() => {
   font-weight: 700;
   line-height: 1.15;
   text-align: center;
-  cursor: pointer;
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.12);
+  cursor: grab;
+}
+
+.plane-marker:active {
+  cursor: grabbing;
+}
+
+.plane-marker.drag-preview {
+  z-index: 6;
+  opacity: 0.72;
+  pointer-events: none;
+  border-style: dashed;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
 }
 
 .line-segment:hover {
@@ -2899,29 +3159,71 @@ onBeforeUnmount(() => {
   filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.24));
 }
 
+.segment-drag-start-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 7;
+  border-left: 2px dashed #b45309;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.segment-drag-tooltip {
+  position: absolute;
+  z-index: 12;
+  padding: 2px 8px;
+  border: 1px solid #b45309;
+  border-radius: 4px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+}
+
 .segment-label {
   position: absolute;
-  top: 3px;
-  left: 0;
+  top: 50%;
+  left: 50%;
   display: inline-block;
-  max-width: 72px;
+  max-width: calc(100% - 8px);
   padding: 0 3px;
   overflow: hidden;
   text-overflow: ellipsis;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.92);
   line-height: 1.15;
-  vertical-align: top;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.live-record-card.is-print-mode .segment-label {
+  font-size: 9px;
+  padding: 0 2px;
+}
+
+.live-record-card.is-print-mode .drug-point {
+  max-width: 40px;
+  font-size: 10px;
 }
 
 .segment-handle {
   position: absolute;
   top: -7px;
+  z-index: 5;
   width: 10px;
   height: 14px;
   border: 1px solid currentColor;
   border-radius: 3px;
   background: #fff;
   opacity: 0;
+  pointer-events: auto;
   transition: opacity 0.12s ease;
   cursor: ew-resize;
 }
@@ -3757,6 +4059,11 @@ onBeforeUnmount(() => {
   .is-print-mode .segment-handle,
   .is-print-mode .drag-guide,
   .is-print-mode .drag-tooltip,
+  .is-print-mode .segment-drag-start-guide,
+  .is-print-mode .segment-drag-tooltip,
+  .is-print-mode .line-segment.drag-preview,
+  .is-print-mode .drug-point.drag-preview,
+  .is-print-mode .plane-marker.drag-preview,
   .is-print-mode .sheet-lock-banner,
   .is-print-mode .sheet-print-watermark,
   .is-print-mode .live-context-menu {

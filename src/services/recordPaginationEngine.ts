@@ -64,6 +64,19 @@ export function buildRecordPagination(record: SurgeryCase, options: PaginationOp
   return { axisStart, axisEnd, pages };
 }
 
+/** 根据时间点定位应展示的页码（抢救退出后用于回到当前术野）。 */
+export function resolveRecordPageNoForTime(
+  record: SurgeryCase,
+  time?: string,
+  options: PaginationOptions = {},
+): number {
+  const clock = isoOrClockToClock(time);
+  if (!clock) return 1;
+  const { pages } = buildRecordPagination(record, options);
+  const matched = pages.find((page) => isTimeOnPage(clock, page));
+  return matched?.pageNo ?? pages[pages.length - 1]?.pageNo ?? 1;
+}
+
 /** 页内时间归属：非末页 [start, end)，末页 [start, end] 以包含轴终点。 */
 export function isTimeOnPage(time: string | undefined, page: TimeAxisPageConfig): boolean {
   if (!time) return false;

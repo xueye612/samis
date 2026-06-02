@@ -26,25 +26,28 @@ const vitalLabel = (item: VitalSignDictItem) => formatVitalMonitorLabel(item);
 </script>
 
 <template>
-  <a-form layout="vertical" class="vital-entry-form">
-    <section class="form-panel">
+  <div class="vital-entry-form">
+    <section class="clinical-block">
       <div class="time-toolbar">
-        <a-form-item label="记录时间" class="field-time">
+        <div class="time-item">
+          <label class="field-label">记录时间</label>
           <RecordTimeField
             :model-value="form.time"
             @update:model-value="patchForm('time', $event)"
             @step="emit('shiftTime', 'time', $event)"
           />
-        </a-form-item>
+        </div>
         <template v-if="batch">
-          <a-form-item label="结束时间" class="field-time">
+          <div class="time-item">
+            <label class="field-label">结束时间</label>
             <RecordTimeField
               :model-value="endTime"
               @update:model-value="emit('update:endTime', $event)"
               @step="emit('shiftTime', 'endTime', $event)"
             />
-          </a-form-item>
-          <a-form-item label="间隔" class="field-interval">
+          </div>
+          <div class="time-item time-item--interval">
+            <label class="field-label">间隔</label>
             <a-input-number
               :model-value="interval"
               :min="1"
@@ -54,38 +57,36 @@ const vitalLabel = (item: VitalSignDictItem) => formatVitalMonitorLabel(item);
             >
               <template #suffix>分</template>
             </a-input-number>
-          </a-form-item>
+          </div>
         </template>
       </div>
 
       <div class="vital-grid">
-        <a-form-item
-          v-for="item in rows"
-          :key="item.shortCode"
-          class="vital-field"
-        >
-          <template #label>
+        <div v-for="item in rows" :key="item.shortCode" class="detail-cell">
+          <label class="field-label vital-field-label">
             <span class="vital-label-zh">{{ vitalLabel(item).labelZh }}</span>
             <span class="vital-label-meta">{{ vitalLabel(item).labelCode }} · {{ vitalLabel(item).unit }}</span>
-          </template>
+          </label>
           <a-input
             :model-value="values[item.shortCode] ?? ''"
             :placeholder="item.normalRange ? `参考 ${item.normalRange}` : ''"
             @update:model-value="patchValue(item.shortCode, $event)"
           />
-        </a-form-item>
+        </div>
       </div>
 
       <div class="meta-row">
-        <a-form-item label="来源" class="field-source">
+        <div class="detail-cell">
+          <label class="field-label">来源</label>
           <a-input :model-value="form.source" @update:model-value="patchForm('source', $event)" />
-        </a-form-item>
-        <a-form-item label="备注" class="field-remark">
+        </div>
+        <div class="detail-cell meta-remark">
+          <label class="field-label">备注</label>
           <a-input :model-value="form.remark" placeholder="可选" @update:model-value="patchForm('remark', $event)" />
-        </a-form-item>
+        </div>
       </div>
     </section>
-  </a-form>
+  </div>
 </template>
 
 <style scoped>
@@ -94,83 +95,92 @@ const vitalLabel = (item: VitalSignDictItem) => formatVitalMonitorLabel(item);
   gap: 0;
 }
 
-.form-panel {
+.clinical-block {
+  display: grid;
+  gap: 8px;
   padding: 10px 12px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  background: #fafcff;
+  background: #fff;
+}
+
+.field-label {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .time-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px 10px;
-  margin-bottom: 4px;
 }
 
-.field-time {
-  flex: 0 1 168px;
-  min-width: 128px;
-  max-width: 168px;
+.time-item {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
-.field-interval {
-  flex: 0 1 100px;
-  min-width: 88px;
+.time-item--interval {
   max-width: 120px;
 }
 
-.vital-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0 10px;
-}
-
+.vital-grid,
 .meta-row {
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: 0 10px;
-  margin-top: 2px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 10px;
 }
 
-.vital-label-zh {
-  display: block;
-  color: #0f172a;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.2;
+.detail-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
-.vital-label-meta {
-  display: block;
-  margin-top: 1px;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.2;
-}
-
-.vital-entry-form :deep(.arco-form-item) {
-  margin-bottom: 6px;
-}
-
-.vital-entry-form :deep(.arco-form-item-label) {
-  padding-bottom: 2px;
+.vital-field-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
   line-height: 1.25;
 }
 
-.vital-entry-form :deep(.arco-input-wrapper) {
+.vital-label-zh {
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.vital-label-meta {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.meta-remark {
+  grid-column: 2 / -1;
+}
+
+.vital-entry-form :deep(.arco-input-wrapper),
+.vital-entry-form :deep(.arco-input-number) {
   min-height: 32px;
 }
 
 @media (max-width: 520px) {
-  .vital-grid {
+  .time-toolbar,
+  .vital-grid,
+  .meta-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .meta-row {
-    grid-template-columns: 1fr;
+  .meta-remark {
+    grid-column: 1 / -1;
+  }
+
+  .time-item--interval {
+    max-width: none;
   }
 }
 </style>
