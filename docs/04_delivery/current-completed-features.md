@@ -42,7 +42,8 @@
 | 真实可切换 | `operationInfo/getOperationList`（含 `operationRoom`）、`getOperationInfo` | 已实现，默认 mock |
 | 真实可切换 | `getNursePbList`（`startTime`+`endTime`）、`saveNursePb`、`updateNumberOfStations`、`updateOperationInfo`（form） | 已实现，默认 mock |
 | 真实可切换 | `room/getRoomList`、`getRoomGroupList` | 已实现，默认 mock |
-| 仍 mock | `anesthesiaRecord/*`、`anesthesiaSync/*`、`anesthesiaDevice/*`、`anesthesiaDict/*` | 等待 Apifox 正式定义 |
+| 真实可切换 | `anesthesiaDict/*`（药品/模板/字典项/液体/血制品） | 已实现；`VITE_USE_REAL_ANESTHESIA_DICT`；POST 为 form-urlencoded |
+| 仍 mock | `anesthesiaRecord/*`、`anesthesiaSync/*`、`anesthesiaDevice/*` | 等待 Apifox 正式定义 |
 
 代码入口：`.env.example`、`src/config/apiFlags.ts`、`src/api/samisClient.ts`、`src/services/anesthesia/operationInfoService.ts`。
 

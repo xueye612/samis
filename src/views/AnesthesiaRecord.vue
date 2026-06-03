@@ -1,6 +1,9 @@
 <template>
+  <div v-if="store.isHydrating" class="record-empty-page record-empty-page--loading">
+    <a-spin :size="36" tip="正在加载手术通知单与字典数据…" />
+  </div>
   <div
-    v-if="current"
+    v-else-if="current"
     class="anesthesia-record-workstation"
     :class="{ 'print-preview-active': printPreviewVisible }"
     :style="recordSheetShellStyle"
@@ -444,12 +447,21 @@
       :on-resolve="(caseId, conflictId, action, merged) => store.resolveRecordSyncConflict(caseId, conflictId, action, merged)"
     />
   </div>
-  <a-empty v-else description="暂无麻醉记录单病例" />
+  <div v-else class="record-empty-page">
+    <a-empty :description="recordEmptyDescription">
+      <p class="record-empty-hint">{{ recordEmptyHint }}</p>
+      <a-space>
+        <a-button :loading="casesReloading" @click="reloadCases">重新加载手术列表</a-button>
+        <a-button type="primary" @click="router.push('/surgery/schedule')">前往手术排班</a-button>
+      </a-space>
+    </a-empty>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { Message, Modal } from '@arco-design/web-vue';
 import { ANESTHESIA_USE_MOCK } from '@/api/samisResponse';
+import { useRealOperationInfo } from '@/config/apiFlags';
 import dayjs from 'dayjs';
 import { restoreCasePageNo } from '@/services/anesthesia/anesthesiaPersistenceBridge';
 import {
@@ -698,6 +710,28 @@ const filteredCases = computed(() => {
   });
 });
 const current = computed(() => store.cases.find((item) => item.id === selectedId.value));
+
+const recordEmptyDescription = computed(() => {
+  if (!store.cases.length) {
+    return useRealOperationInfo() ? '当日手术通知单暂无数据' : '暂无麻醉记录单病例';
+  }
+  if (selectedId.value && !current.value) {
+    return '当前选中的病例不在列表中';
+  }
+  return '请选择一名患者';
+});
+
+const recordEmptyHint = computed(() => {
+  const parts: string[] = [];
+  if (store.operationListSource) {
+    parts.push(`数据来源：${store.operationListSource === 'remote' ? '远程接口' : store.operationListSource}`);
+  }
+  parts.push(`已加载 ${store.cases.length} 条手术`);
+  if (useRealOperationInfo() && !store.cases.length) {
+    parts.push('可在手术排班切换日期后刷新，或联系后台确认当日通知单');
+  }
+  return parts.join(' · ');
+});
 const caseSelectOptions = computed(() => sortedCases.value.map((item) => ({
   label: `${item.room} ${item.patientName}`,
   value: item.id,
@@ -877,11 +911,75 @@ const restoreWorkflowState = (caseId: string) => {
   templateModalVisible.value = false;
 };
 
+const casesReloading = ref(false);
+
+const resolveActiveCaseId = () => {
+  const routeId = route.params.id ? String(route.params.id) : '';
+  if (routeId && store.cases.some((item) => item.id === routeId)) return routeId;
+  return (
+    store.currentDoctorActiveCase?.id
+    || store.myTodayCases[0]?.id
+    || store.cases[0]?.id
+    || ''
+  );
+};
+
+const prepareCurrentCaseView = async (caseId: string) => {
+  if (!store.localPersistenceReady) {
+    await store.bootstrapAnesthesiaLocalPersistence();
+  }
+  await store.setActiveAnesthesiaRecordScope(caseId);
+  livePageNo.value = await restoreCasePageNo(caseId);
+  restoreWorkflowState(caseId);
+  store.syncRecordDocument(caseId);
+  store.setRecordPageDraft(caseId, livePageNo.value);
+  caseSheetReady.value = true;
+};
+
+let syncingCaseSelection = false;
+
+const syncActiveCaseSelection = async () => {
+  if (syncingCaseSelection) return;
+  if (!store.localPersistenceReady || store.isHydrating) return;
+  const nextId = resolveActiveCaseId();
+  if (!nextId) return;
+  syncingCaseSelection = true;
+  try {
+    if (nextId !== selectedId.value) {
+      selectedId.value = nextId;
+    }
+    const routeId = route.params.id ? String(route.params.id) : '';
+    if (routeId !== nextId) {
+      await router.replace(buildRecordRoute(nextId, recordEntrySource.value));
+    }
+  } finally {
+    syncingCaseSelection = false;
+  }
+};
+
+const reloadCases = async () => {
+  casesReloading.value = true;
+  try {
+    await store.loadRemoteOperationList({ operationDate: dayjs().format('YYYY-MM-DD') });
+    await syncActiveCaseSelection();
+    if (!store.cases.length) Message.info('仍未获取到手术病例');
+  } finally {
+    casesReloading.value = false;
+  }
+};
+
 watch(() => route.params.id, (id) => {
   if (id) selectedId.value = String(id);
 });
+watch(
+  () => [store.localPersistenceReady, store.isHydrating, store.cases.map((item) => item.id).join('|')],
+  () => {
+    void syncActiveCaseSelection();
+  },
+  { immediate: true },
+);
 watch(selectedId, async (id) => {
-  if (!store.localPersistenceReady) return;
+  if (!store.localPersistenceReady || !id) return;
   await store.setActiveAnesthesiaRecordScope(id);
   caseSheetReady.value = false;
   livePageNo.value = await restoreCasePageNo(id);
@@ -911,7 +1009,7 @@ const selectCase = (id: string) => {
   if (hint.needConfirm) {
     Modal.confirm({
       title: '切换患者',
-      content: hint.message,
+      content: hint.message ?? '确定切换患者？',
       onOk: proceed,
     });
     return;
@@ -919,20 +1017,12 @@ const selectCase = (id: string) => {
   proceed();
 };
 
-const prepareCurrentCaseView = async (caseId: string) => {
-  if (!store.localPersistenceReady) {
-    await store.bootstrapAnesthesiaLocalPersistence();
-  }
-  await store.setActiveAnesthesiaRecordScope(caseId);
-  livePageNo.value = await restoreCasePageNo(caseId);
-  restoreWorkflowState(caseId);
-  store.syncRecordDocument(caseId);
-  store.setRecordPageDraft(caseId, livePageNo.value);
-  caseSheetReady.value = true;
-};
-
 onMounted(async () => {
-  await prepareCurrentCaseView(selectedId.value);
+  await syncActiveCaseSelection();
+  if (!selectedId.value) return;
+  if (!caseSheetReady.value) {
+    await prepareCurrentCaseView(selectedId.value);
+  }
   const resumePrompt = store.checkMonitoringResumePrompt(selectedId.value);
   if (resumePrompt.show) {
     Modal.confirm({
@@ -1484,6 +1574,28 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   gap: 8px;
   margin: -12px;
   padding: 8px 12px 12px;
+}
+
+.record-empty-page {
+  display: grid;
+  place-items: center;
+  min-height: min(72vh, 560px);
+  padding: 48px 24px;
+}
+
+.record-empty-page--loading {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.record-empty-hint {
+  margin: 0 0 16px;
+  max-width: 420px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  text-align: center;
 }
 
 .record-layout {

@@ -166,7 +166,12 @@ import {
   hydrateCaseFromOperationInfo as hydrateCaseFromOperationInfoService,
 } from '@/services/anesthesia/operationInfoService';
 import { loadRoomCatalog } from '@/services/anesthesia/roomService';
-import { useRealOperationInfo } from '@/config/apiFlags';
+import {
+  disableDrugDictItem,
+  loadDrugDictCatalog,
+  persistDrugDictItem,
+} from '@/services/anesthesia/anesthesiaDictService';
+import { useRealOperationInfo, useRealAnesthesiaDict } from '@/config/apiFlags';
 import type { RoomGroupCatalog } from '@/services/anesthesia/adapters/roomAdapter';
 import {
   hydrateAnesthesiaCasesFromLocalDb,
@@ -272,10 +277,22 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     defectOverrides: {} as Record<string, Partial<QualityDefect>>,
     datasetVersion: 0,
     configRooms: ['OR-01', 'OR-02', 'OR-03', 'OR-04', 'OR-05', 'OR-06', 'PACU', '产房', '内镜中心'] as string[],
-    configDrugs: clone(persistedRecordState.configDrugs ?? seedDrugDict) as DrugDictItem[],
+    configDrugs: clone(
+      persistedRecordState.configDrugs?.length
+        ? persistedRecordState.configDrugs
+        : seedDrugDict,
+    ) as DrugDictItem[],
     configMethods: clone(seedMethodCategories) as AnesthesiaMethodCategory[],
-    configFluids: clone(persistedRecordState.configFluids ?? seedFluidBloodDict) as FluidBloodDictItem[],
-    configVitals: clone(persistedRecordState.configVitals ?? seedVitalSignDict) as VitalSignDictItem[],
+    configFluids: clone(
+      persistedRecordState.configFluids?.length
+        ? persistedRecordState.configFluids
+        : seedFluidBloodDict,
+    ) as FluidBloodDictItem[],
+    configVitals: clone(
+      persistedRecordState.configVitals?.length
+        ? persistedRecordState.configVitals
+        : seedVitalSignDict,
+    ) as VitalSignDictItem[],
     configEvents: ['插管', '拔管', '低体温', '低血压', '低氧', '抢救', '非计划转ICU'] as string[],
     configScores: ['Aldrete', 'VAS', 'GCS', 'Apgar'] as string[],
     configPrintTemplates: ['麻醉记录单', '术前访视单', 'PACU恢复记录', '术后随访表'] as string[],
@@ -301,6 +318,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     activeRecordScopeId: '' as string,
     operationListSource: '' as string,
     roomCatalogSource: '' as string,
+    drugDictSource: '' as string,
     roomGroups: [] as RoomGroupCatalog[],
     anesthesiaSyncState: {
       pendingCount: 0,
@@ -497,28 +515,53 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     qualityReportCache: () => getQualityReportCache(),
   },
   actions: {
+    /** 仅在未启用对应真实接口时回填演示种子，避免覆盖「远程为空」的真实状态 */
+    async ensureClinicalSeedData() {
+      if (!useRealOperationInfo() && !this.cases.length) {
+        const fallback = await hydrateAnesthesiaCasesFromLocalDb(clone(buildInitialClinicalState().cases));
+        this.cases = fallback;
+        if (!this.operationListSource) this.operationListSource = 'seed';
+        fallback.forEach((item) => syncCaseToDataset(getMutableDataset(), item));
+        bumpDatasetVersion();
+        this.datasetVersion += 1;
+      }
+      if (!useRealAnesthesiaDict() && !this.configDrugs.length) {
+        this.configDrugs = clone(seedDrugDict);
+        if (!this.drugDictSource) this.drugDictSource = 'seed';
+      }
+      if (!this.configFluids.length) {
+        this.configFluids = clone(seedFluidBloodDict);
+      }
+      if (!this.configVitals.length) {
+        this.configVitals = clone(seedVitalSignDict);
+      }
+    },
     async bootstrapAnesthesiaLocalPersistence() {
       if (this.localPersistenceReady) return;
       this.isHydrating = true;
-      const localCases = await loadAllCasesFromLocalDb();
-      this.hasRestoredLocalData = localCases.length > 0;
-      if (!useRealOperationInfo()) {
-        this.cases = await hydrateAnesthesiaCasesFromLocalDb(this.cases);
-      } else {
-        this.cases = [];
+      try {
+        const localCases = await loadAllCasesFromLocalDb();
+        this.hasRestoredLocalData = localCases.length > 0;
+        if (useRealOperationInfo()) {
+          this.cases = await hydrateAnesthesiaCasesFromLocalDb([], { appendOrphans: true });
+        } else {
+          this.cases = await hydrateAnesthesiaCasesFromLocalDb(clone(buildInitialClinicalState().cases));
+        }
+        this.localDbReady = true;
+        this.localPersistenceReady = true;
+        await this.loadSamisBaseCatalog();
+        await this.ensureClinicalSeedData();
+        startAnesthesiaSyncService();
+        subscribeAnesthesiaSyncState((state) => {
+          if (syncStatesEqual(this.anesthesiaSyncState, state)) return;
+          this.anesthesiaSyncState = state;
+        });
+        void this.refreshSyncConflicts();
+        void runStartupLocalCleanupIfDue();
+        await loadMonitoringSessionFromDb();
+      } finally {
+        this.isHydrating = false;
       }
-      this.localDbReady = true;
-      this.localPersistenceReady = true;
-      await this.loadSamisBaseCatalog();
-      this.isHydrating = false;
-      startAnesthesiaSyncService();
-      subscribeAnesthesiaSyncState((state) => {
-        if (syncStatesEqual(this.anesthesiaSyncState, state)) return;
-        this.anesthesiaSyncState = state;
-      });
-      void this.refreshSyncConflicts();
-      void runStartupLocalCleanupIfDue();
-      await loadMonitoringSessionFromDb();
     },
     setCurrentUserFromSession(profile?: { displayName?: string; loginName?: string; defaultRoom?: string }) {
       if (profile?.displayName) {
@@ -538,9 +581,12 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const result = await fetchOperationList(params);
       this.cases = result.cases;
       this.operationListSource = result.source;
-      result.cases.forEach((item) => syncCaseToDataset(getMutableDataset(), item));
-      bumpDatasetVersion();
-      this.datasetVersion += 1;
+      if (result.cases.length) {
+        result.cases.forEach((item) => syncCaseToDataset(getMutableDataset(), item));
+        bumpDatasetVersion();
+        this.datasetVersion += 1;
+      }
+      await this.ensureClinicalSeedData();
       return result;
     },
     async loadRoomCatalog() {
@@ -550,11 +596,29 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       this.roomCatalogSource = catalog.source;
       return catalog;
     },
+    async loadRemoteDrugDict(params?: { keyword?: string; enabled?: boolean }) {
+      const result = await loadDrugDictCatalog(params);
+      this.drugDictSource = result.source;
+      if (useRealAnesthesiaDict()) {
+        this.configDrugs = result.items;
+      } else if (result.items.length) {
+        this.configDrugs = result.items;
+      }
+      await this.ensureClinicalSeedData();
+      return result;
+    },
     async loadSamisBaseCatalog() {
-      await Promise.all([
+      const results = await Promise.allSettled([
         this.loadRoomCatalog(),
         this.loadRemoteOperationList({ operationDate: dayjs().format('YYYY-MM-DD') }),
+        this.loadRemoteDrugDict({ enabled: true }),
       ]);
+      results.forEach((entry, index) => {
+        if (entry.status === 'rejected') {
+          console.warn('[samis] loadSamisBaseCatalog task failed', index, entry.reason);
+        }
+      });
+      await this.ensureClinicalSeedData();
     },
     async hydrateCaseFromOperationInfo(caseId: string) {
       const index = this.cases.findIndex((item) => item.id === caseId);
@@ -610,7 +674,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const target = this.cases.find((item) => item.id === caseId);
       if (target?.device) {
         const running = this.anesthesiaSyncState.monitorRunning || this.anesthesiaSyncState.ventilatorRunning;
-        target.device.collectStatus = running ? '采集中' : '已停止';
+        target.device.collectStatus = running ? '采集中' : '已结束';
       }
       return true;
     },
@@ -1042,7 +1106,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         this.rescueFromDeviceSimCaseId = '';
       }
       if (target?.device) {
-        target.device.collectStatus = mode === 'rescue' ? '抢救采集中' : '采集中';
+        target.device.collectStatus = '采集中';
       }
       this.restartDeviceMocksForInterval(caseId);
     },
@@ -1990,6 +2054,29 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     upsertDrugDict(items: DrugDictItem[]) {
       this.configDrugs = clone(items);
       this.persistRecordLocalState();
+    },
+    async saveDrugDictEntry(item: DrugDictItem): Promise<boolean> {
+      const saved = await persistDrugDictItem(item);
+      if (!saved) return false;
+      const next = clone(this.configDrugs);
+      const index = next.findIndex(
+        (row) => row.id === item.id || (saved.id && row.id === saved.id),
+      );
+      if (index >= 0) next[index] = saved;
+      else next.push(saved);
+      next.sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
+      this.configDrugs = next;
+      this.persistRecordLocalState();
+      return true;
+    },
+    async disableDrugDictEntry(drugId: string | number): Promise<boolean> {
+      const ok = await disableDrugDictItem(drugId);
+      if (!ok) return false;
+      this.configDrugs = this.configDrugs.filter(
+        (row) => row.id !== drugId && String(row.id) !== String(drugId),
+      );
+      this.persistRecordLocalState();
+      return true;
     },
     upsertFluidBloodDict(items: FluidBloodDictItem[]) {
       this.configFluids = clone(items);

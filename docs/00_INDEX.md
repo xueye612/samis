@@ -21,6 +21,7 @@
 /api-samis/pc/v1/user/getLoginUser
 /api-samis/pc/v1/operationInfo/*
 /api-samis/pc/v1/room/*
+/api-samis/pc/v1/anesthesiaDict/*
 /api-samis/pc/v1/anesthesiaRecord/*
 /api-samis/pc/v1/anesthesiaSync/*
 /api-samis/pc/v1/anesthesiaDevice/*
@@ -37,6 +38,7 @@
 | 认证 | `VITE_USE_REAL_AUTH` | 开发 false | Login `POST /admin/login`（form `username`/`password`）；当前用户 `adminUser/getAdminUserInfo` |
 | 手术通知单 | `VITE_USE_REAL_OPERATION_INFO` | 开发 false | 列表 `operationRoom`；排班 `startTime`/`endTime`；POST 写回为 form-urlencoded |
 | 手术间 | `VITE_USE_REAL_ROOM` | 开发 false | `getRoomList` / `getRoomGroupList` → `configRooms` |
+| 麻醉字典 | `VITE_USE_REAL_ANESTHESIA_DICT` | 开发 false | `getDrugDict` 等；POST 写回为 form-urlencoded；见 Apifox `anesthesia_dict_apifox_openapi.json` |
 | 麻醉记录单 | `VITE_USE_REAL_ANESTHESIA_RECORD` | false | Apifox 未齐，继续 mock |
 | 同步 | `VITE_USE_REAL_ANESTHESIA_SYNC` | false | pushBatch 等继续 mock |
 | 设备上传 | `VITE_USE_REAL_DEVICE` | false | 监护仪/呼吸机 mock 采集不变 |

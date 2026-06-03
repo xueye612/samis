@@ -46,6 +46,11 @@ export function useRealDevice(): boolean {
   return envTrue('VITE_USE_REAL_DEVICE', false);
 }
 
+export function useRealAnesthesiaDict(): boolean {
+  if (!ANESTHESIA_USE_MOCK) return true;
+  return envTrue('VITE_USE_REAL_ANESTHESIA_DICT', false);
+}
+
 export type SamisApiModule =
   | 'auth'
   | 'operationInfo'
@@ -83,7 +88,7 @@ export function useRealForModule(module: SamisApiModule): boolean {
     case 'anesthesiaDevice':
       return useRealDevice();
     case 'anesthesiaDict':
-      return useRealAnesthesiaRecord();
+      return useRealAnesthesiaDict();
     case 'legacy':
       return false;
     default:

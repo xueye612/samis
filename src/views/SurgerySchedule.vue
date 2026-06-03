@@ -123,6 +123,9 @@
               row-key="id"
               :scroll="{ x: 1900 }"
             >
+              <template #empty>
+                <a-empty :description="scheduleEmptyDescription" />
+              </template>
               <template #columns>
                 <a-table-column title="手术间" data-index="room" :width="90" />
                 <a-table-column title="时间" :width="150">
@@ -226,6 +229,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { useRouter } from 'vue-router';
 import StatusTag from '@/components/StatusTag.vue';
+import { useRealOperationInfo } from '@/config/apiFlags';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 import {
   buildSaveNursePbPayload,
@@ -278,6 +282,15 @@ const sourceLabel = computed(() => {
 const sourceTagColor = computed(() => {
   if (store.operationListSource === 'remote') return 'green';
   return 'gray';
+});
+
+const scheduleEmptyDescription = computed(() => {
+  if (scheduleLoading.value) return '正在加载…';
+  if (!store.cases.length && useRealOperationInfo()) {
+    return '当日手术通知单暂无数据（远程接口已返回空列表）';
+  }
+  if (!filteredCases.value.length) return '当前筛选条件下无排班';
+  return '暂无排班数据';
 });
 
 const weekStart = computed(() => dayjs().startOf('week').add(1, 'day'));

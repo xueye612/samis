@@ -257,10 +257,21 @@ export interface QualityCheckRecord {
   rectifyStatus?: '待整改' | '整改中' | '已闭环';
 }
 
+/** 药品管理页「分类库存」Tab 名称；新增分类需同步改 buildDrugInventory 种子数据 */
+export const DRUG_INVENTORY_CATEGORIES = [
+  '麻醉药品',
+  '镇痛药品',
+  '肌松药品',
+  '镇静药品',
+  '其他药品',
+] as const;
+
+export type DrugInventoryCategory = (typeof DRUG_INVENTORY_CATEGORIES)[number];
+
 export interface DrugInventoryItem {
   id: string;
   name: string;
-  category: '麻醉药品' | '镇痛药品' | '肌松药品' | '镇静药品' | '其他药品';
+  category: DrugInventoryCategory;
   specification: string;
   stock: number;
   unit: string;

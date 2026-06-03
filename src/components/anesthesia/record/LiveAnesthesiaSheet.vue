@@ -793,7 +793,7 @@ import {
   resolveKeyOperationsDisplayText,
   type MethodTimelineNode,
 } from '@/services/methodTimelineEngine';
-import { computed, defineComponent, defineExpose, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import RecordModalShell from './RecordModalShell.vue';
 import MedicationLineForm from '@/components/anesthesia/record/sheet/MedicationLineForm.vue';
 import VitalSignEntryForm from '@/components/anesthesia/record/sheet/VitalSignEntryForm.vue';

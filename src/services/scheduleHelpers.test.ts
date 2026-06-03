@@ -23,6 +23,21 @@ describe('scheduleHelpers', () => {
     expect(wangCases.some((item) => item.emergencyInserted || item.urgency === '急诊')).toBe(true);
   });
 
+  it('does not throw when schedule times are missing or invalid', () => {
+    const normalized = normalizeCaseSchedule({
+      ...anesthesiaCases[0],
+      scheduledStart: undefined,
+      plannedStart: undefined,
+      scheduledEnd: undefined,
+      surgeryEnd: undefined,
+      leaveRoomTime: undefined,
+    });
+    expect(normalized.startTime).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(normalized.endTime).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(Number.isNaN(Date.parse(normalized.startTime))).toBe(false);
+    expect(Number.isNaN(Date.parse(normalized.endTime))).toBe(false);
+  });
+
   it('groups operating rooms with stable room identities', () => {
     const groups = groupCasesByRoom(anesthesiaCases, ['OR-01', 'OR-02', 'OR-03']);
 

@@ -319,10 +319,22 @@ export function buildQualityChecks(): QualityCheckRecord[] {
 
 export function buildDrugInventory(): DrugInventoryItem[] {
   return [
-    { id: 'drug-1', name: '丙泊酚', category: '麻醉药品', specification: '200mg/20ml', stock: 48, unit: '支', minStock: 20, price: 35 },
-    { id: 'drug-2', name: '舒芬太尼', category: '镇痛药品', specification: '50μg/1ml', stock: 12, unit: '支', minStock: 15, price: 28 },
-    { id: 'drug-3', name: '罗库溴铵', category: '肌松药品', specification: '50mg/5ml', stock: 30, unit: '支', minStock: 10, price: 42 },
-    { id: 'drug-4', name: '咪达唑仑', category: '镇静药品', specification: '5mg/1ml', stock: 25, unit: '支', minStock: 10, price: 18 },
-    { id: 'drug-5', name: '利多卡因', category: '其他药品', specification: '100mg/5ml', stock: 8, unit: '支', minStock: 10, price: 5 },
+    // 麻醉药品（演示库存；与「药品字典」seedDrugDict 可同名，供分类 Tab 展示）
+    { id: 'drug-inv-1', name: '丙泊酚', category: '麻醉药品', specification: '200mg/20ml', stock: 48, unit: '支', minStock: 20, price: 35 },
+    { id: 'drug-inv-2', name: '依托咪酯', category: '麻醉药品', specification: '20mg/10ml', stock: 32, unit: '支', minStock: 15, price: 22 },
+    { id: 'drug-inv-3', name: '七氟烷', category: '麻醉药品', specification: '250ml/瓶', stock: 18, unit: '瓶', minStock: 8, price: 180 },
+    { id: 'drug-inv-4', name: '氯胺酮', category: '麻醉药品', specification: '100mg/2ml', stock: 24, unit: '支', minStock: 10, price: 15 },
+    { id: 'drug-inv-5', name: '地氟烷', category: '麻醉药品', specification: '240ml/瓶', stock: 12, unit: '瓶', minStock: 6, price: 210 },
+    { id: 'drug-inv-6', name: '异氟烷', category: '麻醉药品', specification: '100ml/瓶', stock: 10, unit: '瓶', minStock: 5, price: 95 },
+    { id: 'drug-inv-7', name: '利多卡因', category: '麻醉药品', specification: '100mg/5ml', stock: 36, unit: '支', minStock: 12, price: 5 },
+    { id: 'drug-inv-10', name: '芬太尼', category: '镇痛药品', specification: '0.1mg/2ml', stock: 20, unit: '支', minStock: 15, price: 12 },
+    { id: 'drug-inv-11', name: '舒芬太尼', category: '镇痛药品', specification: '50μg/1ml', stock: 12, unit: '支', minStock: 15, price: 28 },
+    { id: 'drug-inv-12', name: '瑞芬太尼', category: '镇痛药品', specification: '1mg/1ml', stock: 16, unit: '支', minStock: 10, price: 45 },
+    { id: 'drug-inv-20', name: '罗库溴铵', category: '肌松药品', specification: '50mg/5ml', stock: 30, unit: '支', minStock: 10, price: 42 },
+    { id: 'drug-inv-21', name: '顺阿曲库铵', category: '肌松药品', specification: '10mg/5ml', stock: 22, unit: '支', minStock: 10, price: 38 },
+    { id: 'drug-inv-30', name: '咪达唑仑', category: '镇静药品', specification: '5mg/1ml', stock: 25, unit: '支', minStock: 10, price: 18 },
+    { id: 'drug-inv-31', name: '右美托咪定', category: '镇静药品', specification: '200μg/2ml', stock: 14, unit: '支', minStock: 8, price: 52 },
+    { id: 'drug-inv-40', name: '阿托品', category: '其他药品', specification: '0.5mg/1ml', stock: 40, unit: '支', minStock: 10, price: 3 },
+    { id: 'drug-inv-41', name: '肾上腺素', category: '其他药品', specification: '1mg/1ml', stock: 30, unit: '支', minStock: 12, price: 4 },
   ];
 }

@@ -3,6 +3,12 @@ import type { SurgeryCase } from '@/types/anesthesia';
 
 const ACTIVE_STATUSES = ['已入室', '麻醉诱导', '麻醉中', '手术中', '苏醒中'] as const;
 
+function toValidIso(raw: unknown, fallback?: dayjs.Dayjs): string {
+  const parsed = dayjs(raw as string | number | Date | undefined);
+  if (parsed.isValid()) return parsed.toISOString();
+  return (fallback ?? dayjs()).toISOString();
+}
+
 export interface NormalizedCaseSchedule {
   caseId: string;
   patientId: string;
@@ -23,12 +29,14 @@ export interface RoomScheduleGroup {
 }
 
 export function normalizeCaseSchedule(item: SurgeryCase): NormalizedCaseSchedule {
-  const startTime = item.scheduledStart ?? item.plannedStart;
-  const endTime =
-    item.scheduledEnd ??
-    item.surgeryEnd ??
-    item.leaveRoomTime ??
-    dayjs(startTime).add(item.expectedDurationMinutes || 60, 'minute').toISOString();
+  const startTime = toValidIso(
+    item.scheduledStart ?? item.plannedStart ?? item.surgeryStart ?? item.anesthesiaStart,
+  );
+  const endTime = [item.scheduledEnd, item.surgeryEnd, item.leaveRoomTime]
+    .map((value) => dayjs(value as string | undefined))
+    .find((value) => value.isValid())
+    ?.toISOString()
+    ?? dayjs(startTime).add(item.expectedDurationMinutes || 60, 'minute').toISOString();
 
   return {
     caseId: item.id,

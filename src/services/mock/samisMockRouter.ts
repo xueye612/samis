@@ -1,7 +1,7 @@
 import { buildSamisSuccess } from '@/api/samisResponse';
 import type { SamisApiResponse } from '@/api/samisResponse';
 import type { PushBatchRequest, PushBatchResponse, PushBatchResultItem } from '@/api/anesthesiaSync';
-import { seedDrugDict } from '@/mock/configSeed';
+import { seedDrugDict, seedFluidBloodDict } from '@/mock/configSeed';
 import { anesthesiaCases } from '@/mock/anesthesiaCases';
 import { drugDictItemToApi } from '@/services/drugDictMapper';
 import { buildDrugRecommendFromDict } from '@/services/drugDictRecommend';
@@ -396,10 +396,38 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
     return buildSamisSuccess(drug ? buildDrugRecommendFromDict(drug) : null) as T;
   }
   if (path.includes('/anesthesiaDict/getDrugDict')) {
-    return buildSamisSuccess(seedDrugDict.filter((d) => d.enabled).map(drugDictItemToApi)) as T;
+    const list = seedDrugDict.filter((d) => d.enabled).map(drugDictItemToApi);
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
   }
-  if (path.includes('/anesthesiaDict/get')) {
-    return buildSamisSuccess([]) as T;
+  if (path.includes('/anesthesiaDict/getFluidDict')) {
+    const list = seedFluidBloodDict.filter((d) => d.enabled).map((item) => ({
+      id: item.id,
+      code: item.code,
+      name: item.name,
+      subCategory: item.subCategory,
+      enabled: item.enabled,
+    }));
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/anesthesiaDict/saveDrugDict')) {
+    return buildSamisSuccess({ drugId: parseBody<{ drugId?: string }>(init).drugId ?? `drug-mock-${Date.now()}` }) as T;
+  }
+  if (path.includes('/anesthesiaDict/disableDrugDict')) {
+    return buildSamisSuccess(null) as T;
+  }
+  if (
+    path.includes('/anesthesiaDict/getTemplate')
+    || path.includes('/anesthesiaDict/getTemplateField')
+    || path.includes('/anesthesiaDict/getDictCategory')
+    || path.includes('/anesthesiaDict/getDictItem')
+    || path.includes('/anesthesiaDict/getBloodProductDict')
+    || path.includes('/anesthesiaDict/getEventDict')
+    || path.includes('/anesthesiaDict/getDeviceDict')
+  ) {
+    return buildSamisSuccess({ list: [], page: 1, page_size: 10, total: 0 }) as T;
+  }
+  if (path.includes('/anesthesiaDict/save') || path.includes('/anesthesiaDict/disable') || path.includes('/anesthesiaDict/delete')) {
+    return buildSamisSuccess(null) as T;
   }
 
   throw new Error(`Mock backend route not implemented: ${path}`);
