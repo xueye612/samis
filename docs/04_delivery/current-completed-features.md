@@ -34,16 +34,18 @@
 - **2026-06-02 登录与排班 UI**：Login 手术部/手术间/redirect/顶栏用户；排班筛选、护理排班合并、台次批量保存、麻醉记录单跳转
 - **2026-06-02 Apifox 联调对齐**：列表 query `operationRoom`；排班 `startTime`/`endTime`；POST 写回 form-urlencoded + `saveNursePb.data`；更新通知单含 `OPERATINGROOM_CODE`/`NUMBER_OF_STATIONS`；当前用户 fallback `adminUser/getAdminUserInfo`
 
-## 接口接入状态（2026-06-02）
+## 接口接入状态（2026-06-09）
+
+完整接口清单、数据要求、测试引用与缺口说明已迁移到 `docs/05_api/api-integration-status.md`。
 
 | 类型 | 接口 | 状态 |
 |---|---|---|
-| 真实可切换 | `login/login`、`adminUser/getAdminUserInfo`、`user/getLoginUser` | 已实现；用户接口按 Apifox 顺序 fallback |
+| 真实可切换 | `admin/login`、`adminUser/getAdminUserInfo`、`user/getLoginUser` | 已实现；用户接口按 Apifox 顺序 fallback |
 | 真实可切换 | `operationInfo/getOperationList`（含 `operationRoom`）、`getOperationInfo` | 已实现，默认 mock |
 | 真实可切换 | `getNursePbList`（`startTime`+`endTime`）、`saveNursePb`、`updateNumberOfStations`、`updateOperationInfo`（form） | 已实现，默认 mock |
 | 真实可切换 | `room/getRoomList`、`getRoomGroupList` | 已实现，默认 mock |
 | 真实可切换 | `anesthesiaDict/*`（药品/模板/字典项/液体/血制品） | 已实现；`VITE_USE_REAL_ANESTHESIA_DICT`；POST 为 form-urlencoded |
-| 仍 mock | `anesthesiaRecord/*`、`anesthesiaSync/*`、`anesthesiaDevice/*` | 等待 Apifox 正式定义 |
+| 真实可切换 | `anesthesiaRecord/*`、`anesthesiaSync/*`、`anesthesiaDevice/*` | API wrapper + mock 已补齐；字段以联调文档和新清单为准 |
 
 代码入口：`.env.example`、`src/config/apiFlags.ts`、`src/api/samisClient.ts`、`src/services/anesthesia/operationInfoService.ts`。
 

@@ -50,7 +50,9 @@ test.describe('核心页面冒烟测试', () => {
     ]);
 
     await page.locator('.app-sider .arco-menu-item', { hasText: '手术麻醉' }).click();
+    await page.locator('.surgery-subnav-group', { hasText: '监测设备' }).click();
     await expect(page.locator('.app-subnav .subnav-item', { hasText: '术中实时监测' })).toBeVisible();
+    await page.locator('.surgery-subnav-group', { hasText: '专项麻醉' }).click();
     await expect(page.locator('.app-subnav .subnav-item', { hasText: '非手术室麻醉' })).toBeVisible();
     await expect(page.locator('.app-subnav .subnav-item', { hasText: '产科/分娩镇痛' })).toBeVisible();
 

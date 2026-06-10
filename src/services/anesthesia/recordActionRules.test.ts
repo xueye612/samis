@@ -52,7 +52,7 @@ describe('recordActionRules', () => {
       ...baseCase(),
       anesthesiaStart: '2026-06-02T08:00:00.000Z',
       rescue: { active: true, startTime: '2026-06-02T09:00:00.000Z' },
-    } as SurgeryCase;
+    } as unknown as SurgeryCase;
     const actions = buildRecordActionVisibility(item, true);
     expect(actions.phase).toBe('rescue');
     expect(actions.showExitRescue).toBe(true);

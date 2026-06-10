@@ -197,7 +197,7 @@ onMounted(async () => {
   background:
     radial-gradient(circle at 20% 20%, rgb(37 99 235 / 18%), transparent 45%),
     linear-gradient(145deg, var(--color-brand-700), var(--color-brand-500));
-  color: #fff;
+  color: var(--color-neutral-0);
 }
 
 .login-brand__inner { max-width: 420px; }

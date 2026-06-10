@@ -11,8 +11,8 @@ describe('samisResponse auth codes', () => {
   });
 
   it('readSamisResponseMessage prefers msg then message', () => {
-    expect(readSamisResponseMessage({ code: 1, msg: 'a', data: null })).toBe('a');
-    expect(readSamisResponseMessage({ code: 9003, message: 'Token无效或已过期', data: null }))
+    expect(readSamisResponseMessage({ msg: 'a' })).toBe('a');
+    expect(readSamisResponseMessage({ message: 'Token无效或已过期' }))
       .toBe('Token无效或已过期');
   });
 });

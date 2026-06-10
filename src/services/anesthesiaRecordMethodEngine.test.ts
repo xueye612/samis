@@ -428,7 +428,7 @@ describe('anesthesiaRecordMethodEngine', () => {
     const item = {
       ...baseCase('全身麻醉'),
       surgeryStart: '2026-05-27T10:00:00.000Z',
-      events: [{ id: 'e1', type: '手术开始', time: '2026-05-27T10:00:00.000Z', stage: '术中', severity: '轻度', treatment: '', staff: [], reported: false, qualityIncluded: false }],
+      events: [{ id: 'e1', type: '手术开始', time: '2026-05-27T10:00:00.000Z', stage: '术中' as const, severity: '轻度' as const, treatment: '', staff: [], reported: false, qualityIncluded: false }],
     };
     expect(isQuickEventDone(item, { name: '手术开始', syncField: 'surgeryStart' })).toBe(true);
     expect(isQuickEventDone(item, { name: '给药' })).toBe(false);
@@ -445,7 +445,7 @@ describe('anesthesiaRecordMethodEngine', () => {
   it('keeps print styles scoped to the formal record body', () => {
     const printBlock = anesthesiaRecordViewSource.match(/@media print \{[\s\S]*?<\/style>/)?.[0] ?? '';
 
-    expect(printBlock).toContain('.record-topbar');
+    expect(printBlock).toContain('.record-workstation-topbar');
     expect(printBlock).toContain('.work-mode-bar');
     expect(printBlock).toContain('.patient-queue');
     expect(printBlock).toContain('.record-toolbox');

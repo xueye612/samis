@@ -1,5 +1,12 @@
 import type { SurgeryCase } from '@/types/anesthesia';
-import { isRescueModeActive } from '@/services/anesthesiaRecordEngine';
+
+export type RecordActionCase = Pick<
+  SurgeryCase,
+  | 'anesthesiaStart'
+  | 'recordStatus'
+  | 'locked'
+  | 'signatures'
+>;
 
 export type RecordWorkflowPhase =
   | 'not_started'
@@ -42,7 +49,7 @@ export interface RecordEntryVisibility {
 }
 
 export const buildRecordEntryVisibility = (
-  item: SurgeryCase | undefined,
+  item: RecordActionCase | undefined,
   rescueActive: boolean,
 ): RecordEntryVisibility => {
   const actions = buildRecordActionVisibility(item, rescueActive);
@@ -90,7 +97,7 @@ export const buildRecordEntryVisibility = (
 };
 
 export const resolveRecordWorkflowPhase = (
-  item: SurgeryCase | undefined,
+  item: RecordActionCase | undefined,
   rescueActive: boolean,
 ): RecordWorkflowPhase => {
   if (!item) return 'not_started';
@@ -105,7 +112,7 @@ export const resolveRecordWorkflowPhase = (
 };
 
 export const buildRecordActionVisibility = (
-  item: SurgeryCase | undefined,
+  item: RecordActionCase | undefined,
   rescueActive: boolean,
 ): RecordActionVisibility => {
   const phase = resolveRecordWorkflowPhase(item, rescueActive);
@@ -194,7 +201,7 @@ export const buildRecordActionVisibility = (
 
 export const recordStatusTagMeta = (
   phase: RecordWorkflowPhase,
-  item?: SurgeryCase,
+  item?: RecordActionCase,
 ): { label: string; color: string } => {
   switch (phase) {
     case 'rescue':

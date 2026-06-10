@@ -93,18 +93,17 @@ const specialPreview = computed(() => {
 
 const patch = (key: string, value: unknown) => emit('update:form', { [key]: value });
 
-const selectTriggerProps = { style: { zIndex: 6000 } };
-
-const onDrugChange = (name: string | undefined) => {
+const onDrugChange = (name: string | number | boolean | Record<string, unknown> | Array<string | number | boolean | Record<string, unknown>> | undefined) => {
   const next = String(name ?? '').trim();
   if (!next || next === props.form.name) return;
   patch('name', next);
   emit('syncMedication');
 };
 
-const patchIsSpecial = (checked: boolean) => {
-  const next: Record<string, unknown> = { isSpecial: checked, isSpecialUserTouched: true };
-  if (!checked) {
+const patchIsSpecial = (checked: boolean | Array<string | number | boolean>) => {
+  const isChecked = Array.isArray(checked) ? checked.length > 0 : checked;
+  const next: Record<string, unknown> = { isSpecial: isChecked, isSpecialUserTouched: true };
+  if (!isChecked) {
     next.specialReason = '';
     next.reason = '';
   } else if (!props.form.specialCategory && selectedDrug.value?.specialCategory) {
@@ -113,15 +112,16 @@ const patchIsSpecial = (checked: boolean) => {
   emit('update:form', next);
 };
 
-const patchMode = (mode: string) => {
-  if (mode === '持续泵入') {
+const patchMode = (mode: string | number | boolean) => {
+  const nextMode = String(mode);
+  if (nextMode === '持续泵入') {
     const start = props.form.time || resolveRecordSheetNowClock();
-    const next: Record<string, unknown> = { mode, time: start };
+    const next: Record<string, unknown> = { mode: nextMode, time: start };
     if (!props.form.endTime) next.endTime = addMinutesToClock(start, LIVE_DEFAULT_SEGMENT_MINUTES);
     emit('update:form', next);
     return;
   }
-  emit('update:form', { mode, endTime: '' });
+  emit('update:form', { mode: nextMode, endTime: '' });
 };
 
 const patchStartTime = (time: string) => {
@@ -155,7 +155,6 @@ const applyDurationPreset = (minutes: number) => {
             allow-search
             placeholder="选择药品"
             popup-container="body"
-            :trigger-props="selectTriggerProps"
             @update:model-value="onDrugChange"
           >
             <a-option v-for="drug in drugs" :key="drug.id" :value="drug.name">
@@ -315,7 +314,6 @@ const applyDurationPreset = (minutes: number) => {
               allow-clear
               placeholder="选择分类"
               popup-container="body"
-              :trigger-props="selectTriggerProps"
               @update:model-value="patch('specialCategory', $event ?? '')"
             >
               <a-option v-for="item in SPECIAL_DRUG_CATEGORY_OPTIONS" :key="item.value" :value="item.value">
@@ -348,7 +346,6 @@ const applyDurationPreset = (minutes: number) => {
             allow-search
             placeholder="选择"
             popup-container="body"
-            :trigger-props="selectTriggerProps"
             @update:model-value="patch('name', $event); emit('syncFluid')"
           >
             <a-option v-for="fluid in fluidCatalog" :key="fluid.id" :value="fluid.name">{{ fluid.name }}</a-option>
@@ -405,7 +402,6 @@ const applyDurationPreset = (minutes: number) => {
               :model-value="form.bloodType || undefined"
               allow-clear
               popup-container="body"
-              :trigger-props="selectTriggerProps"
               @update:model-value="patch('bloodType', $event ?? '')"
             >
               <a-option v-for="item in bloodTypes" :key="item" :value="item">{{ item }}</a-option>
@@ -417,7 +413,6 @@ const applyDurationPreset = (minutes: number) => {
               :model-value="form.rh || undefined"
               allow-clear
               popup-container="body"
-              :trigger-props="selectTriggerProps"
               @update:model-value="patch('rh', $event ?? '')"
             >
               <a-option v-for="item in rhTypes" :key="item" :value="item">{{ item }}</a-option>
@@ -432,7 +427,6 @@ const applyDurationPreset = (minutes: number) => {
             <a-select
               :model-value="form.reaction || undefined"
               popup-container="body"
-              :trigger-props="selectTriggerProps"
               @update:model-value="patch('reaction', $event)"
             >
               <a-option v-for="item in transfusionReactions" :key="item" :value="item">{{ item }}</a-option>

@@ -1,6 +1,6 @@
 import dayjs from 'dayjs';
 
-import type { SurgeryCase, VitalSign } from '@/types/anesthesia';
+import type { AnesthesiaRecordDeviceState, SurgeryCase, VitalSign } from '@/types/anesthesia';
 
 import { resolveRecordSheetNowIso, timeToFractionalMinutes } from '@/services/anesthesiaRecordEngine';
 
@@ -66,8 +66,8 @@ function resolveVitalBucketKey(ts: string, displayIntervalMinutes: number) {
   return `${displayIntervalMinutes}-${Math.floor(mins / displayIntervalMinutes)}`;
 }
 
-function resolveCollectStatus(mode: DeviceSimulationMode): string {
-  return isRescueDeviceSimulation(mode) ? '抢救采集中' : '采集中';
+function resolveCollectStatus(_mode: DeviceSimulationMode): AnesthesiaRecordDeviceState['collectStatus'] {
+  return '采集中';
 }
 
 export interface MonitorMockHandle {

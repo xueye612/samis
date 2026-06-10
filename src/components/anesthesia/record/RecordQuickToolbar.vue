@@ -48,13 +48,13 @@
       <a-button size="mini" :disabled="!entries.canDeviceControl" @click="$emit('import-vitals')">同步设备</a-button>
       <a-button size="mini" type="text" @click="$emit('open-sync-detail')">同步详情</a-button>
       <a-button
-        v-if="conflictCount > 0"
+        v-if="(conflictCount ?? 0) > 0"
         size="mini"
         type="text"
         status="danger"
         @click="$emit('open-conflicts')"
       >
-        冲突 {{ conflictCount }}
+        冲突 {{ conflictCount ?? 0 }}
       </a-button>
     </a-space>
   </section>

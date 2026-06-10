@@ -229,7 +229,7 @@ const VOIDED_EVENT_STATUSES = new Set(['voided', '作废', '已作废']);
 
 /** 带 syncField 的里程碑事件是否已记录（可重复事件如给药、低血压始终返回 false） */
 export function isQuickEventDone(
-  item: Pick<SurgeryCase, 'events' | 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'anesthesiaEnd' | 'leaveRoomTime'>,
+  item: Pick<SurgeryCase, 'events' | 'roomInTime' | 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'anesthesiaEnd' | 'leaveRoomTime'>,
   option: Pick<QuickEventOption, 'name' | 'syncField'>,
 ): boolean {
   if (!option.syncField) return false;

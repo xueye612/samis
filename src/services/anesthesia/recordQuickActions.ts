@@ -44,7 +44,7 @@ export interface SheetQuickActionState {
 }
 
 export function resolveSheetQuickEvents(
-  item: Pick<SurgeryCase, 'events' | 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'anesthesiaEnd' | 'leaveRoomTime' | 'locked'>,
+  item: Pick<SurgeryCase, 'events' | 'roomInTime' | 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'anesthesiaEnd' | 'leaveRoomTime' | 'locked' | 'recordStatus' | 'signatures'>,
   stage: IntraopStage,
   methods: AnesthesiaMethodKey[],
   selectedTemplate: string,

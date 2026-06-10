@@ -138,9 +138,9 @@ describe('LiveAnesthesiaSheet business acceptance (data-chain level)', () => {
 
 describe('AnesthesiaRecord quick-event linkage (source-level acceptance)', () => {
   it('keeps quick-event flow wired from UI action to appendEvent', () => {
-    expect(anesthesiaRecordViewSource).toContain('@click="addEvent(event.name)"');
+    expect(anesthesiaRecordViewSource).toContain('@quick-event="addEvent"');
     expect(anesthesiaRecordViewSource).toContain('const addEvent = (type: string) =>');
-    expect(anesthesiaRecordViewSource).toContain('const payload = buildQuickEventPayload(type, current.value);');
+    expect(anesthesiaRecordViewSource).toContain('const payload = buildQuickEventPayload(type, current.value, resolveRecordSheetNowIso(current.value));');
     expect(anesthesiaRecordViewSource).toContain('store.appendEvent(selectedId.value, payload);');
   });
 });

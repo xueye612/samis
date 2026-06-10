@@ -133,6 +133,7 @@ export interface RecordSummaryFields {
   extubationTime?: string;
   recoveryTime?: string;
   destination?: string;
+  anesthesiaSummary?: string;
   handoverNote?: string;
   completedAt?: string;
   notes?: RecordSummaryNotes;

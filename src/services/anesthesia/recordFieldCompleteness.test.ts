@@ -21,6 +21,7 @@ const baseCase = (): SurgeryCase => ({
   status: '麻醉中',
   locationType: '手术室内',
   plannedStart: '2026-05-30T08:00:00',
+  expectedDurationMinutes: 60,
   locked: false,
   activeWarming: false,
   autologousBlood: false,

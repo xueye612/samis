@@ -31,7 +31,7 @@ describe('scheduleHelpers', () => {
       scheduledEnd: undefined,
       surgeryEnd: undefined,
       leaveRoomTime: undefined,
-    });
+    } as unknown as typeof anesthesiaCases[number]);
     expect(normalized.startTime).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(normalized.endTime).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(Number.isNaN(Date.parse(normalized.startTime))).toBe(false);

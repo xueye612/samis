@@ -173,9 +173,9 @@ const savePacuVital = (row: VitalSign) => {
 
 .pacu-sheet-wrap {
   overflow: auto;
-  border: 1px solid #dbe6f3;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px;
-  background: #fff;
+  background: var(--surface);
 }
 </style>

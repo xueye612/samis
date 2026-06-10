@@ -65,14 +65,14 @@ const status = computed(() => statusMap[props.detail.currentStatus]);
   min-width: 0;
   min-height: 108px;
   padding: 12px 14px;
-  border: 1px solid #dfe7ef;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .kpi-card.primary {
-  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
-  border-color: #cfe4ff;
+  background: var(--surface-blue-subtle);
+  border-color: var(--border-blue-soft);
 }
 
 .kpi-label,
@@ -80,14 +80,14 @@ const status = computed(() => statusMap[props.detail.currentStatus]);
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #667085;
+  color: var(--text-tertiary);
   font-size: 12px;
   line-height: 17px;
 }
 
 .kpi-label :deep(.arco-icon) {
   font-size: 14px;
-  color: #14a3a3;
+  color: var(--medical-cyan);
 }
 
 .primary-row {
@@ -100,7 +100,7 @@ const status = computed(() => statusMap[props.detail.currentStatus]);
 .kpi-card strong {
   display: block;
   overflow: hidden;
-  color: #0f5ca8;
+  color: var(--primary-strong);
   font-size: 21px;
   line-height: 28px;
   text-overflow: ellipsis;
@@ -131,8 +131,8 @@ const status = computed(() => statusMap[props.detail.currentStatus]);
   overflow: hidden;
   padding: 4px 6px;
   border-radius: 5px;
-  background: #eef6ff;
-  color: #405064;
+  background: var(--primary-soft);
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 16px;
   text-overflow: ellipsis;
@@ -140,15 +140,15 @@ const status = computed(() => statusMap[props.detail.currentStatus]);
 }
 
 .status-card strong.normal {
-  color: #0f9f6e;
+  color: var(--medical-green);
 }
 
 .status-card strong.warning {
-  color: #f97316;
+  color: var(--warning);
 }
 
 .status-card strong.abnormal {
-  color: #dc2626;
+  color: var(--danger);
 }
 
 .compare strong {
@@ -159,11 +159,11 @@ const status = computed(() => statusMap[props.detail.currentStatus]);
 }
 
 .compare strong.positive {
-  color: #0f9f6e;
+  color: var(--medical-green);
 }
 
 .compare strong.negative {
-  color: #dc2626;
+  color: var(--danger);
 }
 
 @media (max-width: 1250px) {

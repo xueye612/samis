@@ -2523,7 +2523,7 @@ defineExpose({
     if (fallback) openFluidEditor(fallback);
   },
   openVitalEntry: () => openMonitorDialog(),
-  openOutputEntry: (type = '尿量') => {
+  openOutputEntry: (type: import('@/types/anesthesia').OutputDetailRecord['type'] = '尿量') => {
     openOutputEditor();
     outputForm.type = type;
   },

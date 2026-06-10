@@ -26,25 +26,35 @@
   --color-neutral-500: #64748b;
   --color-neutral-700: #334155;
   --color-neutral-900: #0f172a;
+  --color-neutral-950: #020617;
 
   --text-primary: var(--color-neutral-900);
   --text-secondary: var(--color-neutral-700);
   --text-tertiary: var(--color-neutral-500);
   --surface: var(--color-neutral-0);
   --surface-muted: var(--color-neutral-50);
-  --surface-raised: #ffffff;
-  --surface-blue: #f6faff;
-  --surface-app-top: #f8fbff;
+  --surface-raised: var(--color-neutral-0);
+  --surface-blue: var(--color-brand-50);
+  --surface-blue-subtle: #f8fbff;
+  --surface-app-top: var(--surface-blue-subtle);
   --surface-app-side: #fbfdff;
+  --surface-success-subtle: var(--color-success-50);
+  --surface-warning-subtle: #fff7ed;
+  --surface-danger-subtle: #fef2f2;
   --border: var(--color-neutral-200);
   --border-strong: var(--color-neutral-300);
+  --border-soft: #edf2f7;
+  --border-blue-soft: #cfe4ff;
   --primary: var(--color-brand-600);
   --primary-hover: var(--color-brand-500);
   --primary-soft: var(--color-brand-50);
+  --primary-strong: var(--color-brand-700);
   --warning: var(--color-warning-600);
   --danger: var(--color-danger-600);
   --medical-blue: var(--color-brand-600);
   --medical-cyan: #14b8a6;
+  --medical-cyan-strong: #0f766e;
+  --medical-cyan-soft: var(--color-cyan-50);
   --medical-green: var(--color-success-600);
   --medical-bg: #f4f7fb;
   --medical-border: var(--border);
@@ -90,14 +100,14 @@
 }
 
 .quality-page {
-  --qc-primary: #0f766e;
-  --qc-primary-light: #ecfeff;
-  --qc-primary-mid: #14b8a6;
+  --qc-primary: var(--medical-cyan-strong);
+  --qc-primary-light: var(--medical-cyan-soft);
+  --qc-primary-mid: var(--medical-cyan);
   --qc-accent: var(--color-brand-600);
   --qc-surface: var(--surface);
-  --qc-surface-muted: #f0fdfa;
-  --qc-border: #99f6e4;
-  --qc-border-soft: #ccfbf1;
+  --qc-surface-muted: var(--surface-success-subtle);
+  --qc-border: var(--color-cyan-100);
+  --qc-border-soft: var(--color-cyan-100);
   --qc-text: var(--text-primary);
   --qc-text-secondary: var(--text-secondary);
   --qc-shadow: 0 8px 24px rgb(15 118 110 / 10%);

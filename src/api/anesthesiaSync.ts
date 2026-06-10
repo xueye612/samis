@@ -42,13 +42,21 @@ export interface SyncStatusResponse {
   online: boolean;
 }
 
+export interface BatchSaveResponse {
+  results: PushBatchResultItem[];
+}
+
+function postJson<T>(path: string, body: unknown) {
+  return samisRequest<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 export const anesthesiaSyncApi = {
   pushBatch(body: PushBatchRequest) {
-    return samisRequest<PushBatchResponse>('/anesthesiaSync/pushBatch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return postJson<PushBatchResponse>('/anesthesiaSync/pushBatch', body);
   },
   getSyncStatus(operationId: string) {
     return samisRequest<SyncStatusResponse>(`/anesthesiaSync/getSyncStatus?operationId=${encodeURIComponent(operationId)}`);
@@ -58,11 +66,10 @@ export const anesthesiaSyncApi = {
     return samisRequest<{ pendingCount: number }>(`/anesthesiaSync/getPendingCount${query}`);
   },
   confirmBatch(batchNo: string) {
-    return samisRequest<{ batchNo: string; confirmed: boolean }>('/anesthesiaSync/confirmBatch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ batchNo }),
-    });
+    return postJson<{ batchNo: string; confirmed: boolean }>('/anesthesiaSync/confirmBatch', { batchNo });
+  },
+  resolveConflict(body: unknown) {
+    return postJson<{ conflictId: string; resolved: boolean; resolvedAt?: string }>('/anesthesiaSync/resolveConflict', body);
   },
 };
 
@@ -76,42 +83,46 @@ export const anesthesiaRecordApi = {
     return samisRequest<unknown>(`/anesthesiaRecord/getRecordDetail?${query.toString()}`);
   },
   saveRecord(body: unknown) {
-    return samisRequest<{ localId: string; serverId?: number }>('/anesthesiaRecord/saveRecord', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return postJson<{ localId: string; serverId?: number }>('/anesthesiaRecord/saveRecord', body);
   },
   saveSnapshot(body: unknown) {
-    return samisRequest<{ serverId?: number }>('/anesthesiaRecord/saveSnapshot', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return postJson<{ serverId?: number }>('/anesthesiaRecord/saveSnapshot', body);
+  },
+  batchSaveTimelineEvents(body: unknown) {
+    return postJson<BatchSaveResponse>('/anesthesiaRecord/batchSaveTimelineEvents', body);
+  },
+  batchSaveMedications(body: unknown) {
+    return postJson<BatchSaveResponse>('/anesthesiaRecord/batchSaveMedications', body);
+  },
+  batchSaveFluids(body: unknown) {
+    return postJson<BatchSaveResponse>('/anesthesiaRecord/batchSaveFluids', body);
+  },
+  batchSaveTransfusions(body: unknown) {
+    return postJson<BatchSaveResponse>('/anesthesiaRecord/batchSaveTransfusions', body);
   },
   batchSaveVitalSigns(body: unknown) {
-    return samisRequest<{ results: PushBatchResultItem[] }>('/anesthesiaRecord/batchSaveVitalSigns', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return postJson<BatchSaveResponse>('/anesthesiaRecord/batchSaveVitalSigns', body);
+  },
+  lockRecord(body: unknown) {
+    return postJson<{ locked: boolean; lockedAt?: string }>('/anesthesiaRecord/lockRecord', body);
+  },
+  voidRecord(body: unknown) {
+    return postJson<{ voided: boolean; voidedAt?: string }>('/anesthesiaRecord/voidRecord', body);
+  },
+  saveIoRecord(body: unknown) {
+    return postJson<{ localId: string; serverId?: number; savedAt?: string }>('/anesthesiaRecord/saveIoRecord', body);
+  },
+  saveLabResult(body: unknown) {
+    return postJson<{ localId: string; serverId?: number; savedAt?: string }>('/anesthesiaRecord/saveLabResult', body);
   },
 };
 
 export const anesthesiaDeviceApi = {
   batchPushMonitorData(body: unknown) {
-    return samisRequest<{ results: PushBatchResultItem[] }>('/anesthesiaDevice/batchPushMonitorData', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return postJson<BatchSaveResponse>('/anesthesiaDevice/batchPushMonitorData', body);
   },
   batchPushVentilatorData(body: unknown) {
-    return samisRequest<{ results: PushBatchResultItem[] }>('/anesthesiaDevice/batchPushVentilatorData', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return postJson<BatchSaveResponse>('/anesthesiaDevice/batchPushVentilatorData', body);
   },
   getLatestDeviceData(operationId: string) {
     return samisRequest<unknown>(`/anesthesiaDevice/getLatestDeviceData?operationId=${encodeURIComponent(operationId)}`);

@@ -139,7 +139,7 @@
                       :max="99"
                       size="small"
                       style="width: 72px"
-                      @change="(v: number) => onStationDraftChange(record.id, v)"
+                      @change="(v) => onStationDraftChange(record.id, Number(v ?? 1))"
                     />
                   </template>
                 </a-table-column>

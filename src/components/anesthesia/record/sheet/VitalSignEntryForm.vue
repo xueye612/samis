@@ -41,7 +41,7 @@ const vitalLabel = (item: VitalSignDictItem) => formatVitalMonitorLabel(item);
           <div class="time-item">
             <label class="field-label">结束时间</label>
             <RecordTimeField
-              :model-value="endTime"
+              :model-value="endTime ?? ''"
               @update:model-value="emit('update:endTime', $event)"
               @step="emit('shiftTime', 'endTime', $event)"
             />

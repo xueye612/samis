@@ -45,8 +45,8 @@ const normalizedExpression = computed(() => props.detail.formulaExpression.repla
 
 <style scoped>
 .definition-card {
-  border: 1px solid #dfe7ef;
-  background: #fff;
+  border: 1px solid var(--border);
+  background: var(--surface);
   height: 100%;
 }
 
@@ -69,7 +69,7 @@ const normalizedExpression = computed(() => props.detail.formulaExpression.repla
 .definition-title span:last-child {
   min-width: 0;
   overflow: hidden;
-  color: #16324f;
+  color: var(--text-primary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -80,8 +80,8 @@ const normalizedExpression = computed(() => props.detail.formulaExpression.repla
   margin: 0 0 10px;
   padding: 9px 10px;
   border-radius: 8px;
-  background: #f5f8fc;
-  color: #405064;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 20px;
   -webkit-box-orient: vertical;
@@ -91,16 +91,16 @@ const normalizedExpression = computed(() => props.detail.formulaExpression.repla
 .formula-block {
   min-width: 0;
   padding: 10px;
-  border: 1px solid #edf2f7;
+  border: 1px solid var(--border-soft);
   border-radius: 7px;
-  background: #fbfdff;
+  background: var(--surface-blue-subtle);
   margin-bottom: 10px;
 }
 
 .formula-block span,
 .definition-list span {
   display: block;
-  color: #667085;
+  color: var(--text-tertiary);
   font-size: 12px;
   line-height: 17px;
 }
@@ -109,7 +109,7 @@ const normalizedExpression = computed(() => props.detail.formulaExpression.repla
 .definition-list strong {
   display: block;
   overflow-wrap: anywhere;
-  color: #1d2733;
+  color: var(--text-primary);
   font-size: 13px;
   line-height: 19px;
   font-weight: 600;
@@ -122,7 +122,7 @@ const normalizedExpression = computed(() => props.detail.formulaExpression.repla
 .formula-block small {
   display: block;
   overflow-wrap: anywhere;
-  color: #0f5ca8;
+  color: var(--primary-strong);
   font-size: 12px;
   line-height: 18px;
 }

@@ -130,7 +130,7 @@ export function mapCurrentUser(raw: unknown): SamisUserProfile {
 
 export function formatAuthError(error: unknown): string {
   if (error && typeof error === 'object' && 'name' in error && (error as { name: string }).name === 'SamisHttpError') {
-    const httpErr = error as { message: string; isAuthError?: boolean; isNetworkError?: boolean };
+    const httpErr = error as unknown as { message: string; isAuthError?: boolean; isNetworkError?: boolean };
     if (httpErr.isAuthError) return httpErr.message || '账号或密码错误';
     if (httpErr.isNetworkError) return httpErr.message || '网络连接失败，请检查网络或代理';
     return httpErr.message || '登录失败';

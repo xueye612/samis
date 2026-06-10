@@ -92,7 +92,7 @@
             <a-table-column title="排序" data-index="sortOrder" :width="72" align="center" />
             <a-table-column title="状态" :width="88" align="center">
               <template #cell="{ record }">
-                <a-badge :status="record.enabled ? 'success' : 'default'" :text="record.enabled ? '启用' : '停用'" />
+                <a-badge :status="record.enabled ? 'success' : 'normal'" :text="record.enabled ? '启用' : '停用'" />
               </template>
             </a-table-column>
             <a-table-column title="操作" :width="148" fixed="right">
@@ -642,4 +642,3 @@ const confirmDisable = (record: DrugDictItem) => {
   border-top: 1px solid var(--border, #e5e7eb);
 }
 </style>
-

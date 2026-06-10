@@ -80,7 +80,7 @@
             </a-table-column>
             <a-table-column title="状态" :width="88" align="center">
               <template #cell="{ record }">
-                <a-badge :status="record.enabled ? 'success' : 'default'" :text="record.enabled ? '启用' : '停用'" />
+                <a-badge :status="record.enabled ? 'success' : 'normal'" :text="record.enabled ? '启用' : '停用'" />
               </template>
             </a-table-column>
             <a-table-column title="操作" :width="148" fixed="right">
@@ -113,7 +113,7 @@
               <a-select
                 v-model="form.subCategory"
                 :options="subCategoryOptions"
-                @change="onSubCategoryChange"
+                @change="(value) => onSubCategoryChange(String(value) as FluidBloodSubCategory)"
               />
             </a-form-item>
             <a-form-item label="名称" required>

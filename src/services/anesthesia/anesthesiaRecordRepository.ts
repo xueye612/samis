@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import type { SurgeryCase, VitalSign } from '@/types/anesthesia';
+import type { AnesthesiaRecordDeviceState, SurgeryCase, VitalSign } from '@/types/anesthesia';
 import type {
   LocalRecordRow,
   RecordPersistMeta,
@@ -65,7 +65,14 @@ async function softVoidMissing<T extends SyncMetaCarrier & { record_local_id: st
   }
 }
 
-export function mapVitalToRow(caseId: string, vital: VitalSign, syncVersion: number) {
+export function mapVitalToRow(caseId: string, vital: VitalSign, syncVersion: number): ReturnType<typeof mapVitalToRowBase> & {
+  deleted_at?: string;
+  void_reason?: string;
+} {
+  return mapVitalToRowBase(caseId, vital, syncVersion);
+}
+
+function mapVitalToRowBase(caseId: string, vital: VitalSign, syncVersion: number) {
   const localId = vital.id ?? `vital-${Date.now()}`;
   return {
     local_id: localId,
@@ -457,7 +464,12 @@ export async function saveDeviceVitalOnly(caseItem: SurgeryCase, vital: VitalSig
 
 export async function patchRecordDeviceCollectMeta(
   caseId: string,
-  patch: { lastCollectTime?: string; collectStatus?: string; monitor?: string; anesthesiaMachine?: string },
+  patch: {
+    lastCollectTime?: string;
+    collectStatus?: AnesthesiaRecordDeviceState['collectStatus'];
+    monitor?: string;
+    anesthesiaMachine?: string;
+  },
 ): Promise<void> {
   const db = getAnesthesiaLocalDb();
   const record = await db.records.get(caseId);

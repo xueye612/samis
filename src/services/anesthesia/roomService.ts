@@ -34,7 +34,7 @@ export function loginRoomCatalogFallback(): RoomCatalogState {
       roomGroupName: '手术部',
       rooms,
     }],
-    source: 'seed',
+    source: 'mock',
   };
 }
 

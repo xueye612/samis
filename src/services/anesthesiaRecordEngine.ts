@@ -8,6 +8,7 @@ import type {
   TransfusionEventRecord,
 } from '@/types/anesthesiaRecord';
 import type { QualityDefect } from '@/types/quality';
+import type { SpecialDrugCategory } from '@/types/drugDict';
 import type { DrugDictItem, FluidBloodDictItem, FluidBloodSubCategory, VitalSignDictItem } from '@/types/system';
 import { runRecordQualityChecks } from '@/services/anesthesiaRecordHelpers';
 import dayjs from 'dayjs';
@@ -88,10 +89,13 @@ export interface RecordLineDraft {
   unit?: string;
   route?: string;
   executor?: string;
+  pumpRate?: string;
   checker?: string;
   highAlert?: boolean;
   isSpecial?: boolean;
   specialNo?: number;
+  specialCategory?: SpecialDrugCategory;
+  specialReason?: string;
   reason?: string;
   bloodType?: string;
   rh?: string;
@@ -633,6 +637,15 @@ export function resolveRecordSheetNowIso(
     const anchor = new Date(base);
     if (!Number.isNaN(anchor.getTime())) {
       anchor.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+      const anesthesiaStartMinutes = record?.anesthesiaStart
+        ? timeToFractionalMinutes(isoOrClockToClock(record.anesthesiaStart))
+        : null;
+      const currentAnchorMinutes = anchor.getHours() * 60 + anchor.getMinutes() + anchor.getSeconds() / 60;
+      if (anesthesiaStartMinutes !== null && currentAnchorMinutes < anesthesiaStartMinutes) {
+        const hour = Math.floor(anesthesiaStartMinutes / 60);
+        const minute = Math.floor(anesthesiaStartMinutes % 60);
+        anchor.setHours(hour, minute, now.getSeconds(), now.getMilliseconds());
+      }
       const axisStartClock = resolveEstablishedAxisStartClock(record);
       if (axisStartClock) {
         const axisStartMinutes = clockToMinutes(axisStartClock);
@@ -870,7 +883,7 @@ export function createAnesthesiaPlaneDraft(
   };
 }
 
-export function findVitalUpsertIndex(rows: VitalSign[], next: Pick<VitalSign, 'id' | 'time'>) {
+export function findVitalUpsertIndex(rows: VitalSign[], next: Pick<VitalSign, 'id' | 'time'> & Partial<VitalSign>) {
   if (next.id) {
     const byId = rows.findIndex((row) => row.id === next.id);
     if (byId >= 0) return byId;
@@ -1060,7 +1073,7 @@ export function runUnifiedRecordQualityChecks(
 
 /** 病例已结束（手术结束或离室）时用于分页的时间上限，避免术后设备点把页数撑到 3 页以上 */
 export function resolveClinicalAxisCapClock(record: SurgeryCase): string | undefined {
-  const cap = record.leaveRoomTime ?? record.surgeryEnd ?? record.actualEnd;
+  const cap = record.leaveRoomTime ?? record.surgeryEnd;
   return cap ? isoOrClockToClock(cap) : undefined;
 }
 
@@ -1100,7 +1113,7 @@ export function resolveRecordAxisReferenceIso(
 
 /** 已建立入室后的显示轴起点（整点/半点）；未入室返回空字符串。 */
 export function resolveRecordAxisStartClock(
-  record?: Pick<SurgeryCase, 'roomInTime' | 'scheduledStart' | 'plannedStart'>,
+  record?: Partial<Pick<SurgeryCase, 'roomInTime' | 'scheduledStart' | 'plannedStart'>>,
 ): string {
   if (!record?.roomInTime) return '';
   const raw = isoOrClockToClock(record.roomInTime);

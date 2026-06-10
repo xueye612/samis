@@ -4,6 +4,9 @@
   "description": "手术麻醉管理系统 Web 前端原型，基于 Vue 3、TypeScript、Vite、Arco Design Vue 和本地 Mock 数据构建。",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0 --configLoader runner",
     "build": "vue-tsc --noEmit && vite build --configLoader runner",
