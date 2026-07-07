@@ -8,6 +8,7 @@ import type {
 } from '@/types/anesthesiaLocalDb';
 import { getAnesthesiaLocalDb } from '@/services/anesthesia/localDb';
 import { enqueueSyncItem } from '@/services/anesthesia/anesthesiaSyncQueue';
+import { buildCasePayload } from '@/services/anesthesia/casePayload';
 
 const SETTINGS_CURRENT_RECORD = 'current_record_local_id';
 const SETTINGS_CURRENT_PAGE_PREFIX = 'current_page:';
@@ -366,6 +367,9 @@ export async function saveCaseToLocalDb(
     const entityLocalId = meta?.entityLocalId ?? caseItem.id;
     const operationType = meta?.operationType ?? 'update';
     const apiPath = meta?.apiPath ?? '/api-samis/pc/v1/anesthesiaRecord/saveRecord';
+    // Slice 3f：record 类实体入队时携带 case 级非列表 payload（剥离列表数组），
+    // 落入 anes_record.case_payload；列表数据由各自关系子表 sync 项承载。
+    const isRecordEntity = entityType === 'record';
     await enqueueSyncItem({
       recordLocalId: caseItem.id,
       operationId: caseItem.id,
@@ -383,6 +387,7 @@ export async function saveCaseToLocalDb(
         recordLocked: caseItem.locked,
         recordPrinted: Boolean(caseItem.printedAt),
         voidReason: meta?.voidReason,
+        ...(isRecordEntity ? { casePayload: buildCasePayload(caseItem) } : {}),
       },
     });
   }

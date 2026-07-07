@@ -22,10 +22,11 @@
             <template #cell="{ record }">{{ formatSatisfaction(record.advice) }}</template>
           </a-table-column>
           <a-table-column title="处理意见" data-index="advice" />
-          <a-table-column title="操作" :width="140" fixed="right">
+          <a-table-column title="操作" :width="200" fixed="right">
             <template #cell="{ record }">
               <a-space>
                 <a-button size="mini" @click="openEdit(record)">编辑</a-button>
+                <a-button size="mini" status="danger" :loading="deletingId === record.id" @click="onDelete(record)">删除</a-button>
                 <a-button size="mini" @click="printMock(record)">打印</a-button>
               </a-space>
             </template>
@@ -65,10 +66,11 @@
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import { computed, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import { useRealPostoperative } from '@/config/apiFlags';
 import type { PostoperativeFollowUp } from '@/types/anesthesia';
 
 const SAT_PREFIX = '[满意度]';
@@ -76,6 +78,7 @@ const SAT_PREFIX = '[满意度]';
 const store = useAnesthesiaStore();
 const visible = ref(false);
 const editingId = ref('');
+const saving = ref(false);
 
 const form = reactive({
   caseId: '',
@@ -138,12 +141,13 @@ const openEdit = (record: PostoperativeFollowUp) => {
   visible.value = true;
 };
 
-const save = () => {
+const save = async () => {
+  const nowIso = dayjs().format('YYYY-MM-DD HH:mm:ss');
   const payload: PostoperativeFollowUp = {
     id: editingId.value || `fu-${Date.now()}`,
     caseId: form.caseId,
     type: form.type,
-    followTime: dayjs().toISOString(),
+    followTime: nowIso,
     vas: form.vas,
     nausea: false,
     headache: false,
@@ -157,15 +161,48 @@ const save = () => {
     death: false,
     advice: buildAdvice(),
   };
-  store.upsertFollowUp(payload);
-  visible.value = false;
-  Message.success('随访记录已保存');
+  saving.value = true;
+  try {
+    if (useRealPostoperative()) {
+      await store.upsertFollowupRemote(payload);
+      await store.loadRemoteFollowups();
+    } else {
+      store.upsertFollowUp(payload);
+    }
+    visible.value = false;
+    Message.success('随访记录已保存');
+  } catch (error) {
+    Message.warning(error instanceof Error ? error.message : '保存随访记录失败');
+  } finally {
+    saving.value = false;
+  }
 };
 
 const printMock = (record: PostoperativeFollowUp) => {
   const name = patientName(record.caseId);
   Message.info(`打印随访单（Mock）：${name} · VAS ${record.vas} · ${formatSatisfaction(record.advice)}`);
 };
+
+const deletingId = ref('');
+const onDelete = async (record: PostoperativeFollowUp) => {
+  deletingId.value = record.id;
+  try {
+    if (useRealPostoperative()) {
+      await store.deleteFollowupRemote(record.id);
+    } else {
+      store.followUps = store.followUps.filter((item) => item.id !== record.id);
+    }
+    Message.success('随访记录已删除');
+  } catch (error) {
+    Message.warning(error instanceof Error ? error.message : '删除失败');
+  } finally {
+    deletingId.value = '';
+  }
+};
+
+onMounted(() => {
+  if (useRealPostoperative()) void store.loadRemoteFollowups();
+});
 </script>
 
 <style scoped>

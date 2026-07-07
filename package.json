@@ -5,10 +5,12 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.0.0 <23"
   },
+  "packageManager": "npm@10.9.0",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --configLoader runner",
+    "dev:real": "vite --host 0.0.0.0 --configLoader runner --mode real",
     "build": "vue-tsc --noEmit && vite build --configLoader runner",
     "test": "vitest run --config vitest.config.mjs --configLoader runner",
     "test:e2e": "playwright test",

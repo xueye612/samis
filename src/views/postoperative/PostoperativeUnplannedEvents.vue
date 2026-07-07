@@ -21,11 +21,11 @@
             <template #cell="{ record }">{{ record.transferTo ?? '—' }}</template>
           </a-table-column>
           <a-table-column title="状态" :width="100">
-            <template #cell="{ record }"><StatusTag :value="record.status" /></template>
+            <template #cell="{ record }"><StatusTag :value="('status' in record && record.status) || '已完成'" /></template>
           </a-table-column>
           <a-table-column title="操作" :width="120" fixed="right">
             <template #cell="{ record }">
-              <a-button size="mini" type="primary" @click="goDetail(record.id)">详情</a-button>
+              <a-button size="mini" type="primary" @click="goDetail(caseIdOf(record))">详情</a-button>
             </template>
           </a-table-column>
         </template>
@@ -35,11 +35,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import StatusTag from '@/components/StatusTag.vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import { useRealPostoperative } from '@/config/apiFlags';
+import type { PostCaseSummary } from '@/services/anesthesia/postoperativeService';
 import type { SurgeryCase } from '@/types/anesthesia';
 
 const UNPLANNED_TYPES = ['非计划转ICU', '非计划二次插管', '心脏骤停', '严重过敏'];
@@ -47,20 +49,32 @@ const UNPLANNED_TYPES = ['非计划转ICU', '非计划二次插管', '心脏骤�
 const store = useAnesthesiaStore();
 const router = useRouter();
 
+const useRemote = computed(() => useRealPostoperative() && store.unplannedCasesSource === 'remote');
+
 const hasUnplannedEvent = (item: SurgeryCase) =>
   item.events.some((e) => UNPLANNED_TYPES.includes(e.type) || (e.type.includes('非计划') && e.qualityIncluded));
 
-const eventCases = computed(() =>
-  store.cases.filter((item) => item.transferIcuPlanned || hasUnplannedEvent(item) || item.transferTo === 'ICU'),
+const eventCases = computed<Array<SurgeryCase | PostCaseSummary>>(() =>
+  useRemote.value
+    ? store.unplannedCases
+    : store.cases.filter((item) => item.transferIcuPlanned || hasUnplannedEvent(item) || item.transferTo === 'ICU'),
 );
 
-const eventLabel = (item: SurgeryCase) => {
-  const evt = item.events.find((e) => UNPLANNED_TYPES.includes(e.type) || e.type.includes('非计划'));
-  if (evt) return evt.type;
+const caseIdOf = (row: SurgeryCase | PostCaseSummary) => ('operationId' in row ? row.operationId : row.id);
+
+const eventLabel = (item: SurgeryCase | PostCaseSummary) => {
+  if ('events' in item) {
+    const evt = item.events.find((e) => UNPLANNED_TYPES.includes(e.type) || e.type.includes('非计划'));
+    if (evt) return evt.type;
+  }
   if (item.transferIcuPlanned) return '计划转 ICU';
   if (item.transferTo === 'ICU') return '转出 ICU';
   return '—';
 };
 
 const goDetail = (id: string) => router.push(`/surgery/detail/${id}`);
+
+onMounted(() => {
+  if (useRealPostoperative()) void store.loadRemoteUnplannedCases();
+});
 </script>

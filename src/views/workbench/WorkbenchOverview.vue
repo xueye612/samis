@@ -148,7 +148,7 @@
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import MetricCard from '@/components/MetricCard.vue';
 import StatusTag from '@/components/StatusTag.vue';
@@ -159,6 +159,11 @@ import type { RoomScheduleGroup } from '@/services/scheduleHelpers';
 
 const router = useRouter();
 const store = useAnesthesiaStore();
+onMounted(() => {
+  // 今日工作台优先走后端聚合端点 todayWorkbench（一次请求返回病例+房间+汇总），
+  // 失败/Mock 时由 store 回退，store.todaySummary 等 getter 仍可正常派生。
+  void store.loadTodayWorkbench();
+});
 const summary = computed(() => store.todaySummary);
 const myCases = computed(() => store.myTodayCases);
 const activeCase = computed(() => store.currentDoctorActiveCase);

@@ -7,9 +7,13 @@
     </template>
     <template #toolbar>
       <a-input-search v-model="keyword" placeholder="搜索患者/手术/科室" allow-clear style="width: 280px" />
+      <a-button status="success" :loading="loading" style="margin-left: 8px" @click="reload">
+        <template #icon><IconRefresh /></template>
+        刷新
+      </a-button>
     </template>
     <a-card class="section-card" :bordered="false" title="手术申请列表">
-      <a-table :data="filtered" :pagination="{ pageSize: 8 }" row-key="id">
+      <a-table :data="filtered" :pagination="{ pageSize: 8 }" :loading="loading" row-key="id">
         <template #columns>
           <a-table-column title="患者" data-index="patientName" />
           <a-table-column title="科室" data-index="department" />
@@ -22,6 +26,26 @@
               <a-tag :color="requestStatusColor(record.status)">{{ record.status }}</a-tag>
             </template>
           </a-table-column>
+          <a-table-column title="操作" :width="160">
+            <template #cell="{ record }">
+              <a-space :size="4">
+                <a-button
+                  v-if="record.status === '待接收'"
+                  type="primary"
+                  size="mini"
+                  :loading="actingId === record.id"
+                  @click="onReceive(record)"
+                >接收</a-button>
+                <a-button
+                  v-if="record.status !== '已取消'"
+                  status="danger"
+                  size="mini"
+                  :loading="actingId === record.id"
+                  @click="onCancel(record)"
+                >取消</a-button>
+              </a-space>
+            </template>
+          </a-table-column>
         </template>
       </a-table>
     </a-card>
@@ -29,13 +53,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { Message } from '@arco-design/web-vue';
+import { IconRefresh } from '@arco-design/web-vue/es/icon';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 import type { SurgeryRequest } from '@/types/clinicalModules';
 
 const store = useAnesthesiaStore();
 const keyword = ref('');
+const loading = ref(false);
+const actingId = ref('');
 
 const requestStatusColor = (status: SurgeryRequest['status']) => ({
   待接收: 'arcoblue',
@@ -52,4 +80,39 @@ const filtered = computed(() => {
     [item.patientName, item.department, item.surgeryName, item.surgeon].some((field) => field.toLowerCase().includes(q)),
   );
 });
+
+async function reload() {
+  loading.value = true;
+  try {
+    await store.loadRemotePreopRequests();
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function onReceive(record: SurgeryRequest) {
+  actingId.value = record.id;
+  try {
+    await store.receivePreopRequest(record.id);
+    Message.success(`已接收：${record.patientName}`);
+  } catch (error) {
+    Message.error(error instanceof Error ? error.message : '接收失败');
+  } finally {
+    actingId.value = '';
+  }
+}
+
+async function onCancel(record: SurgeryRequest) {
+  actingId.value = record.id;
+  try {
+    await store.cancelPreopRequest(record.id);
+    Message.success(`已取消：${record.patientName}`);
+  } catch (error) {
+    Message.error(error instanceof Error ? error.message : '取消失败');
+  } finally {
+    actingId.value = '';
+  }
+}
+
+onMounted(reload);
 </script>

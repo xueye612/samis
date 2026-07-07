@@ -3,8 +3,10 @@ import 'fake-indexeddb/auto';
 import { saveCaseToLocalDb } from '@/services/anesthesia/anesthesiaRecordRepository';
 import {
   canDeviceOverwriteVital,
+  conflictTypeLabel,
   createSyncConflict,
   getPendingConflictCount,
+  parseConflictTypeFromResult,
   resolveSyncConflict,
 } from '@/services/anesthesia/anesthesiaSyncConflict';
 import { resetAnesthesiaLocalDbForTests } from '@/services/anesthesia/localDb';
@@ -90,5 +92,19 @@ describe('anesthesia sync conflict', () => {
     await resolveSyncConflict(conflict.conflict_id, 'use_server', caseItem);
     expect(caseItem.medications[0].dose).toBe(80);
     expect(await getPendingConflictCount('case-conflict-test')).toBe(0);
+  });
+
+  it('maps full backend conflictType enum (Slice 3e)', () => {
+    const map = (t: string) => parseConflictTypeFromResult({ entityType: 'x', localId: 'l', status: 'conflict', conflictType: t });
+    expect(map('version_conflict')).toBe('version_mismatch');
+    expect(map('server_locked')).toBe('record_locked');
+    expect(map('record_printed')).toBe('record_printed');
+    expect(map('vital_corrected')).toBe('vital_corrected');
+    expect(map('deleted_remote')).toBe('deleted_remote');
+    expect(map('duplicate_time_point')).toBe('duplicate_time_point');
+    expect(map('field_conflict')).toBe('entity_conflict');
+    // 标签覆盖全量枚举（无 fallthrough 到原始 key）
+    expect(conflictTypeLabel('deleted_remote')).toBe('服务端已作废');
+    expect(conflictTypeLabel('duplicate_time_point')).toBe('同时间点重复');
   });
 });

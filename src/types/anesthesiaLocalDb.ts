@@ -22,7 +22,9 @@ export type SyncConflictType =
   | 'record_printed'
   | 'vital_corrected'
   | 'entity_conflict'
-  | 'server_newer';
+  | 'server_newer'
+  | 'deleted_remote'
+  | 'duplicate_time_point';
 
 export type SyncConflictResolveStatus = 'pending' | 'resolved' | 'ignored';
 

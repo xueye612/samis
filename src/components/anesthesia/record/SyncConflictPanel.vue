@@ -30,11 +30,11 @@
           </div>
         </div>
         <a-space wrap class="conflict-actions">
-          <a-button size="mini" @click="resolve(item.conflict_id, 'use_server')">使用服务器版本</a-button>
-          <a-button size="mini" @click="resolve(item.conflict_id, 'keep_local_correction')">保留本地修正</a-button>
-          <a-button size="mini" @click="resolve(item.conflict_id, 'manual_merge')">人工合并</a-button>
-          <a-button size="mini" status="warning" @click="resolve(item.conflict_id, 'ignore_local')">忽略本地</a-button>
-          <a-button size="mini" type="primary" @click="resolve(item.conflict_id, 'retry_sync')">重试同步</a-button>
+          <a-button v-if="visibleActions(item.conflict_type).use_server" size="mini" @click="resolve(item.conflict_id, 'use_server')">使用服务器版本</a-button>
+          <a-button v-if="visibleActions(item.conflict_type).keep_local_correction" size="mini" @click="resolve(item.conflict_id, 'keep_local_correction')">保留本地修正</a-button>
+          <a-button v-if="visibleActions(item.conflict_type).manual_merge" size="mini" @click="resolve(item.conflict_id, 'manual_merge')">人工合并</a-button>
+          <a-button v-if="visibleActions(item.conflict_type).ignore_local" size="mini" status="warning" @click="resolve(item.conflict_id, 'ignore_local')">忽略本地</a-button>
+          <a-button v-if="visibleActions(item.conflict_type).retry_sync" size="mini" type="primary" @click="resolve(item.conflict_id, 'retry_sync')">重试同步</a-button>
         </a-space>
       </article>
     </div>
@@ -44,7 +44,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { Message } from '@arco-design/web-vue';
-import type { LocalSyncConflictRow, SyncConflictResolveAction } from '@/types/anesthesiaLocalDb';
+import type { LocalSyncConflictRow, SyncConflictResolveAction, SyncConflictType } from '@/types/anesthesiaLocalDb';
 import { conflictTypeLabel } from '@/services/anesthesia/anesthesiaSyncConflict';
 
 const props = defineProps<{
@@ -56,6 +56,24 @@ const props = defineProps<{
 
 const emit = defineEmits<{ 'update:visible': [boolean] }>();
 const conflicts = ref<LocalSyncConflictRow[]>([]);
+
+/**
+ * Slice 3e：按 conflictType 收敛可见 action。
+ * - record_locked / record_printed / deleted_remote：锁定/打印/已作废态不可 force-write 本地覆盖，仅 use_server / ignore_local。
+ * - vital_corrected：保留修正 / 用服务器 / 人工合并。
+ * - 其余（version_mismatch / entity_conflict / duplicate_time_point / server_newer）：全 5 action。
+ */
+type ActionVisibility = Record<'use_server' | 'keep_local_correction' | 'manual_merge' | 'ignore_local' | 'retry_sync', boolean>;
+const ALL_VISIBLE: ActionVisibility = { use_server: true, keep_local_correction: true, manual_merge: true, ignore_local: true, retry_sync: true };
+function visibleActions(type: SyncConflictType): ActionVisibility {
+  if (type === 'record_locked' || type === 'record_printed' || type === 'deleted_remote') {
+    return { use_server: true, keep_local_correction: false, manual_merge: false, ignore_local: true, retry_sync: false };
+  }
+  if (type === 'vital_corrected') {
+    return { use_server: true, keep_local_correction: true, manual_merge: true, ignore_local: false, retry_sync: false };
+  }
+  return ALL_VISIBLE;
+}
 
 const formatPayload = (raw: string) => {
   try {

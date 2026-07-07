@@ -72,4 +72,13 @@ export const operationInfoApi = {
       { module: 'operationInfo' },
     );
   },
+  /**
+   * 今日工作台聚合：后端按当前用户 roomGroup/roomTypeCodeList 过滤当日手术，
+   * 并按手术间维度聚合，返回 { todayCases, roomStatus, summary }。
+   */
+  getTodayWorkbench() {
+    return samisRequest<unknown>('/operationInfo/todayWorkbench', undefined, {
+      module: 'operationInfo',
+    });
+  },
 };

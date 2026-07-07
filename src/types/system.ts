@@ -146,3 +146,31 @@ export type GenericDictKey =
   | 'collectStatuses'
   | 'recordStatuses'
   | 'frequencyOptions';
+
+/** 打印模板字典项（ConfigPrint）。向后兼容历史 string[]。 */
+export interface PrintTemplateItem {
+  id: string;
+  templateCode?: string;
+  templateName: string;
+  templateType?: string;
+  isDefault?: boolean;
+  enabled: boolean;
+  remark?: string;
+}
+
+/** 麻醉人员字典项（ConfigStaff）。向后兼容历史 string[]（仅 name）。 */
+export type StaffRole = '麻醉医生' | '麻醉护士' | string;
+
+export interface StaffDictItem {
+  id: string;
+  gh?: string;
+  name: string;
+  title?: string;
+  departmentCode?: string;
+  departmentName?: string;
+  role?: StaffRole;
+  schedulingWeight?: number;
+  sortOrder?: number;
+  enabled: boolean;
+  remark?: string;
+}

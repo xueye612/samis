@@ -408,6 +408,9 @@
         <a-button v-if="syncState.conflictCount > 0" size="small" type="outline" status="danger" @click="conflictPanelVisible = true; syncDetailVisible = false">
           打开冲突面板
         </a-button>
+        <a-button size="small" type="outline" :loading="reloadingFromServer" @click="confirmReloadFromServer">
+          从服务端重载记录
+        </a-button>
       </div>
     </a-modal>
 
@@ -966,6 +969,40 @@ const reloadCases = async () => {
   } finally {
     casesReloading.value = false;
   }
+};
+
+// Slice 3f —— 手动“从服务端重载”：强制拉取 getRecordDetail 聚合并覆盖本地。
+const reloadingFromServer = ref(false);
+const confirmReloadFromServer = () => {
+  const caseId = selectedId.value;
+  if (!caseId) {
+    Message.warning('未选中记录');
+    return;
+  }
+  const locked = current.value?.locked;
+  Modal.warning({
+    title: '从服务端重载记录',
+    content: locked
+      ? '该记录已锁定，重载后为只读展示。确定用服务端数据覆盖本地？'
+      : '确定用服务端数据覆盖本地当前记录？未上传的本地改动将被替换。',
+    hideCancel: false,
+    okText: '重载',
+    cancelText: '取消',
+    onOk: async () => {
+      reloadingFromServer.value = true;
+      try {
+        const reconstructed = await store.reloadCaseFromServer(caseId);
+        if (!reconstructed) {
+          Message.warning('服务端无该记录的可读数据');
+          return;
+        }
+        syncDetailVisible.value = false;
+        Message.success(reconstructed.locked ? '已从服务端重载（只读）' : '已从服务端重载');
+      } finally {
+        reloadingFromServer.value = false;
+      }
+    },
+  });
 };
 
 watch(() => route.params.id, (id) => {

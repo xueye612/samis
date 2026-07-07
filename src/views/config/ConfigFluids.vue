@@ -12,8 +12,18 @@ import { computed } from 'vue';
 import FluidBloodDictPanel from '@/components/config/FluidBloodDictPanel.vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import { persistArrayDiff } from '@/composables/useDictArrayPersist';
+import type { FluidBloodDictItem } from '@/types/system';
 
 const store = useAnesthesiaStore();
 const list = computed(() => store.configFluids);
-const save = (value: typeof store.configFluids) => store.upsertFluidBloodDict(value);
+
+const save = async (value: FluidBloodDictItem[]) => {
+  const prev = store.configFluids;
+  store.upsertFluidBloodDict(value);
+  await persistArrayDiff<FluidBloodDictItem>(value, prev, {
+    save: (item) => store.saveFluidDictEntry(item),
+    disable: (item) => store.disableFluidDictEntry(item),
+  });
+};
 </script>

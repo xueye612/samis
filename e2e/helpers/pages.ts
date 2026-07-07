@@ -21,6 +21,15 @@ export const corePages: CorePage[] = [
   { name: '术后随访页面', path: '/postoperative', screenshot: '08-postoperative-followup.png', keywords: ['术后', '随访', 'VAS'] },
   { name: '麻醉质控看板', path: '/quality/dashboard', screenshot: '09-quality-dashboard.png', keywords: ['质控', '指标分类', '病例'] },
   { name: '质控缺陷列表', path: '/quality/defects', screenshot: '10-quality-defects.png', keywords: ['质控', '缺陷', '整改'] },
+  { name: '配置-药品字典', path: '/config/drugs', screenshot: '11-config-drugs.png', keywords: ['药品'] },
+  { name: '配置-液体血制品', path: '/config/fluids', screenshot: '12-config-fluids.png', keywords: ['液体', '血制品', '晶体'] },
+  { name: '配置-生命体征', path: '/config/vitals', screenshot: '13-config-vitals.png', keywords: ['心率', 'HR', '体征'] },
+  { name: '配置-麻醉方式', path: '/config/methods', screenshot: '14-config-methods.png', keywords: ['麻醉', '全身'] },
+  { name: '配置-事件字典', path: '/config/events', screenshot: '15-config-events.png', keywords: ['事件', '插管'] },
+  { name: '配置-评分模板', path: '/config/scores', screenshot: '16-config-scores.png', keywords: ['评分', 'Aldrete'] },
+  { name: '配置-打印模板', path: '/config/print', screenshot: '17-config-print.png', keywords: ['打印', '模板'] },
+  { name: '配置-麻醉人员', path: '/config/staff', screenshot: '18-config-staff.png', keywords: ['人员', '麻醉'] },
+  { name: '配置-手术间', path: '/config/rooms', screenshot: '19-config-rooms.png', keywords: ['手术间', 'OR'] },
 ];
 
 export async function openImplementedPage(page: Page, target: CorePage) {

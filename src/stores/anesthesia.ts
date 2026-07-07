@@ -114,7 +114,9 @@ import type {
   DictItem,
   DrugDictItem,
   FluidBloodDictItem,
+  PrintTemplateItem,
   PdcaRecord,
+  StaffDictItem,
   TodoItem,
   VitalSignDictItem,
 } from '@/types/system';
@@ -163,15 +165,90 @@ import {
 } from '@/mock/clinicalModulesSeed';
 import {
   fetchOperationList,
+  fetchTodayWorkbench,
   hydrateCaseFromOperationInfo as hydrateCaseFromOperationInfoService,
 } from '@/services/anesthesia/operationInfoService';
+import type { WorkbenchRoomStatus, WorkbenchSummary } from '@/services/anesthesia/adapters/operationInfoAdapter';
 import { loadRoomCatalog } from '@/services/anesthesia/roomService';
 import {
   disableDrugDictItem,
   loadDrugDictCatalog,
   persistDrugDictItem,
 } from '@/services/anesthesia/anesthesiaDictService';
-import { useRealOperationInfo, useRealAnesthesiaDict } from '@/config/apiFlags';
+import {
+  disableDictListItem,
+  disableFluidDictItem,
+  disableStaffItem,
+  disableTemplateItem,
+  disableVitalDictItem,
+  loadDictListByCategory,
+  loadFluidDictCatalog,
+  loadMethodTree,
+  loadRoomNameCatalog,
+  loadStaffCatalog,
+  loadTemplateCatalog,
+  loadVitalDictCatalog,
+  persistDictListItem,
+  persistFluidDictItem,
+  persistStaffItem,
+  persistTemplateItem,
+  persistVitalDictItem,
+} from '@/services/anesthesia/anesthesiaDictConfigService';
+import { useRealOperationInfo, useRealAnesthesiaDict, useRealPacu, useRealQuality } from '@/config/apiFlags';
+import {
+  admitPacuPatient,
+  loadRemotePacuList,
+  transferOutPacuPatient,
+  updatePacuRecordRemote,
+  loadRemotePacuBookings,
+  createPacuBookingRemote,
+  updatePacuBookingRemote,
+  cancelPacuBookingRemote,
+  loadRemotePacuBeds,
+  type PacuBedStatsApi,
+} from '@/services/anesthesia/pacuService';
+import {
+  loadHypothermiaCases,
+  loadAdverseEvents,
+  loadQualityChecks,
+  createQualityCheckRemote,
+  updateQualityCheckRemote,
+  deleteQualityCheckRemote,
+  type QualityCheckInput,
+  type QualityCheckPatch,
+} from '@/services/anesthesia/qualityAggregatorService';
+import type {
+  QualityHypothermiaResultApi,
+  QualityAdverseEventResultApi,
+  QualityCheckApi,
+} from '@/api/quality';
+import {
+  loadRemoteFollowups,
+  upsertFollowupRemote,
+  deleteFollowupRemote,
+  loadRemoteComplications,
+  upsertComplicationRemote,
+  deleteComplicationRemote,
+  loadRemoteAnalgesiaCases,
+  loadRemoteUnplannedCases,
+} from '@/services/anesthesia/postoperativeService';
+import {
+  loadRemoteRequests,
+  loadRemoteConsultations,
+  loadRemoteExamReviews,
+  loadRemoteConsentRecords,
+  loadRemoteSafetyChecks,
+  upsertConsultationRemote,
+  upsertExamReviewRemote,
+  upsertConsentRemote,
+  upsertSafetyCheckRemote,
+  receiveRequestRemote,
+  cancelRequestRemote,
+  submitConsentRemote,
+  fetchConsentByCaseId,
+  fetchSafetyCheckByCaseId,
+} from '@/services/anesthesia/preoperativeService';
+import { useRealPreoperative } from '@/config/apiFlags';
 import type { RoomGroupCatalog } from '@/services/anesthesia/adapters/roomAdapter';
 import {
   hydrateAnesthesiaCasesFromLocalDb,
@@ -183,6 +260,7 @@ import {
   saveDeviceVitalOnly,
   loadAllCasesFromLocalDb,
 } from '@/services/anesthesia/anesthesiaRecordRepository';
+import { reloadCaseFromServer } from '@/services/anesthesia/anesthesiaRecordHydrate';
 import {
   patchAnesthesiaSyncUiState,
   setAnesthesiaSyncRecordScope,
@@ -268,6 +346,13 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     cases: clone(initialClinical.cases),
     pacuPatients: clone(initialClinical.pacuPatients),
     followUps: clone(initialClinical.followUps),
+    followUpSource: 'mock' as 'remote' | 'mock',
+    complicationSource: 'mock' as 'remote' | 'mock',
+    preopSource: 'mock' as 'remote' | 'mock',
+    analgesiaCases: [] as Array<import('@/services/anesthesia/postoperativeService').PostCaseSummary>,
+    analgesiaCasesSource: 'mock' as 'remote' | 'mock',
+    unplannedCases: [] as Array<import('@/services/anesthesia/postoperativeService').PostCaseSummary>,
+    unplannedCasesSource: 'mock' as 'remote' | 'mock',
     currentDoctorName: '王睿',
     rescueModeCaseId: '',
     rescueFromDeviceSimCaseId: '',
@@ -317,8 +402,13 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     hasRestoredLocalData: false,
     activeRecordScopeId: '' as string,
     operationListSource: '' as string,
+    workbenchSummary: null as (WorkbenchSummary & { source?: string }) | null,
+    workbenchRoomStatus: [] as WorkbenchRoomStatus[],
     roomCatalogSource: '' as string,
     drugDictSource: '' as string,
+    configTemplateItems: [] as PrintTemplateItem[],
+    configStaffItems: [] as StaffDictItem[],
+    configDictSource: '' as string,
     roomGroups: [] as RoomGroupCatalog[],
     anesthesiaSyncState: {
       pendingCount: 0,
@@ -357,6 +447,10 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     pacuRooms: buildPacuRooms(initialClinical.cases) as PacuRoom[],
     pacuReceives: buildPacuReceives(initialClinical.cases) as PacuReceiveRecord[],
     pacuBookings: buildPacuBookings(initialClinical.cases) as PacuBooking[],
+    pacuSource: 'mock' as 'remote' | 'mock',
+    pacuBookingsSource: 'mock' as 'remote' | 'mock',
+    remoteBedStats: null as PacuBedStatsApi | null,
+    pacuBedsSource: 'mock' as 'remote' | 'mock',
     workloadStats: buildWorkloadStats(initialClinical.cases) as WorkloadStats,
     surgeryRequests: buildSurgeryRequests(initialClinical.cases) as SurgeryRequest[],
     consultations: buildConsultations(initialClinical.cases) as ConsultationRecord[],
@@ -369,6 +463,11 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     scheduleDuty: buildScheduleDuty() as ScheduleDutySlot[],
     emergencyCalls: buildEmergencyCalls() as EmergencyCall[],
     qualityChecks: buildQualityChecks() as QualityCheckRecord[],
+    remoteQualityChecks: [] as QualityCheckApi[],
+    remoteQualityChecksSource: 'mock' as 'remote' | 'mock',
+    remoteHypothermiaCases: { total: 0, list: [] } as QualityHypothermiaResultApi,
+    remoteAdverseEvents: { total: 0, list: [] } as QualityAdverseEventResultApi,
+    aggregatorSource: 'mock' as 'remote' | 'mock',
     drugInventory: buildDrugInventory() as DrugInventoryItem[],
     todoOverrides: {} as Record<string, TodoItem['status']>,
     hasShiftToday: true,
@@ -503,11 +602,28 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     },
     filteredPacuRooms: (state) => (roomId?: string) => (roomId ? state.pacuRooms.filter((r) => r.id === roomId) : state.pacuRooms),
     pacuBedStats: (state) => {
+      // 真实模式优先使用后端 bedStats（含 reserved/maintenance 分类桶）
+      if (useRealPacu() && state.remoteBedStats) {
+        const s = state.remoteBedStats;
+        const total = s.total;
+        const used = s.used;
+        const free = s.free;
+        return {
+          total,
+          used,
+          free,
+          reserved: s.reserved,
+          maintenance: s.maintenance,
+          occupancy: total ? Math.round((used / total) * 100) : 0,
+        };
+      }
       const beds = state.pacuRooms.flatMap((r) => r.beds);
       const total = beds.length;
       const used = beds.filter((b) => b.status === '占用').length;
       const free = beds.filter((b) => b.status === '空闲').length;
-      return { total, used, free, occupancy: total ? Math.round((used / total) * 100) : 0 };
+      const reserved = beds.filter((b) => b.status === '预留').length;
+      const maintenance = beds.filter((b) => b.status === '维护').length;
+      return { total, used, free, reserved, maintenance, occupancy: total ? Math.round((used / total) * 100) : 0 };
     },
     auditLogs: () => getAuditLogs(),
     integrationEndpoints: () => getIntegrationEndpoints(),
@@ -589,6 +705,20 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       await this.ensureClinicalSeedData();
       return result;
     },
+    async loadTodayWorkbench() {
+      const result = await fetchTodayWorkbench();
+      this.cases = result.cases;
+      this.operationListSource = result.source;
+      this.workbenchSummary = { ...result.summary, source: result.source };
+      this.workbenchRoomStatus = result.roomStatus;
+      if (result.cases.length) {
+        result.cases.forEach((item) => syncCaseToDataset(getMutableDataset(), item));
+        bumpDatasetVersion();
+        this.datasetVersion += 1;
+      }
+      await this.ensureClinicalSeedData();
+      return result;
+    },
     async loadRoomCatalog() {
       const catalog = await loadRoomCatalog();
       this.configRooms = catalog.roomNames;
@@ -607,11 +737,294 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       await this.ensureClinicalSeedData();
       return result;
     },
+    async loadRemoteFluidDict() {
+      const result = await loadFluidDictCatalog();
+      this.configDictSource = result.source;
+      this.configFluids = result.items;
+      return result;
+    },
+    async loadRemoteTemplateDict() {
+      const result = await loadTemplateCatalog();
+      this.configDictSource = result.source;
+      this.configTemplateItems = result.items;
+      if (result.names.length) this.configPrintTemplates = result.names;
+      return result;
+    },
+    async loadRemoteVitalDict() {
+      const result = await loadVitalDictCatalog();
+      this.configDictSource = result.source;
+      this.configVitals = result.items;
+      return result;
+    },
+    async loadRemoteStaffDict() {
+      const result = await loadStaffCatalog();
+      this.configDictSource = result.source;
+      this.configStaffItems = result.items;
+      if (result.names.length) this.configStaff = result.names;
+      return result;
+    },
+    async loadRemoteDictList(listKey: 'configEvents' | 'configScores', categoryCode: string) {
+      const result = await loadDictListByCategory(categoryCode);
+      this.configDictSource = result.source;
+      if (result.names.length) this[listKey] = result.names;
+      return result;
+    },
+    async loadRemoteMethodTree() {
+      const result = await loadMethodTree();
+      this.configDictSource = result.source;
+      this.configMethods = result.tree;
+      return result;
+    },
+    async loadRemoteRoomDict() {
+      const result = await loadRoomNameCatalog();
+      this.configDictSource = result.source;
+      if (result.names.length) this.configRooms = result.names;
+      return result;
+    },
+    /** 加载 PACU 恢复单列表，回填 pacuPatients（真实开关开→远程；关→mock 兜底）。 */
+    async loadRemotePacuList(params?: { status?: string; room?: string; caseId?: string }) {
+      const result = await loadRemotePacuList(params);
+      this.pacuSource = result.source;
+      if (useRealPacu() && result.source === 'remote') {
+        this.pacuPatients = result.list;
+      } else if (result.list.length) {
+        this.pacuPatients = result.list;
+      }
+      syncAllClinicalToDataset(getMutableDataset(), this.cases, this.pacuPatients, this.followUps);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+      return result;
+    },
+    /** 入 PACU（真实开关开→调 api 并刷新列表；关→返回 null 由调用方本地处理）。 */
+    async admitPacu(input: {
+      caseId: string;
+      patientName: string;
+      room?: string;
+      operationId?: string;
+      firstTemperature?: number;
+      hr?: number;
+      bp?: string;
+      spo2?: number;
+      rr?: number;
+      aldrete?: number;
+      vas?: number;
+      bedNo?: string;
+      remark?: string;
+    }) {
+      const created = await admitPacuPatient(input);
+      if (useRealPacu()) {
+        await this.loadRemotePacuList();
+        // 入室联动预约状态：后端 admit 已 markBookingReceived，前端重拉预约同步。
+        await this.loadRemotePacuBookings();
+        // admit 带 bedId 时床位状态服务端翻转，刷新床位看板。
+        await this.loadRemotePacuBeds();
+      }
+      return created;
+    },
+    /** 更新恢复记录字段（真实开关开→调 api）。 */
+    async updatePacuRecord(id: string | number, patch: Partial<PacuPatient>) {
+      await updatePacuRecordRemote(id, patch);
+      const index = this.pacuPatients.findIndex((item) => String(item.id) === String(id));
+      if (index >= 0) {
+        this.pacuPatients[index] = { ...this.pacuPatients[index], ...patch };
+        syncAllClinicalToDataset(getMutableDataset(), this.cases, this.pacuPatients, this.followUps);
+        bumpDatasetVersion();
+        this.datasetVersion += 1;
+      }
+    },
+    /** 转出（真实开关开→调 api 并刷新列表）。 */
+    async transferOutPacu(input: {
+      id: string | number;
+      outDestination: PacuPatient['transferTo'];
+      pacuOutTime?: string;
+      aldreteOut?: number;
+      handoverNurseId?: string;
+    }) {
+      await transferOutPacuPatient(input);
+      if (useRealPacu()) {
+        await this.loadRemotePacuList();
+        // transferOut 联动床位释放，刷新床位看板。
+        await this.loadRemotePacuBeds();
+      } else {
+        const index = this.pacuPatients.findIndex((item) => String(item.id) === String(input.id));
+        if (index >= 0) {
+          this.pacuPatients[index] = {
+            ...this.pacuPatients[index],
+            status: '已转出',
+            outTime: input.pacuOutTime ?? dayjs().toISOString(),
+            transferTo: input.outDestination,
+            handover: input.handoverNurseId ?? this.pacuPatients[index].handover,
+          };
+          syncAllClinicalToDataset(getMutableDataset(), this.cases, this.pacuPatients, this.followUps);
+          bumpDatasetVersion();
+          this.datasetVersion += 1;
+        }
+      }
+    },
+    /** 加载 PACU 预约列表，回填 pacuBookings（真实开关开→远程；关→mock 兜底）。 */
+    async loadRemotePacuBookings(params?: { status?: string; pacuRoomId?: string; caseId?: string }) {
+      const result = await loadRemotePacuBookings(params);
+      this.pacuBookingsSource = result.source;
+      if (useRealPacu() && result.source === 'remote') {
+        this.pacuBookings = result.list;
+      } else if (result.list.length) {
+        this.pacuBookings = result.list;
+      }
+      return result;
+    },
+    /** 创建预约（真实开关开→调 api 成功后 upsert 本地；关→本地 upsert）。 */
+    async createPacuBooking(booking: PacuBooking) {
+      const created = await createPacuBookingRemote(booking);
+      const finalBooking: PacuBooking = created ?? booking;
+      this.savePacuBooking(finalBooking);
+      return finalBooking;
+    },
+    /** 更新预约（真实开关开→调 api 成功后 upsert 本地；关→本地 upsert）。 */
+    async updatePacuBooking(id: string | number, patch: Partial<PacuBooking>) {
+      await updatePacuBookingRemote(id, patch);
+      const index = this.pacuBookings.findIndex((item) => String(item.id) === String(id));
+      if (index >= 0) {
+        this.pacuBookings[index] = { ...this.pacuBookings[index], ...patch };
+      }
+    },
+    /** 取消预约（真实开关开→调 api；关→本地改状态）。 */
+    async cancelPacuBooking(id: string | number) {
+      await cancelPacuBookingRemote(id);
+      const index = this.pacuBookings.findIndex((item) => String(item.id) === String(id));
+      if (index >= 0) {
+        this.pacuBookings[index] = { ...this.pacuBookings[index], status: '已取消' };
+      }
+    },
+    /** 加载 PACU 床位（按 room 分组），回填 pacuRooms + remoteBedStats（真实开关开→远程）。 */
+    async loadRemotePacuBeds() {
+      const result = await loadRemotePacuBeds();
+      this.pacuBedsSource = result.source;
+      if (useRealPacu()) {
+        // 真实模式：床位为权威状态来源，远程数据覆盖 mock 派生。
+        if (result.rooms.length || result.source === 'remote') {
+          this.pacuRooms = result.rooms;
+        }
+        this.remoteBedStats = result.stats;
+      } else if (result.rooms.length) {
+        this.pacuRooms = result.rooms;
+        this.remoteBedStats = result.stats;
+      }
+      return result;
+    },
+    /** 加载低体温病例聚合（真实开关开→远程；关→保持空，视图回退 mock 派生）。 */
+    async loadRemoteHypothermiaCases() {
+      if (!useRealQuality()) {
+        this.remoteHypothermiaCases = { total: 0, list: [] };
+        this.aggregatorSource = 'mock';
+        return this.remoteHypothermiaCases;
+      }
+      const { result, source } = await loadHypothermiaCases(this.qualityFilter);
+      this.remoteHypothermiaCases = result;
+      this.aggregatorSource = source;
+      return result;
+    },
+    /** 加载不良事件聚合（真实开关开→远程；关→保持空，视图回退 mock 派生）。 */
+    async loadRemoteAdverseEvents() {
+      if (!useRealQuality()) {
+        this.remoteAdverseEvents = { total: 0, list: [] };
+        this.aggregatorSource = 'mock';
+        return this.remoteAdverseEvents;
+      }
+      const { result, source } = await loadAdverseEvents(this.qualityFilter);
+      this.remoteAdverseEvents = result;
+      this.aggregatorSource = source;
+      return result;
+    },
+    /** 加载质控抽查记录（真实开关开→远程；关→mock 路由兜底）。 */
+    async loadRemoteQualityChecks() {
+      const { list, total, source } = await loadQualityChecks();
+      this.remoteQualityChecks = list;
+      this.remoteQualityChecksSource = source;
+      // mock 模式下若远程返回空，则保留本地 mock 种子 qualityChecks 不被覆盖；
+      // 真实模式下若远程为权威，则同步落到 qualityChecks 供现有视图消费。
+      if (useRealQuality() && source === 'remote') {
+        this.qualityChecks = list.map((item) => ({
+          id: String(item.id),
+          checkItem: item.checkItem,
+          standard: item.standard ?? '',
+          result: item.result,
+          checker: item.checker ?? '',
+          checkDate: item.checkDate ?? '',
+          issueDesc: item.issueDesc ?? undefined,
+          rectifyStatus: item.rectifyStatus,
+        })) as QualityCheckRecord[];
+      }
+      return { list, total };
+    },
+    /** 创建抽查记录（真实开关开→调 api 返回新行；关→本地构建）。 */
+    async createQualityCheck(input: QualityCheckInput) {
+      const created = await createQualityCheckRemote(input);
+      if (created) {
+        await this.loadRemoteQualityChecks();
+        return created;
+      }
+      // mock 模式本地构建
+      const record: QualityCheckRecord = {
+        id: `qc-${Date.now()}`,
+        checkItem: input.checkItem,
+        standard: input.standard ?? '',
+        result: input.result ?? '待查',
+        checker: input.checker ?? '',
+        checkDate: input.checkDate ?? dayjs().format('YYYY-MM-DD'),
+        issueDesc: input.issueDesc,
+        rectifyStatus: input.rectifyStatus ?? '待整改',
+      };
+      this.qualityChecks = [record, ...this.qualityChecks];
+      return record;
+    },
+    /** 更新抽查记录（真实开关开→调 api；关→本地更新）。 */
+    async updateQualityCheck(id: string | number, patch: QualityCheckPatch) {
+      await updateQualityCheckRemote(id, patch);
+      if (useRealQuality()) {
+        await this.loadRemoteQualityChecks();
+        return;
+      }
+      const index = this.qualityChecks.findIndex((item) => String(item.id) === String(id));
+      if (index >= 0) {
+        this.qualityChecks[index] = { ...this.qualityChecks[index], ...patch } as QualityCheckRecord;
+      }
+    },
+    /** 删除抽查记录（真实开关开→调 api；关→本地删除）。 */
+    async deleteQualityCheck(id: string | number) {
+      await deleteQualityCheckRemote(id);
+      if (useRealQuality()) {
+        await this.loadRemoteQualityChecks();
+        return;
+      }
+      this.qualityChecks = this.qualityChecks.filter((item) => String(item.id) !== String(id));
+    },
+    async bootstrapRemoteConfigs() {
+      const results = await Promise.allSettled([
+        this.loadRemoteDrugDict({ enabled: true }),
+        this.loadRemoteFluidDict(),
+        this.loadRemoteTemplateDict(),
+        this.loadRemoteVitalDict(),
+        this.loadRemoteStaffDict(),
+        this.loadRemoteMethodTree(),
+        this.loadRemoteDictList('configEvents', 'anesthesia_event'),
+        this.loadRemoteDictList('configScores', 'anesthesia_score'),
+        this.loadRemoteRoomDict(),
+        this.loadRemotePacuList(),
+        this.loadRemotePacuBookings(),
+        this.loadRemotePacuBeds(),
+      ]);
+      results.forEach((entry, index) => {
+        if (entry.status === 'rejected') {
+          console.warn('[samis] bootstrapRemoteConfigs task failed', index, entry.reason);
+        }
+      });
+      await this.ensureClinicalSeedData();
+    },
     async loadSamisBaseCatalog() {
       const results = await Promise.allSettled([
         this.loadRoomCatalog(),
         this.loadRemoteOperationList({ operationDate: dayjs().format('YYYY-MM-DD') }),
-        this.loadRemoteDrugDict({ enabled: true }),
+        this.bootstrapRemoteConfigs(),
       ]);
       results.forEach((entry, index) => {
         if (entry.status === 'rejected') {
@@ -1454,6 +1867,249 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       bumpDatasetVersion();
       this.datasetVersion += 1;
     },
+    /** 加载术后随访（真实开关开→远程；关→mock 兜底）。 */
+    async loadRemoteFollowups(params?: { caseId?: string; followupType?: string }) {
+      const result = await loadRemoteFollowups(params);
+      this.followUpSource = result.source;
+      if (result.source === 'remote' || result.list.length) {
+        this.followUps = result.list;
+        bumpDatasetVersion();
+        this.datasetVersion += 1;
+      }
+      return result;
+    },
+    /** 新增/更新随访（真实开关开→调 api；关→本地 upsert）。 */
+    async upsertFollowupRemote(payload: PostoperativeFollowUp) {
+      const created = await upsertFollowupRemote(payload);
+      const finalPayload: PostoperativeFollowUp = created ?? payload;
+      if (created && /^\d+$/.test(created.id) && !/^\d+$/.test(payload.id)) {
+        // 新建成功后用服务端 id 替换本地临时 id
+        finalPayload.id = created.id;
+      }
+      this.upsertFollowUp(finalPayload);
+      return finalPayload;
+    },
+    /** 删除随访（真实开关开→调 api；关→本地移除）。 */
+    async deleteFollowupRemote(id: string) {
+      await deleteFollowupRemote(id);
+      this.followUps = this.followUps.filter((item) => item.id !== id);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+    },
+    /** 加载并发症列表（真实开关开→远程；关→mock 兜底）。 */
+    async loadRemoteComplications(params?: { caseId?: string; status?: string; complicationType?: string }) {
+      const result = await loadRemoteComplications(params);
+      this.complicationSource = result.source;
+      if (result.source === 'remote' || result.list.length) {
+        this.complications = result.list;
+      }
+      return result;
+    },
+    /** 新增/更新并发症（真实开关开→调 api；关→本地）。 */
+    async upsertComplicationRemote(record: ComplicationRecord) {
+      const created = await upsertComplicationRemote(record);
+      const finalRecord: ComplicationRecord = created ?? record;
+      if (created && /^\d+$/.test(created.id) && !/^\d+$/.test(record.id)) {
+        finalRecord.id = created.id;
+      }
+      this.saveComplication(finalRecord);
+      return finalRecord;
+    },
+    /** 删除并发症（真实开关开→调 api；关→本地移除）。 */
+    async deleteComplicationRemote(id: string) {
+      await deleteComplicationRemote(id);
+      this.complications = this.complications.filter((item) => item.id !== id);
+    },
+    /** 加载镇痛病例聚合（真实开关开→远程；关→返回空由前端派生 store.cases）。 */
+    async loadRemoteAnalgesiaCases(params?: { room?: string }) {
+      const result = await loadRemoteAnalgesiaCases(params);
+      this.analgesiaCasesSource = result.source;
+      if (result.source === 'remote') {
+        this.analgesiaCases = result.list;
+      }
+      return result;
+    },
+    /** 加载非计划事件病例聚合（真实开关开→远程；关→返回空由前端派生 store.cases）。 */
+    async loadRemoteUnplannedCases(params?: { room?: string }) {
+      const result = await loadRemoteUnplannedCases(params);
+      this.unplannedCasesSource = result.source;
+      if (result.source === 'remote') {
+        this.unplannedCases = result.list;
+      }
+      return result;
+    },
+    /**
+     * =====================================================================
+     * Slice 7 术前管理：申请接收 / 会诊 / 检查 / 知情同意 / 安全核查
+     * =====================================================================
+     */
+    /** 加载手术申请列表（真实开关开→远程；关→mock 兜底）。 */
+    async loadRemotePreopRequests(params?: { status?: string; urgency?: string; department?: string }) {
+      const result = await loadRemoteRequests(params);
+      this.preopSource = result.source;
+      if (useRealPreoperative() && result.source === 'remote') {
+        this.surgeryRequests = result.list;
+      } else if (result.list.length) {
+        this.surgeryRequests = result.list;
+      }
+      return result;
+    },
+    /** 接收申请（真实开关开→调 api 后重拉；关→本地置 已排班）。 */
+    async receivePreopRequest(id: string) {
+      await receiveRequestRemote(id);
+      if (useRealPreoperative()) {
+        await this.loadRemotePreopRequests();
+        return;
+      }
+      const index = this.surgeryRequests.findIndex((item) => item.id === id);
+      if (index >= 0) this.surgeryRequests[index] = { ...this.surgeryRequests[index], status: '已排班' };
+    },
+    /** 取消申请（真实开关开→调 api 后重拉；关→本地置 已取消）。 */
+    async cancelPreopRequest(id: string) {
+      await cancelRequestRemote(id);
+      if (useRealPreoperative()) {
+        await this.loadRemotePreopRequests();
+        return;
+      }
+      const index = this.surgeryRequests.findIndex((item) => item.id === id);
+      if (index >= 0) this.surgeryRequests[index] = { ...this.surgeryRequests[index], status: '已取消' };
+    },
+    /** 加载会诊列表（真实开关开→远程；关→mock 兜底）。 */
+    async loadRemotePreopConsultations(params?: { caseId?: string; status?: string }) {
+      const result = await loadRemoteConsultations(params);
+      this.preopSource = result.source;
+      if (useRealPreoperative() && result.source === 'remote') {
+        this.consultations = result.list;
+      } else if (result.list.length) {
+        this.consultations = result.list;
+      }
+      return result;
+    },
+    /** 新增/更新会诊（真实开关开→调 api；关→本地 upsert）。 */
+    async upsertPreopConsultation(record: ConsultationRecord) {
+      const created = await upsertConsultationRemote(record);
+      const finalRecord: ConsultationRecord = created ?? record;
+      if (created && /^\d+$/.test(created.id) && !/^\d+$/.test(record.id)) {
+        finalRecord.id = created.id;
+      }
+      const index = this.consultations.findIndex((item) => item.id === finalRecord.id);
+      if (index >= 0) this.consultations[index] = finalRecord;
+      else this.consultations.unshift(finalRecord);
+      return finalRecord;
+    },
+    /** 加载检查审核列表（真实开关开→远程；关→mock 兜底）。 */
+    async loadRemotePreopExamReviews(params?: { caseId?: string; reviewResult?: string }) {
+      const result = await loadRemoteExamReviews(params);
+      this.preopSource = result.source;
+      if (useRealPreoperative() && result.source === 'remote') {
+        this.examReviews = result.list;
+      } else if (result.list.length) {
+        this.examReviews = result.list;
+      }
+      return result;
+    },
+    /** 新增/更新检查审核（真实开关开→调 api；关→本地 upsert）。 */
+    async upsertPreopExamReview(record: ExamReviewRecord) {
+      const created = await upsertExamReviewRemote(record);
+      const finalRecord: ExamReviewRecord = created ?? record;
+      if (created && /^\d+$/.test(created.id) && !/^\d+$/.test(record.id)) {
+        finalRecord.id = created.id;
+      }
+      const index = this.examReviews.findIndex((item) => item.id === finalRecord.id);
+      if (index >= 0) this.examReviews[index] = finalRecord;
+      else this.examReviews.unshift(finalRecord);
+      return finalRecord;
+    },
+    /** 加载知情同意列表（真实开关开→远程；关→mock 兜底）。 */
+    async loadRemotePreopConsentRecords(params?: { caseId?: string; status?: string }) {
+      const result = await loadRemoteConsentRecords(params);
+      this.preopSource = result.source;
+      if (useRealPreoperative() && result.source === 'remote') {
+        this.consentRecords = result.list;
+      } else if (result.list.length) {
+        this.consentRecords = result.list;
+      }
+      return result;
+    },
+    /** 按 caseId 取唯一活跃同意书（1:1 首选读；无则 null）。真实开关关→走本地 store 派生。 */
+    async fetchPreopConsentByCaseId(caseId: string): Promise<ConsentRecord | null> {
+      const remote = await fetchConsentByCaseId(caseId);
+      if (remote) {
+        // 远程读到的记录同步落 store，供页面 computed 消费。
+        this.saveConsentRecord(remote);
+        return remote;
+      }
+      return this.consentRecords.find((item) => item.caseId === caseId) ?? null;
+    },
+    /** 新增/更新知情同意（真实开关开→调 api；关→本地 saveConsentRecord）。 */
+    async upsertPreopConsent(record: ConsentRecord) {
+      const created = await upsertConsentRemote(record);
+      const finalRecord: ConsentRecord = created ?? { ...record, updatedAt: dayjs().toISOString() };
+      if (created && /^\d+$/.test(created.id) && !/^\d+$/.test(record.id)) {
+        finalRecord.id = created.id;
+      }
+      this.saveConsentRecord(finalRecord);
+      return finalRecord;
+    },
+    /** 提交知情同意（真实开关开→调 api 返回最新行；关→本地置已提交）。 */
+    async submitPreopConsent(id: string): Promise<ConsentRecord | null> {
+      const submitted = await submitConsentRemote(id);
+      if (submitted) {
+        this.saveConsentRecord(submitted);
+        return submitted;
+      }
+      const index = this.consentRecords.findIndex((item) => item.id === id);
+      if (index >= 0) {
+        const now = dayjs().toISOString();
+        this.consentRecords[index] = {
+          ...this.consentRecords[index],
+          status: '已提交',
+          signedAt: this.consentRecords[index].signedAt ?? now,
+          updatedAt: now,
+        };
+        return this.consentRecords[index];
+      }
+      return null;
+    },
+    /** 加载安全核查列表（真实开关开→远程；关→mock 兜底）。 */
+    async loadRemotePreopSafetyChecks(params?: { caseId?: string; status?: string }) {
+      const result = await loadRemoteSafetyChecks(params);
+      this.preopSource = result.source;
+      if (useRealPreoperative() && result.source === 'remote') {
+        this.safetyChecks = result.list;
+      } else if (result.list.length) {
+        this.safetyChecks = result.list;
+      }
+      return result;
+    },
+    /** 按 caseId 取唯一活跃核查（1:1 首选读；无则 null）。真实开关关→走本地 store 派生。 */
+    async fetchPreopSafetyCheckByCaseId(caseId: string): Promise<SafetyCheckRecord | null> {
+      const remote = await fetchSafetyCheckByCaseId(caseId);
+      if (remote) {
+        const index = this.safetyChecks.findIndex((item) => item.caseId === caseId);
+        if (index >= 0) this.safetyChecks[index] = remote;
+        else this.safetyChecks.unshift(remote);
+        return remote;
+      }
+      return this.safetyChecks.find((item) => item.caseId === caseId) ?? null;
+    },
+    /** 新增/更新安全核查（真实开关开→调 api；关→本地 upsert）。 */
+    async upsertPreopSafetyCheck(record: SafetyCheckRecord) {
+      const created = await upsertSafetyCheckRemote(record);
+      const allComplete = record.signInComplete && record.timeOutComplete && record.signOutComplete;
+      const finalRecord: SafetyCheckRecord = created ?? {
+        ...record,
+        status: allComplete ? '已完成' : '未完成',
+      };
+      if (created && /^\d+$/.test(created.id) && !/^\d+$/.test(record.id)) {
+        finalRecord.id = created.id;
+      }
+      const index = this.safetyChecks.findIndex((item) => item.caseId === finalRecord.caseId);
+      if (index >= 0) this.safetyChecks[index] = finalRecord;
+      else this.safetyChecks.unshift(finalRecord);
+      return finalRecord;
+    },
+
     stopMedication(caseId: string, medicationId: string, stopTime?: string) {
       const target = this.cases.find((item) => item.id === caseId);
       if (!target || target.locked) return;
@@ -1687,11 +2343,21 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     appendFluid(caseId: string, fluid: Omit<FluidRecord, 'id'>) {
       const target = this.cases.find((item) => item.id === caseId);
       if (!target || target.locked) return;
-      target.fluids.push({ id: `fluid-${Date.now()}`, ...fluid });
+      const row: FluidRecord = { id: `fluid-${Date.now()}`, ...fluid };
+      target.fluids.push(row);
       this.syncRecordDocument(caseId);
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      const isTransfusion = row.category === '血液制品';
+      this.afterRecordMutation(caseId, {
+        entityType: isTransfusion ? 'transfusion' : 'fluid',
+        entityLocalId: row.id,
+        operationType: 'create',
+        apiPath: isTransfusion
+          ? '/api-samis/pc/v1/anesthesiaRecord/batchSaveTransfusions'
+          : '/api-samis/pc/v1/anesthesiaRecord/batchSaveFluids',
+      });
     },
     upsertFluid(caseId: string, fluid: FluidRecord) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -1706,16 +2372,35 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      const isTransfusion = row.category === '血液制品';
+      this.afterRecordMutation(caseId, {
+        entityType: isTransfusion ? 'transfusion' : 'fluid',
+        entityLocalId: row.id,
+        operationType: index >= 0 ? 'update' : 'create',
+        apiPath: isTransfusion
+          ? '/api-samis/pc/v1/anesthesiaRecord/batchSaveTransfusions'
+          : '/api-samis/pc/v1/anesthesiaRecord/batchSaveFluids',
+      });
     },
     deleteFluid(caseId: string, fluidId: string) {
       const target = this.cases.find((item) => item.id === caseId);
       if (!target || target.locked) return;
-      const before = target.fluids.find((item) => item.id === fluidId)?.name;
+      const removed = target.fluids.find((item) => item.id === fluidId);
+      const before = removed?.name;
+      const isTransfusion = removed?.category === '血液制品';
       target.fluids = target.fluids.filter((item) => item.id !== fluidId);
       this.recordFieldChange(caseId, '输液/输血记录', before, '已删除', '右键/列表删除');
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, {
+        entityType: isTransfusion ? 'transfusion' : 'fluid',
+        entityLocalId: fluidId,
+        operationType: 'delete',
+        apiPath: isTransfusion
+          ? '/api-samis/pc/v1/anesthesiaRecord/batchSaveTransfusions'
+          : '/api-samis/pc/v1/anesthesiaRecord/batchSaveFluids',
+      });
     },
     upsertOutputRecord(caseId: string, output: OutputDetailRecord) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -1732,6 +2417,12 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, {
+        entityType: 'io_record',
+        entityLocalId: row.id,
+        operationType: index >= 0 ? 'update' : 'create',
+        apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveIoRecord',
+      });
     },
     deleteOutputRecord(caseId: string, outputId: string) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -1744,6 +2435,12 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, {
+        entityType: 'io_record',
+        entityLocalId: outputId,
+        operationType: 'delete',
+        apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveIoRecord',
+      });
     },
     upsertAnesthesiaPlane(caseId: string, plane: AnesthesiaPlaneRecord) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -1805,6 +2502,12 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
+      this.afterRecordMutation(caseId, {
+        entityType: 'lab_result',
+        entityLocalId: row.id,
+        operationType: index >= 0 ? 'update' : 'create',
+        apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveLabResult',
+      });
     },
     voidEvent(caseId: string, eventId: string, reason = '事件作废') {
       const target = this.cases.find((item) => item.id === caseId);
@@ -2005,7 +2708,41 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       bumpDatasetVersion();
       this.datasetVersion += 1;
       this.afterRecordMutation(caseId, { entityType: 'record', entityLocalId: caseId, operationType: 'lock', apiPath: '/api-samis/pc/v1/anesthesiaRecord/lockRecord' });
+      // 打印追溯：每次打印入队不可变 snapshot（服务端 immutable=1、snapshot_no 递增不覆盖）
+      if (target.recordSnapshot) {
+        this.afterRecordMutation(caseId, {
+          entityType: 'snapshot',
+          entityLocalId: `${caseId}-snapshot-${Date.now()}`,
+          operationType: 'update',
+          apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveSnapshot',
+          payload: {
+            snapshotAt: printedAt,
+            snapshotReason: 'print',
+            printedAt,
+            operator: this.currentDoctorName,
+            snapshot: target.recordSnapshot,
+          },
+        });
+      }
       return true;
+    },
+    /**
+     * Slice 3f —— 手动“从服务端重载”：强制拉取 getRecordDetail 聚合并覆盖本地内存态 + IndexedDB。
+     * 锁定态记录回读为只读展示（reconstructed.locked=true，调用方据此禁止编辑）。
+     * 返回重建后的 SurgeryCase，或 null（无服务端记录/mock 模式/请求失败）。
+     */
+    async reloadCaseFromServer(caseId: string) {
+      const seed = this.cases.find((item) => item.id === caseId) ?? null;
+      const reconstructed = await reloadCaseFromServer(caseId, seed);
+      if (!reconstructed) return null;
+      const index = this.cases.findIndex((item) => item.id === caseId);
+      if (index >= 0) {
+        this.cases[index] = reconstructed;
+      } else {
+        this.cases.push(reconstructed);
+      }
+      this.datasetVersion += 1;
+      return reconstructed;
     },
     importDeviceVitalsLayered(caseId: string) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -2085,6 +2822,98 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     upsertVitalSignDict(items: VitalSignDictItem[]) {
       this.configVitals = clone(items);
       this.persistRecordLocalState();
+    },
+    async saveFluidDictEntry(item: FluidBloodDictItem): Promise<boolean> {
+      const saved = await persistFluidDictItem(item);
+      if (!saved) return false;
+      const next = clone(this.configFluids);
+      const index = next.findIndex((row) => row.id === item.id || (saved.id && row.id === saved.id));
+      if (index >= 0) next[index] = saved;
+      else next.push(saved);
+      this.configFluids = next;
+      this.persistRecordLocalState();
+      return true;
+    },
+    async disableFluidDictEntry(item: FluidBloodDictItem): Promise<boolean> {
+      const ok = await disableFluidDictItem(item);
+      if (!ok) return false;
+      this.configFluids = this.configFluids.filter((row) => row.id !== item.id && String(row.id) !== String(item.id));
+      this.persistRecordLocalState();
+      return true;
+    },
+    async saveVitalSignDictEntry(item: VitalSignDictItem): Promise<boolean> {
+      const saved = await persistVitalDictItem(item);
+      if (!saved) return false;
+      const next = clone(this.configVitals);
+      const index = next.findIndex((row) => row.id === item.id || (saved.id && row.id === saved.id));
+      if (index >= 0) next[index] = saved;
+      else next.push(saved);
+      next.sort((a, b) => a.sortOrder - b.sortOrder);
+      this.configVitals = next;
+      this.persistRecordLocalState();
+      return true;
+    },
+    async disableVitalSignDictEntry(id: string | number): Promise<boolean> {
+      const ok = await disableVitalDictItem(id);
+      if (!ok) return false;
+      this.configVitals = this.configVitals.filter((row) => row.id !== id && String(row.id) !== String(id));
+      this.persistRecordLocalState();
+      return true;
+    },
+    async saveTemplateEntry(item: PrintTemplateItem): Promise<boolean> {
+      const saved = await persistTemplateItem(item);
+      if (!saved) return false;
+      const next = clone(this.configTemplateItems);
+      const index = next.findIndex((row) => row.id === item.id || (saved.id && row.id === saved.id));
+      if (index >= 0) next[index] = saved;
+      else next.push(saved);
+      this.configTemplateItems = next;
+      this.configPrintTemplates = next.map((row) => row.templateName).filter(Boolean);
+      this.persistRecordLocalState();
+      return true;
+    },
+    async disableTemplateEntry(id: string | number): Promise<boolean> {
+      const ok = await disableTemplateItem(id);
+      if (!ok) return false;
+      this.configTemplateItems = this.configTemplateItems.filter((row) => row.id !== id && String(row.id) !== String(id));
+      this.configPrintTemplates = this.configTemplateItems.map((row) => row.templateName).filter(Boolean);
+      this.persistRecordLocalState();
+      return true;
+    },
+    async saveStaffEntry(item: StaffDictItem): Promise<boolean> {
+      const saved = await persistStaffItem(item);
+      if (!saved) return false;
+      const next = clone(this.configStaffItems);
+      const index = next.findIndex((row) => row.id === item.id || (saved.id && row.id === saved.id));
+      if (index >= 0) next[index] = saved;
+      else next.push(saved);
+      this.configStaffItems = next;
+      this.configStaff = [...new Set(next.map((row) => row.name).filter(Boolean))];
+      this.persistRecordLocalState();
+      return true;
+    },
+    async disableStaffEntry(id: string | number): Promise<boolean> {
+      const ok = await disableStaffItem(id);
+      if (!ok) return false;
+      this.configStaffItems = this.configStaffItems.filter((row) => row.id !== id && String(row.id) !== String(id));
+      this.configStaff = [...new Set(this.configStaffItems.map((row) => row.name).filter(Boolean))];
+      this.persistRecordLocalState();
+      return true;
+    },
+    async saveDictListItem(listKey: 'configEvents' | 'configScores', categoryCode: string, name: string): Promise<boolean> {
+      const ok = await persistDictListItem(categoryCode, name);
+      if (!ok) return false;
+      const current = this[listKey] as string[];
+      if (!current.includes(name)) this[listKey] = [...current, name];
+      this.persistRecordLocalState();
+      return true;
+    },
+    async disableDictListItem(listKey: 'configEvents' | 'configScores', name: string): Promise<boolean> {
+      const ok = await disableDictListItem(name);
+      if (!ok) return false;
+      this[listKey] = (this[listKey] as string[]).filter((value) => value !== name);
+      this.persistRecordLocalState();
+      return true;
     },
     upsertGenericDict(key: string, values: string[]) {
       this.configGenericDicts[key] = values;
@@ -2201,7 +3030,10 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     },
     refreshClinicalModules() {
       this.consentRecords = buildConsentRecords(this.cases);
-      this.pacuRooms = buildPacuRooms(this.cases);
+      // 真实模式下床位为后端权威，不在刷新时用 mock 重算覆盖（plan 实施说明）。
+      if (!useRealPacu()) {
+        this.pacuRooms = buildPacuRooms(this.cases);
+      }
       this.workloadStats = buildWorkloadStats(this.cases);
       this.monitorDevices = buildMonitorDevices(this.cases);
       this.monitorAlerts = buildMonitorAlerts(this.cases);

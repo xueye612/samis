@@ -8,13 +8,17 @@ import {
   buildSnapshotFromOperation,
   mapOperationDetail,
   mapOperationListResponse,
+  mapWorkbenchResponse,
   mergeOperationIntoCase,
   shouldSkipRemoteOperationRefresh,
   type OperationInfoQuery,
   type OperationListQuery,
+  type WorkbenchRoomStatus,
+  type WorkbenchSummary,
 } from '@/services/anesthesia/adapters/operationInfoAdapter';
 import { hydrateAnesthesiaCasesFromLocalDb } from '@/services/anesthesia/anesthesiaPersistenceBridge';
 import { persistCaseNow } from '@/services/anesthesia/anesthesiaPersistenceBridge';
+import { hydrateCaseFromServer } from '@/services/anesthesia/anesthesiaRecordHydrate';
 
 export interface FetchOperationListResult {
   cases: SurgeryCase[];
@@ -66,6 +70,49 @@ export async function fetchOperationDetail(params: OperationInfoQuery) {
   return mapOperationDetail(raw);
 }
 
+export interface FetchTodayWorkbenchResult {
+  cases: SurgeryCase[];
+  roomStatus: WorkbenchRoomStatus[];
+  summary: WorkbenchSummary;
+  source: 'remote' | 'mock';
+  message?: string;
+}
+
+/**
+ * 今日工作台聚合：优先后端 todayWorkbench 端点（一次请求返回病例+房间聚合+汇总），
+ * 与 fetchOperationList 共用 useRealOperationInfo() 开关，Mock 模式走前端 samisMockRouter。
+ */
+export async function fetchTodayWorkbench(): Promise<FetchTodayWorkbenchResult> {
+  if (!useRealOperationInfo()) {
+    const raw = await operationInfoApi.getTodayWorkbench();
+    const { cases, roomStatus, summary } = mapWorkbenchResponse(raw);
+    return {
+      cases: await hydrateAnesthesiaCasesFromLocalDb(cases, { appendOrphans: false }),
+      roomStatus,
+      summary,
+      source: 'mock',
+    };
+  }
+  try {
+    const raw = await operationInfoApi.getTodayWorkbench();
+    const { cases, roomStatus, summary } = mapWorkbenchResponse(raw);
+    return {
+      cases: await hydrateAnesthesiaCasesFromLocalDb(cases, { appendOrphans: false }),
+      roomStatus,
+      summary,
+      source: 'remote',
+    };
+  } catch (error) {
+    const msg = error instanceof SamisHttpError
+      ? error.message
+      : error instanceof Error
+        ? error.message
+        : '加载今日工作台失败';
+    Message.warning(msg);
+    return { cases: [], roomStatus: [], summary: { surgeries: 0, busyRooms: 0, roomCount: 0, canceled: 0 }, source: 'remote', message: msg };
+  }
+}
+
 export async function hydrateCaseFromOperationInfo(
   caseItem: SurgeryCase | undefined,
   options?: { force?: boolean },
@@ -105,6 +152,10 @@ export async function hydrateCaseFromOperationInfo(
       patientNumber: caseItem.patientId,
     });
     const merged = applyDetail(detail);
+    // Slice 3f：冷启动服务端回读 —— 若本地无该 operationId 的 case，
+    // 从 getRecordDetail 聚合重建（含临床列表）并 seed 本地；否则维持 operationInfo 兜底。
+    const hydrated = await hydrateCaseFromServer(caseItem.id, merged);
+    if (hydrated) return hydrated;
     await persistCaseNow(merged, undefined, { entityType: 'snapshot', operationType: 'update' });
     return merged;
   } catch (error) {

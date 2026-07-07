@@ -20,10 +20,11 @@
               <a-tag :color="record.status === '已提交' ? 'green' : 'gray'">{{ record.status }}</a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="操作" :width="160" fixed="right">
+          <a-table-column title="操作" :width="220" fixed="right">
             <template #cell="{ record }">
               <a-space>
                 <a-button size="mini" @click="openEdit(record)">编辑</a-button>
+                <a-button size="mini" status="danger" :loading="deletingId === record.id" @click="onDelete(record)">删除</a-button>
                 <a-button size="mini" type="primary" @click="goCase(record.caseId)">病例</a-button>
               </a-space>
             </template>
@@ -61,17 +62,20 @@
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import { computed, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import { useRealPostoperative } from '@/config/apiFlags';
 import type { ComplicationRecord } from '@/types/clinicalModules';
 
 const store = useAnesthesiaStore();
 const router = useRouter();
 const visible = ref(false);
 const editingId = ref('');
+const saving = ref(false);
+const deletingId = ref('');
 const typeOptions = ['恶心呕吐', '呼吸抑制', '低体温', '低血压', '出血', '感染', '其他'];
 
 const form = reactive({
@@ -116,7 +120,7 @@ const openEdit = (record: ComplicationRecord) => {
   visible.value = true;
 };
 
-const save = () => {
+const save = async () => {
   if (!form.caseId) {
     Message.warning('请选择关联病例');
     return;
@@ -132,13 +136,45 @@ const save = () => {
     symptoms: form.symptoms,
     treatment: form.treatment,
     outcome: form.outcome,
-    reportTime: dayjs().format('YYYY-MM-DD HH:mm'),
+    reportTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
     status: '已提交',
   };
-  store.saveComplication(payload);
-  Message.success('并发症记录已保存');
-  visible.value = false;
+  saving.value = true;
+  try {
+    if (useRealPostoperative()) {
+      await store.upsertComplicationRemote(payload);
+      await store.loadRemoteComplications();
+    } else {
+      store.saveComplication(payload);
+    }
+    Message.success('并发症记录已保存');
+    visible.value = false;
+  } catch (error) {
+    Message.warning(error instanceof Error ? error.message : '保存并发症失败');
+  } finally {
+    saving.value = false;
+  }
 };
+
+const onDelete = async (record: ComplicationRecord) => {
+  deletingId.value = record.id;
+  try {
+    if (useRealPostoperative()) {
+      await store.deleteComplicationRemote(record.id);
+    } else {
+      store.complications = store.complications.filter((item) => item.id !== record.id);
+    }
+    Message.success('并发症记录已删除');
+  } catch (error) {
+    Message.warning(error instanceof Error ? error.message : '删除失败');
+  } finally {
+    deletingId.value = '';
+  }
+};
+
+onMounted(() => {
+  if (useRealPostoperative()) void store.loadRemoteComplications();
+});
 
 const goCase = (caseId: string) => router.push(`/surgery/detail/${caseId}`);
 </script>

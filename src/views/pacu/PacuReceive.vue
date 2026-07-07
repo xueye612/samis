@@ -27,6 +27,12 @@
             <a-option v-for="bed in freeBeds" :key="bed.id" :value="bed.id">{{ bed.bedNo }}</a-option>
           </a-select>
         </a-form-item>
+        <a-form-item label="入室首次体温(℃)">
+          <a-input-number v-model="form.firstTemperature" :min="30" :max="42" :step="0.1" placeholder="如 36.2" />
+        </a-form-item>
+        <a-form-item label="入室 Aldrete 评分">
+          <a-input-number v-model="form.aldrete" :min="0" :max="10" placeholder="如 8" />
+        </a-form-item>
         <a-form-item label="接收护士"><a-input v-model="form.receiveNurse" /></a-form-item>
         <a-form-item label="交接备注"><a-textarea v-model="form.notes" /></a-form-item>
       </a-form>
@@ -45,6 +51,7 @@ import { Message } from '@arco-design/web-vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import EmptyState from '@/components/shared/EmptyState.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import { useRealPacu } from '@/config/apiFlags';
 
 const store = useAnesthesiaStore();
 const pendingCases = computed(() => store.cases.filter((item) => ['苏醒中', '麻醉中', '手术中'].includes(item.status)));
@@ -63,27 +70,53 @@ const form = reactive({
   siteChecked: false,
   receiveNurse: 'PACU护士',
   notes: '',
+  firstTemperature: undefined as number | undefined,
+  aldrete: undefined as number | undefined,
 });
 const canSubmit = computed(() => currentCase.value && form.bedId && form.vitalsChecked && form.identityChecked);
 
-const submit = () => {
+const submit = async () => {
   if (!currentCase.value || !form.bedId) return;
-  store.receivePacuPatient({
-    caseId: currentCase.value.id,
-    patientName: currentCase.value.patientName,
-    vitalsChecked: form.vitalsChecked,
-    consciousnessChecked: form.consciousnessChecked,
-    airwayChecked: form.airwayChecked,
-    circulationChecked: form.circulationChecked,
-    tubeChecked: form.tubeChecked,
-    skinChecked: form.skinChecked,
-    identityChecked: form.identityChecked,
-    siteChecked: form.siteChecked,
-    receiveNurse: form.receiveNurse,
-    notes: form.notes,
-    bedId: form.bedId,
-  });
-  Message.success('PACU 接收完成');
+  const bed = store.pacuRooms.flatMap((r) => r.beds).find((b) => b.id === form.bedId);
+
+  if (useRealPacu()) {
+    // 真实模式：调 admit 端点（患者信息前端补传，plan R1）
+    try {
+      await store.admitPacu({
+        caseId: currentCase.value.id,
+        patientName: currentCase.value.patientName,
+        room: currentCase.value.room,
+        operationId: currentCase.value.id,
+        firstTemperature: form.firstTemperature,
+        aldrete: form.aldrete,
+        bedNo: bed?.bedNo,
+        remark: form.notes,
+      });
+      Message.success('PACU 接收完成（已入室）');
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : '入室失败');
+      return;
+    }
+  } else {
+    store.receivePacuPatient({
+      caseId: currentCase.value.id,
+      patientName: currentCase.value.patientName,
+      vitalsChecked: form.vitalsChecked,
+      consciousnessChecked: form.consciousnessChecked,
+      airwayChecked: form.airwayChecked,
+      circulationChecked: form.circulationChecked,
+      tubeChecked: form.tubeChecked,
+      skinChecked: form.skinChecked,
+      identityChecked: form.identityChecked,
+      siteChecked: form.siteChecked,
+      receiveNurse: form.receiveNurse,
+      notes: form.notes,
+      bedId: form.bedId,
+    });
+    Message.success('PACU 接收完成');
+  }
   form.bedId = '';
+  form.firstTemperature = undefined;
+  form.aldrete = undefined;
 };
 </script>

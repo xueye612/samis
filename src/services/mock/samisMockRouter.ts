@@ -1,9 +1,9 @@
-import { buildSamisSuccess } from '@/api/samisResponse';
+import { buildSamisError, buildSamisSuccess } from '@/api/samisResponse';
 import type { SamisApiResponse } from '@/api/samisResponse';
 import type { PushBatchRequest, PushBatchResponse, PushBatchResultItem } from '@/api/anesthesiaSync';
 import dayjs from 'dayjs';
-import { seedDrugDict, seedFluidBloodDict } from '@/mock/configSeed';
-import { anesthesiaCases } from '@/mock/anesthesiaCases';
+import { seedDrugDict, seedFluidBloodDict, seedVitalSignDict, seedMethodCategories } from '@/mock/configSeed';
+import { anesthesiaCases, pacuPatients as mockPacuPatients } from '@/mock/anesthesiaCases';
 import { drugDictItemToApi } from '@/services/drugDictMapper';
 import { buildDrugRecommendFromDict } from '@/services/drugDictRecommend';
 import { SPECIAL_DRUG_CATEGORY_OPTIONS } from '@/types/drugDict';
@@ -22,6 +22,365 @@ interface MockServerEntity {
 }
 
 const serverEntityRegistry = new Map<string, MockServerEntity>();
+
+/** Mock PACU 内存态（从 mock 种子克隆，避免污染源数据）。 */
+const mockPacuState = mockPacuPatients.map((p) => ({ ...p }));
+
+/** Mock PACU 预约内存态（Slice 4b）。 */
+interface MockPacuBooking {
+  id: string;
+  caseId: string;
+  patientName: string | null;
+  pacuRoomId: string | null;
+  bedId: string | null;
+  bookingTime: string;
+  bookingDoctor: string | null;
+  bookingType: string;
+  status: string;
+  remark: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+const mockPacuBookingState: MockPacuBooking[] = anesthesiaCases.slice(0, 4).map((c, idx) => ({
+  id: `bk-mock-${idx + 1}`,
+  caseId: c.id,
+  patientName: c.patientName,
+  pacuRoomId: 'g-pacu',
+  bedId: idx % 2 === 0 ? `A-0${idx + 1}` : null,
+  bookingTime: dayjs().add(idx - 1, 'day').format('YYYY-MM-DD HH:mm:ss'),
+  bookingDoctor: '张医师',
+  bookingType: idx === 1 ? '紧急预约' : '常规预约',
+  status: idx === 0 ? '已接收' : '待接收',
+  remark: null,
+  createdAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+  updatedAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+}));
+let mockBookingIdCounter = { value: 5000 };
+
+/** Mock PACU 床位内存态（Slice 6c A）。 */
+const mockBedState: Array<{
+  id: number; roomId: string; bedNo: string; status: string;
+  patientName: string | null; caseId: string | null;
+  inTime: string | null; outTime: string | null;
+  remark: string | null; createdAt: string; updatedAt: string;
+}> = ['A-01', 'A-02', 'A-03', 'B-01', 'B-02'].map((no, idx) => ({
+  id: idx + 1,
+  roomId: no.startsWith('A') ? 'pacu-A' : 'pacu-B',
+  bedNo: no,
+  status: idx === 0 ? '占用' : idx === 4 ? '维护' : '空闲',
+  patientName: idx === 0 ? '赵六' : null,
+  caseId: idx === 0 ? 'case-pacu-A-01' : null,
+  inTime: idx === 0 ? dayjs().subtract(30, 'minute').format('YYYY-MM-DD HH:mm:ss') : null,
+  outTime: null,
+  remark: null,
+  createdAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+  updatedAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+}));
+let mockBedIdCounter = { value: 100 };
+
+/** Mock 质控抽查内存态（Slice 6c B）。 */
+interface MockQualityCheck {
+  id: number; checkItem: string; standard: string | null;
+  result: string; checker: string | null; checkDate: string | null;
+  issueDesc: string | null; rectifyStatus: string;
+  createdAt: string; updatedAt: string;
+}
+const mockQualityCheckState: MockQualityCheck[] = [
+  {
+    id: 1,
+    checkItem: '术前访视记录完整性',
+    standard: '择期手术 100% 覆盖',
+    result: '合格',
+    checker: '李质控',
+    checkDate: dayjs().subtract(2, 'day').format('YYYY-MM-DD'),
+    issueDesc: null,
+    rectifyStatus: '已闭环',
+    createdAt: dayjs().subtract(2, 'day').format('YYYY-MM-DD HH:mm:ss'),
+    updatedAt: dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss'),
+  },
+  {
+    id: 2,
+    checkItem: '麻醉知情同意书签署',
+    standard: '入室前 100% 签署',
+    result: '不合格',
+    checker: '李质控',
+    checkDate: dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+    issueDesc: '2 例缺失',
+    rectifyStatus: '待整改',
+    createdAt: dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss'),
+    updatedAt: dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss'),
+  },
+];
+let mockQualityCheckIdCounter = { value: 100 };
+
+/** Mock 术后随访内存态（Slice 5）。 */
+interface MockFollowup {
+  id: number;
+  caseId: string;
+  operationId: string | null;
+  patientName: string;
+  followupType: string;
+  followTime: string;
+  vasScore: number | null;
+  nausea: boolean;
+  headache: boolean;
+  hoarseness: boolean;
+  hoarsenessDurationHours: number | null;
+  numbness: boolean;
+  motorDisorder: boolean;
+  awareness: boolean;
+  respiratoryDepression: boolean;
+  reintubation: boolean;
+  transferredIcu: boolean;
+  newComa: boolean;
+  neuroDurationHours: number | null;
+  death24h: boolean;
+  deathTime: string | null;
+  advice: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+let mockFollowupIdCounter = { value: 7000 };
+const mockFollowupState: MockFollowup[] = anesthesiaCases
+  .filter((c) => c.postoperativeAnalgesia)
+  .slice(0, 3)
+  .map((c, idx) => ({
+    id: mockFollowupIdCounter.value + idx + 1,
+    caseId: c.id,
+    operationId: c.id,
+    patientName: c.patientName,
+    followupType: idx === 2 ? '全麻术后随访' : '术后镇痛随访',
+    followTime: dayjs().subtract(idx, 'day').format('YYYY-MM-DD HH:mm:ss'),
+    vasScore: [2, 4, 1][idx] ?? 3,
+    nausea: idx === 1,
+    headache: false,
+    hoarseness: idx === 2,
+    hoarsenessDurationHours: idx === 2 ? 8 : null,
+    numbness: false,
+    motorDisorder: false,
+    awareness: false,
+    respiratoryDepression: false,
+    reintubation: false,
+    transferredIcu: idx === 2,
+    newComa: false,
+    neuroDurationHours: null,
+    death24h: false,
+    deathTime: null,
+    advice: '继续当前镇痛方案，注意随访。',
+    createdAt: dayjs().subtract(idx, 'day').format('YYYY-MM-DD HH:mm:ss'),
+    updatedAt: dayjs().subtract(idx, 'day').format('YYYY-MM-DD HH:mm:ss'),
+  }));
+
+/** Mock 并发症上报内存态（Slice 5）。 */
+interface MockComplication {
+  id: number;
+  caseId: string;
+  operationId: string | null;
+  patientName: string;
+  type: string;
+  severity: string;
+  stage: string | null;
+  symptoms: string | null;
+  treatment: string | null;
+  outcome: string | null;
+  reportTime: string;
+  status: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+let mockComplicationIdCounter = { value: 8000 };
+const mockComplicationState: MockComplication[] = [
+  {
+    id: mockComplicationIdCounter.value + 1,
+    caseId: anesthesiaCases[2]?.id ?? 'case-or03',
+    operationId: anesthesiaCases[2]?.id ?? 'case-or03',
+    patientName: anesthesiaCases[2]?.patientName ?? '患者',
+    type: '低体温',
+    severity: '中度',
+    stage: '术中',
+    symptoms: '术中体温35.6℃',
+    treatment: '升温毯+预热输液',
+    outcome: '体温恢复',
+    reportTime: dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss'),
+    status: '已提交',
+    createdAt: dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss'),
+    updatedAt: dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss'),
+  },
+];
+
+/** Mock 镇痛/非计划病例聚合（Slice 5）：从 anesthesiaCases 派生 case 摘要行。 */
+function caseToSummary(c: (typeof anesthesiaCases)[number]) {
+  return {
+    operationId: c.id,
+    caseId: c.id,
+    patientName: c.patientName,
+    gender: c.gender,
+    age: c.age,
+    department: c.department,
+    diagnosis: c.diagnosis,
+    surgeryName: c.surgeryName,
+    surgeon: c.surgeon,
+    anesthesiaMethod: c.anesthesiaMethod,
+    room: c.room,
+    recordStatus: c.recordStatus ?? null,
+    postoperativeAnalgesia: Boolean(c.postoperativeAnalgesia),
+    transferIcuPlanned: Boolean(c.transferIcuPlanned),
+    reintubation: false,
+    transferTo: c.transferTo ?? null,
+    recordEndTime: c.leaveRoomTime ?? null,
+  };
+}
+
+// ============ Slice 7 术前管理 mock 内存态（从 anesthesiaCases 派生） ============
+interface MockPreopRequest {
+  id: number; operationId: string; patientName: string | null; department: string | null;
+  surgeryName: string | null; surgeon: string | null; urgency: string; requestDate: string | null;
+  status: string; receivedAt: string | null; receivedBy: string | null; remark: string | null;
+  createdAt: string; updatedAt: string;
+}
+interface MockPreopConsultation {
+  id: number; caseId: string; operationId: string | null; patientName: string | null;
+  requestDept: string | null; consultDate: string | null; consultant: string | null;
+  opinion: string | null; status: string; createdAt: string; updatedAt: string;
+}
+interface MockPreopExamReview {
+  id: number; caseId: string; operationId: string | null; patientName: string | null;
+  labItems: string | null; imagingItems: string | null; reviewResult: string;
+  reviewer: string | null; reviewDate: string | null; createdAt: string; updatedAt: string;
+}
+interface MockPreopConsent {
+  id: number; caseId: string; operationId: string | null; patientName: string | null;
+  surgeryName: string | null; anesthesiaMethod: string | null; surgeryDate: string | null;
+  commonRisks: boolean; severeRisks: boolean; specialRisks: boolean; planAccepted: boolean;
+  questionAnswered: boolean; patientSigned: boolean; familySigned: boolean; doctorSigned: boolean;
+  signedAt: string | null; status: string; createdAt: string; updatedAt: string;
+}
+interface MockPreopSafetyCheck {
+  id: number; caseId: string; operationId: string | null; patientName: string | null;
+  signInComplete: boolean; timeOutComplete: boolean; signOutComplete: boolean;
+  checker: string | null; checkDate: string | null; status: string; createdAt: string; updatedAt: string;
+}
+
+const preopNow = () => dayjs().format('YYYY-MM-DD HH:mm:ss');
+let mockPreopRequestIdCounter = { value: 9000 };
+const mockPreopRequestState: MockPreopRequest[] = anesthesiaCases.slice(0, 5).map((c, idx) => ({
+  id: mockPreopRequestIdCounter.value + idx + 1,
+  operationId: c.id,
+  patientName: c.patientName,
+  department: c.department ?? null,
+  surgeryName: c.surgeryName,
+  surgeon: c.surgeon ?? null,
+  urgency: c.urgency === '急诊' ? '急诊' : '择期',
+  requestDate: operationCaseDate(c),
+  status: idx === 0 ? '已排班' : idx === 4 ? '已取消' : '待接收',
+  receivedAt: idx === 0 ? preopNow() : null,
+  receivedBy: idx === 0 ? '演示用户' : null,
+  remark: null,
+  createdAt: preopNow(),
+  updatedAt: preopNow(),
+}));
+
+let mockPreopConsultationIdCounter = { value: 9100 };
+const mockPreopConsultationState: MockPreopConsultation[] = anesthesiaCases.slice(0, 3).map((c, idx) => ({
+  id: mockPreopConsultationIdCounter.value + idx + 1,
+  caseId: c.id,
+  operationId: c.id,
+  patientName: c.patientName,
+  requestDept: c.department ?? null,
+  consultDate: dayjs().subtract(idx, 'day').format('YYYY-MM-DD HH:mm:ss'),
+  consultant: idx === 0 ? '张麻醉' : '李麻醉',
+  opinion: 'ASA 评估可耐受麻醉，注意术前禁食。',
+  status: idx === 0 ? '已完成' : '待会诊',
+  createdAt: preopNow(),
+  updatedAt: preopNow(),
+}));
+
+let mockPreopExamReviewIdCounter = { value: 9200 };
+const mockPreopExamReviewState: MockPreopExamReview[] = anesthesiaCases.slice(0, 4).map((c, idx) => ({
+  id: mockPreopExamReviewIdCounter.value + idx + 1,
+  caseId: c.id,
+  operationId: c.id,
+  patientName: c.patientName,
+  labItems: '血常规、凝血、肝肾功能',
+  imagingItems: idx % 2 === 0 ? '胸片、心电图' : '心电图',
+  reviewResult: (['通过', '待补检', '通过', '异常'] as const)[idx] ?? '通过',
+  reviewer: '王检验',
+  reviewDate: operationCaseDate(c),
+  createdAt: preopNow(),
+  updatedAt: preopNow(),
+}));
+
+let mockPreopConsentIdCounter = { value: 9300 };
+const mockPreopConsentState: MockPreopConsent[] = anesthesiaCases.slice(0, 3).map((c, idx) => ({
+  id: mockPreopConsentIdCounter.value + idx + 1,
+  caseId: c.id,
+  operationId: c.id,
+  patientName: c.patientName,
+  surgeryName: c.surgeryName,
+  anesthesiaMethod: c.anesthesiaMethod,
+  surgeryDate: operationCaseDate(c),
+  commonRisks: true,
+  severeRisks: idx === 0,
+  specialRisks: false,
+  planAccepted: true,
+  questionAnswered: true,
+  patientSigned: idx === 0,
+  familySigned: idx === 0,
+  doctorSigned: idx === 0,
+  signedAt: idx === 0 ? preopNow() : null,
+  status: idx === 0 ? '已提交' : '草稿',
+  createdAt: preopNow(),
+  updatedAt: preopNow(),
+}));
+
+let mockPreopSafetyCheckIdCounter = { value: 9400 };
+const mockPreopSafetyCheckState: MockPreopSafetyCheck[] = anesthesiaCases.slice(0, 3).map((c, idx) => ({
+  id: mockPreopSafetyCheckIdCounter.value + idx + 1,
+  caseId: c.id,
+  operationId: c.id,
+  patientName: c.patientName,
+  signInComplete: true,
+  timeOutComplete: idx === 0,
+  signOutComplete: idx === 0,
+  checker: '陈核查',
+  checkDate: operationCaseDate(c),
+  status: idx === 0 ? '已完成' : '未完成',
+  createdAt: preopNow(),
+  updatedAt: preopNow(),
+}));
+
+
+/** 前端 PacuPatient → 后端 anes_pacu_record 行（camelCase）。 */
+function pacuPatientToApiRow(p: (typeof mockPacuPatients)[number]) {
+  const inTime = dayjs(p.inTime);
+  return {
+    id: Number(String(p.id).replace(/\D/g, '')) || 0,
+    caseId: p.caseId,
+    patientName: p.patientName,
+    room: p.room,
+    bedNo: null,
+    pacuInTime: inTime.isValid() ? inTime.format('YYYY-MM-DD HH:mm:ss') : p.inTime,
+    pacuOutTime: p.outTime ? dayjs(p.outTime).format('YYYY-MM-DD HH:mm:ss') : null,
+    firstTemp: p.firstTemperature ?? null,
+    hr: p.HR || null,
+    bp: p.BP || null,
+    spo2: p.SpO2 || null,
+    rr: p.RR || null,
+    aldreteIn: p.aldrete ?? 0,
+    aldreteOut: null,
+    vasScore: p.vas ?? 0,
+    nauseaVomiting: p.nausea ?? false,
+    shivering: p.shivering ?? false,
+    agitation: p.agitation ?? false,
+    reintubation: p.reintubation ?? false,
+    status: p.status,
+    outDestination: p.transferTo ?? null,
+    handoverNurseId: p.handover || null,
+    remark: null,
+    createdAt: inTime.isValid() ? inTime.format('YYYY-MM-DD HH:mm:ss') : null,
+    updatedAt: inTime.isValid() ? inTime.format('YYYY-MM-DD HH:mm:ss') : null,
+  };
+}
 
 function entityKey(entityType: string, localId: string) {
   return `${entityType}:${localId}`;
@@ -437,6 +796,36 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
       total: list.length,
     }) as T;
   }
+  if (path.includes('/operationInfo/todayWorkbench')) {
+    const today = dayjs().format('YYYY-MM-DD');
+    const todayCases = anesthesiaCases
+      .filter((item) => operationCaseDate(item) === today)
+      .map(caseToOperationRow);
+    const roomMap = new Map<string, { roomId: string; roomName: string; busy: boolean; count: number }>();
+    todayCases.forEach((row) => {
+      const roomId = String(row.room ?? row.roomId ?? '').trim();
+      if (!roomId) return;
+      if (!roomMap.has(roomId)) {
+        roomMap.set(roomId, { roomId, roomName: roomId, busy: false, count: 0 });
+      }
+      const entry = roomMap.get(roomId)!;
+      entry.count += 1;
+      const activeStatuses = ['麻醉诱导', '麻醉中', '手术中', '苏醒中'];
+      if (activeStatuses.includes(String(row.status ?? ''))) entry.busy = true;
+    });
+    const roomStatus = Array.from(roomMap.values());
+    return buildSamisSuccess({
+      todayCases,
+      roomStatus,
+      summary: {
+        surgeries: todayCases.length,
+        busyRooms: roomStatus.filter((r) => r.busy).length,
+        roomCount: roomStatus.length,
+        canceled: todayCases.filter((r) => String(r.status ?? '') === '已取消').length,
+        operationDate: today,
+      },
+    }) as T;
+  }
   if (path.includes('/operationInfo/getOperationInfo')) {
     const params = getSearchParams(path);
     const operationId = params.get('operationId') ?? params.get('OPERATIONID') ?? '';
@@ -500,6 +889,16 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
       ],
     }) as T;
   }
+  if (path.endsWith('/room/roomCreate') && init?.method === 'POST') {
+    return buildSamisSuccess({ id: nextServerId() }) as T;
+  }
+  if (path.endsWith('/room/roomGroupCreate') && init?.method === 'POST') {
+    return buildSamisSuccess({ id: nextServerId() }) as T;
+  }
+  if ((path.endsWith('/room/roomUpdate') || path.endsWith('/room/roomDelete')
+    || path.endsWith('/room/roomGroupUpdate') || path.endsWith('/room/roomGroupDelete')) && init?.method === 'POST') {
+    return buildSamisSuccess(true) as T;
+  }
 
   if (path.includes('/admin/login') && init?.method === 'POST') {
     const body = parseBody<{ username?: string; password?: string }>(init);
@@ -561,16 +960,795 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
   if (
     path.includes('/anesthesiaDict/getTemplate')
     || path.includes('/anesthesiaDict/getTemplateField')
-    || path.includes('/anesthesiaDict/getDictCategory')
-    || path.includes('/anesthesiaDict/getDictItem')
     || path.includes('/anesthesiaDict/getBloodProductDict')
     || path.includes('/anesthesiaDict/getEventDict')
     || path.includes('/anesthesiaDict/getDeviceDict')
   ) {
+    if (path.includes('/anesthesiaDict/getTemplate')) {
+      const templates = [
+        { id: 1, template_code: 'TPL_ANES_RECORD', template_name: '麻醉记录单', template_type: 'record', is_default: 1, is_active: 1 },
+        { id: 2, template_code: 'TPL_PREOP_VISIT', template_name: '术前访视单', template_type: 'preop', is_default: 0, is_active: 1 },
+        { id: 3, template_code: 'TPL_PACU_RECORD', template_name: 'PACU恢复记录', template_type: 'pacu', is_default: 0, is_active: 1 },
+        { id: 4, template_code: 'TPL_POSTOP_FOLLOWUP', template_name: '术后随访表', template_type: 'postop', is_default: 0, is_active: 1 },
+      ];
+      return buildSamisSuccess({ list: templates, page: 1, page_size: templates.length, total: templates.length }) as T;
+    }
+    return buildSamisSuccess({ list: [], page: 1, page_size: 10, total: 0 }) as T;
+  }
+  if (path.includes('/anesthesiaDict/getVitalDict')) {
+    const list = seedVitalSignDict.map((item) => ({
+      id: Number(item.id.replace(/\D/g, '')) || 0,
+      code: item.code,
+      short_code: item.shortCode,
+      item_name: item.name,
+      unit: item.unit,
+      normal_range: item.normalRange,
+      lower_limit: item.lowerLimit,
+      upper_limit: item.upperLimit,
+      default_value: item.defaultValue,
+      chart_enabled: item.chartEnabled ? 1 : 0,
+      chart_color: item.chartColor,
+      chart_symbol: item.chartSymbol,
+      decimal_places: item.decimalPlaces,
+      sort_no: item.sortOrder,
+      is_active: item.enabled ? 1 : 0,
+    }));
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/anesthesiaDict/getStaff')) {
+    const list = [
+      { id: 1, gh: 'A001', name: '张明远', title: '主任医师', department_name: '麻醉科', role: '麻醉医生', scheduling_weight: 3, sort_no: 1, is_active: 1 },
+      { id: 2, gh: 'A002', name: '李文博', title: '副主任医师', department_name: '麻醉科', role: '麻醉医生', scheduling_weight: 2, sort_no: 2, is_active: 1 },
+      { id: 3, gh: 'N001', name: '陈丽华', title: '护士长', department_name: '麻醉科', role: '麻醉护士', scheduling_weight: 2, sort_no: 3, is_active: 1 },
+    ];
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/anesthesiaDict/getDictCategory')) {
+    const list = seedMethodCategories.map((cat, index) => ({
+      id: index + 1,
+      category_code: cat.code,
+      category_name: cat.name,
+      sort_no: index + 1,
+      is_active: cat.enabled ? 1 : 0,
+    }));
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/anesthesiaDict/getDictItem')) {
+    const params = getSearchParams(path);
+    const categoryCode = params.get('category_code') || params.get('categoryCode') || '';
+    if (categoryCode === 'anesthesia_method') {
+      const list: Array<Record<string, unknown>> = [];
+      seedMethodCategories.forEach((cat) => {
+        cat.children.forEach((child, idx) => list.push({
+          id: list.length + 1,
+          category_code: 'anesthesia_method',
+          item_code: child.code,
+          item_name: child.name,
+          parent_code: cat.code,
+          sort_no: idx + 1,
+          is_active: child.enabled ? 1 : 0,
+        }));
+      });
+      return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+    }
+    if (categoryCode === 'anesthesia_event') {
+      const names = ['插管', '拔管', '低体温', '低血压', '低氧', '抢救', '非计划转ICU'];
+      const list = names.map((name, idx) => ({ id: idx + 1, category_code: 'anesthesia_event', item_code: `EVT-${idx + 1}`, item_name: name, sort_no: idx + 1, is_active: 1 }));
+      return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+    }
+    if (categoryCode === 'anesthesia_score') {
+      const names = ['Aldrete', 'VAS', 'GCS', 'Apgar'];
+      const list = names.map((name, idx) => ({ id: idx + 1, category_code: 'anesthesia_score', item_code: `SCORE-${idx + 1}`, item_name: name, sort_no: idx + 1, is_active: 1 }));
+      return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+    }
     return buildSamisSuccess({ list: [], page: 1, page_size: 10, total: 0 }) as T;
   }
   if (path.includes('/anesthesiaDict/save') || path.includes('/anesthesiaDict/disable') || path.includes('/anesthesiaDict/delete')) {
     return buildSamisSuccess(null) as T;
+  }
+
+  if (path.includes('/pacu/list')) {
+    return buildSamisSuccess({
+      list: mockPacuState.map(pacuPatientToApiRow),
+      page: 1,
+      page_size: mockPacuState.length,
+      total: mockPacuState.length,
+    }) as T;
+  }
+  if (path.includes('/pacu/getById')) {
+    const id = getSearchParams(path).get('id') ?? '';
+    const row = mockPacuState.find((p) => p.id === id);
+    return buildSamisSuccess(row ? pacuPatientToApiRow(row) : null) as T;
+  }
+  if (path.endsWith('/pacu/admit') && init?.method === 'POST') {
+    const body = parseBody<{ caseId?: string; patientName?: string; room?: string; firstTemp?: string | number; aldreteIn?: string | number; pacuInTime?: string }>(init);
+    const existing = mockPacuState.find((p) => p.status !== '已转出' && p.caseId === body.caseId);
+    if (existing) {
+      return buildSamisError('该病例已存在活跃的 PACU 恢复单（未转出），不可重复入室', 1003) as T;
+    }
+    const id = `pacu-mock-${Date.now()}`;
+    const row: typeof mockPacuState[number] = {
+      id,
+      caseId: body.caseId ?? `case-${Date.now()}`,
+      patientName: body.patientName ?? '未知患者',
+      room: body.room ?? '',
+      inTime: body.pacuInTime ?? new Date().toISOString(),
+      firstTemperature: body.firstTemp !== undefined ? Number(body.firstTemp) : undefined,
+      HR: 0, BP: '', SpO2: 0, RR: 0,
+      aldrete: body.aldreteIn !== undefined ? Number(body.aldreteIn) : 0,
+      vas: 0, nausea: false, shivering: false, agitation: false, reintubation: false,
+      status: '观察中',
+      transferTo: '病房',
+      handover: '',
+    };
+    mockPacuState.push(row);
+    return buildSamisSuccess(pacuPatientToApiRow(row)) as T;
+  }
+  if (path.endsWith('/pacu/update') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string; status?: string }>(init);
+    const index = mockPacuState.findIndex((p) => p.id === String(body.id ?? ''));
+    if (index >= 0 && body.status) (mockPacuState[index] as { status: string }).status = body.status;
+    return buildSamisSuccess(true) as T;
+  }
+  if (path.endsWith('/pacu/transferOut') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string; outDestination?: string; pacuOutTime?: string }>(init);
+    const row = mockPacuState.find((p) => p.id === String(body.id ?? ''));
+    if (row) {
+      (row as { status: string }).status = '已转出';
+      (row as { outTime?: string }).outTime = body.pacuOutTime ?? new Date().toISOString();
+      (row as { transferTo: string }).transferTo = (body.outDestination ?? '病房') as typeof row.transferTo;
+    }
+    return buildSamisSuccess(true) as T;
+  }
+
+  if (path.includes('/pacu/bookingList')) {
+    return buildSamisSuccess({
+      list: mockPacuBookingState,
+      page: 1,
+      page_size: mockPacuBookingState.length,
+      total: mockPacuBookingState.length,
+    }) as T;
+  }
+  if (path.includes('/pacu/bookingGetById')) {
+    const id = getSearchParams(path).get('id') ?? '';
+    const row = mockPacuBookingState.find((b) => b.id === id);
+    return buildSamisSuccess(row ?? null) as T;
+  }
+  if (path.endsWith('/pacu/bookingCreate') && init?.method === 'POST') {
+    const body = parseBody<{
+      caseId?: string;
+      patientName?: string;
+      pacuRoomId?: string;
+      bedId?: string;
+      bookingTime?: string;
+      bookingDoctor?: string;
+      bookingType?: string;
+    }>(init);
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const row: MockPacuBooking = {
+      id: `bk-mock-${mockBookingIdCounter.value++}`,
+      caseId: body.caseId ?? `case-${Date.now()}`,
+      patientName: body.patientName ?? null,
+      pacuRoomId: body.pacuRoomId ?? null,
+      bedId: body.bedId ?? null,
+      bookingTime: body.bookingTime ?? now,
+      bookingDoctor: body.bookingDoctor ?? null,
+      bookingType: body.bookingType ?? '常规预约',
+      status: '待接收',
+      remark: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    mockPacuBookingState.unshift(row);
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/pacu/bookingUpdate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const row = mockPacuBookingState.find((b) => b.id === String(body.id ?? ''));
+    if (row) {
+      for (const key of ['patientName', 'pacuRoomId', 'bedId', 'bookingTime', 'bookingDoctor', 'bookingType']) {
+        if (body[key] !== undefined) (row as unknown as Record<string, unknown>)[key] = body[key];
+      }
+      row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    }
+    return buildSamisSuccess(row ?? null) as T;
+  }
+  if (path.endsWith('/pacu/bookingCancel') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string }>(init);
+    const row = mockPacuBookingState.find((b) => b.id === String(body.id ?? ''));
+    if (row) {
+      row.status = '已取消';
+      row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    }
+    return buildSamisSuccess(row ?? null) as T;
+  }
+
+  // ============ Slice 6c A：床位 mock ============
+  if (path.includes('/pacu/bedList')) {
+    const list = mockBedState.map((b) => ({ ...b }));
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/pacu/bedAllGrouped')) {
+    const grouped: Record<string, typeof mockBedState> = {};
+    for (const bed of mockBedState) {
+      (grouped[bed.roomId] ??= []).push(bed);
+    }
+    const rooms = Object.entries(grouped).map(([roomId, beds]) => ({ roomId, roomName: null, beds }));
+    return buildSamisSuccess(rooms) as T;
+  }
+  if (path.includes('/pacu/bedGetById')) {
+    const id = Number(getSearchParams(path).get('id') ?? 0);
+    return buildSamisSuccess(mockBedState.find((b) => b.id === id) ?? null) as T;
+  }
+  if (path.includes('/pacu/bedStats')) {
+    const stats = {
+      total: mockBedState.length,
+      used: mockBedState.filter((b) => b.status === '占用').length,
+      free: mockBedState.filter((b) => b.status === '空闲').length,
+      reserved: mockBedState.filter((b) => b.status === '预留').length,
+      maintenance: mockBedState.filter((b) => b.status === '维护').length,
+    };
+    return buildSamisSuccess(stats) as T;
+  }
+  if (path.endsWith('/pacu/bedCreate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const roomId = String(body.roomId ?? '');
+    const bedNo = String(body.bedNo ?? '');
+    if (mockBedState.some((b) => b.roomId === roomId && b.bedNo === bedNo)) {
+      return buildSamisError('该房间床位号已存在', 1203) as T;
+    }
+    const id = ++mockBedIdCounter.value;
+    const row = {
+      id,
+      roomId,
+      bedNo,
+      status: String(body.status ?? '空闲'),
+      patientName: null as string | null,
+      caseId: null as string | null,
+      inTime: null as string | null,
+      outTime: null as string | null,
+      remark: body.remark ? String(body.remark) : null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    mockBedState.push(row);
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/pacu/bedUpdate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const row = mockBedState.find((b) => b.id === Number(body.id ?? 0));
+    if (row) {
+      for (const key of ['status', 'remark', 'patientName', 'caseId']) {
+        if (body[key] !== undefined) (row as unknown as Record<string, unknown>)[key] = body[key];
+      }
+      row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    }
+    return buildSamisSuccess(row ?? null) as T;
+  }
+  if (path.endsWith('/pacu/bedDelete') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string }>(init);
+    const id = Number(body.id ?? 0);
+    const idx = mockBedState.findIndex((b) => b.id === id);
+    if (idx >= 0) mockBedState.splice(idx, 1);
+    return buildSamisSuccess(true) as T;
+  }
+
+  // ============ Slice 6c B：质控专项聚合 + 抽查 mock ============
+  if (path.includes('/quality/hypothermiaCases')) {
+    // mock 模式聚合派生自本地 case 种子（含低体温事件）
+    const lowTempCases = anesthesiaCases
+      .filter((c) => c.events.some((e) => e.type === '低体温'))
+      .map((c) => ({
+        caseId: c.id,
+        patientName: c.patientName,
+        room: c.room,
+        department: c.department ?? '',
+        operationName: c.surgeryName,
+        anesthesiaMethod: c.anesthesiaMethod,
+        doctorName: c.anesthesiologist ?? '',
+        isGeneralAnesthesia: c.anesthesiaMethod.includes('全麻'),
+        evidence: c.events.filter((e) => e.type === '低体温').map((e) => ({ source: 'event' as const, type: e.type })),
+      }));
+    return buildSamisSuccess({ total: lowTempCases.length, list: lowTempCases }) as T;
+  }
+  if (path.includes('/quality/adverseEvents')) {
+    const QUALITY_EVENTS = ['低血压', '高血压', '低氧', '低体温', '困难气道', '反流误吸', '严重过敏', '心脏骤停', '牙齿损伤', '非计划转ICU', '非计划二次插管', '抢救'];
+    const list: Array<Record<string, unknown>> = [];
+    let evtId = 1;
+    for (const c of anesthesiaCases) {
+      for (const e of c.events) {
+        if (QUALITY_EVENTS.some((kw) => e.type.includes(kw))) {
+          list.push({
+            id: evtId++,
+            caseId: c.id,
+            patientName: c.patientName,
+            room: c.room,
+            department: c.department ?? '',
+            operationName: c.surgeryName,
+            type: e.type,
+            name: e.type,
+            stage: e.stage ?? '',
+            severity: e.severity ?? '',
+            treatment: e.treatment ?? '',
+            description: '',
+            reviewStatus: e.reported ? '已确认' : '待审核',
+            eventTime: e.time ?? null,
+          });
+        }
+      }
+    }
+    return buildSamisSuccess({ total: list.length, list }) as T;
+  }
+  if (path.includes('/quality/checkList')) {
+    const params = getSearchParams(path);
+    const result = params.get('result');
+    let list = mockQualityCheckState.slice();
+    if (result) list = list.filter((c) => c.result === result);
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/quality/checkGetById')) {
+    const id = Number(getSearchParams(path).get('id') ?? 0);
+    return buildSamisSuccess(mockQualityCheckState.find((c) => c.id === id) ?? null) as T;
+  }
+  if (path.endsWith('/quality/checkCreate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const id = ++mockQualityCheckIdCounter.value;
+    const row = {
+      id,
+      checkItem: String(body.checkItem ?? ''),
+      standard: body.standard ? String(body.standard) : null,
+      result: String(body.result ?? '待查'),
+      checker: body.checker ? String(body.checker) : null,
+      checkDate: body.checkDate ? String(body.checkDate) : null,
+      issueDesc: body.issueDesc ? String(body.issueDesc) : null,
+      rectifyStatus: String(body.rectifyStatus ?? '待整改'),
+      createdAt: now,
+      updatedAt: now,
+    };
+    mockQualityCheckState.unshift(row);
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/quality/checkUpdate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const row = mockQualityCheckState.find((c) => c.id === Number(body.id ?? 0));
+    if (row) {
+      for (const key of ['checkItem', 'standard', 'result', 'checker', 'checkDate', 'issueDesc', 'rectifyStatus']) {
+        if (body[key] !== undefined) (row as unknown as Record<string, unknown>)[key] = body[key];
+      }
+      row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    }
+    return buildSamisSuccess(row ?? null) as T;
+  }
+  if (path.endsWith('/quality/checkDelete') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string }>(init);
+    const id = Number(body.id ?? 0);
+    const idx = mockQualityCheckState.findIndex((c) => c.id === id);
+    if (idx >= 0) mockQualityCheckState.splice(idx, 1);
+    return buildSamisSuccess(true) as T;
+  }
+
+  // ============ Slice 5 术后管理 ============
+  if (path.includes('/postoperative/followupList')) {
+    return buildSamisSuccess({
+      list: mockFollowupState,
+      page: 1,
+      page_size: mockFollowupState.length,
+      total: mockFollowupState.length,
+    }) as T;
+  }
+  if (path.includes('/postoperative/followupGetById')) {
+    const id = Number(getSearchParams(path).get('id') ?? 0);
+    const row = mockFollowupState.find((f) => f.id === id);
+    return buildSamisSuccess(row ?? null) as T;
+  }
+  if (path.endsWith('/postoperative/followupCreate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const id = ++mockFollowupIdCounter.value;
+    const row: MockFollowup = {
+      id,
+      caseId: String(body.caseId ?? ''),
+      operationId: String(body.caseId ?? ''),
+      patientName: String(body.patientName ?? '未知患者'),
+      followupType: String(body.followupType ?? '术后镇痛随访'),
+      followTime: String(body.followTime ?? now),
+      vasScore: body.vasScore !== undefined ? Number(body.vasScore) : null,
+      nausea: Boolean(body.nausea),
+      headache: Boolean(body.headache),
+      hoarseness: Boolean(body.hoarseness),
+      hoarsenessDurationHours: body.hoarsenessDurationHours !== undefined ? Number(body.hoarsenessDurationHours) : null,
+      numbness: Boolean(body.numbness),
+      motorDisorder: Boolean(body.motorDisorder),
+      awareness: Boolean(body.awareness),
+      respiratoryDepression: Boolean(body.respiratoryDepression),
+      reintubation: Boolean(body.reintubation),
+      transferredIcu: Boolean(body.transferredIcu),
+      newComa: Boolean(body.newComa),
+      neuroDurationHours: body.neuroDurationHours !== undefined ? Number(body.neuroDurationHours) : null,
+      death24h: Boolean(body.death24h),
+      deathTime: body.deathTime ? String(body.deathTime) : null,
+      advice: body.advice ? String(body.advice) : null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    mockFollowupState.unshift(row);
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/postoperative/followupUpdate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const row = mockFollowupState.find((f) => f.id === Number(body.id ?? 0));
+    if (row) {
+      const fields = [
+        'caseId', 'followupType', 'followTime', 'vasScore', 'nausea', 'headache',
+        'hoarseness', 'hoarsenessDurationHours', 'numbness', 'motorDisorder',
+        'awareness', 'respiratoryDepression', 'reintubation', 'transferredIcu',
+        'newComa', 'neuroDurationHours', 'death24h', 'deathTime', 'advice',
+      ];
+      for (const key of fields) {
+        if (body[key] !== undefined) (row as unknown as Record<string, unknown>)[key] = body[key];
+      }
+      row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    }
+    return buildSamisSuccess(row ?? null) as T;
+  }
+  if (path.endsWith('/postoperative/followupDelete') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string }>(init);
+    const id = Number(body.id ?? 0);
+    const idx = mockFollowupState.findIndex((f) => f.id === id);
+    if (idx >= 0) mockFollowupState.splice(idx, 1);
+    return buildSamisSuccess({ id }) as T;
+  }
+
+  if (path.includes('/postoperative/complicationList')) {
+    return buildSamisSuccess({
+      list: mockComplicationState,
+      page: 1,
+      page_size: mockComplicationState.length,
+      total: mockComplicationState.length,
+    }) as T;
+  }
+  if (path.includes('/postoperative/complicationGetById')) {
+    const id = Number(getSearchParams(path).get('id') ?? 0);
+    const row = mockComplicationState.find((c) => c.id === id);
+    return buildSamisSuccess(row ?? null) as T;
+  }
+  if (path.endsWith('/postoperative/complicationCreate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const id = ++mockComplicationIdCounter.value;
+    const row: MockComplication = {
+      id,
+      caseId: String(body.caseId ?? ''),
+      operationId: String(body.caseId ?? ''),
+      patientName: String(body.patientName ?? '未知患者'),
+      type: String(body.complicationType ?? '其他'),
+      severity: String(body.severity ?? '中度'),
+      stage: body.stage ? String(body.stage) : null,
+      symptoms: body.symptoms ? String(body.symptoms) : null,
+      treatment: body.treatment ? String(body.treatment) : null,
+      outcome: body.outcome ? String(body.outcome) : null,
+      reportTime: String(body.reportTime ?? now),
+      status: String(body.status ?? '草稿'),
+      createdAt: now,
+      updatedAt: now,
+    };
+    mockComplicationState.unshift(row);
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/postoperative/complicationUpdate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const row = mockComplicationState.find((c) => c.id === Number(body.id ?? 0));
+    if (row) {
+      const map: Record<string, string> = {
+        complicationType: 'type',
+        severity: 'severity',
+        stage: 'stage',
+        symptoms: 'symptoms',
+        treatment: 'treatment',
+        outcome: 'outcome',
+        reportTime: 'reportTime',
+        status: 'status',
+      };
+      for (const [src, dst] of Object.entries(map)) {
+        if (body[src] !== undefined) (row as unknown as Record<string, unknown>)[dst] = body[src];
+      }
+      row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    }
+    return buildSamisSuccess(row ?? null) as T;
+  }
+  if (path.endsWith('/postoperative/complicationDelete') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string }>(init);
+    const id = Number(body.id ?? 0);
+    const idx = mockComplicationState.findIndex((c) => c.id === id);
+    if (idx >= 0) mockComplicationState.splice(idx, 1);
+    return buildSamisSuccess({ id }) as T;
+  }
+
+  if (path.includes('/postoperative/analgesiaCases')) {
+    const list = anesthesiaCases.filter((c) => c.postoperativeAnalgesia).map(caseToSummary);
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/postoperative/unplannedCases')) {
+    const UNPLANNED = ['非计划转ICU', '非计划二次插管', '心脏骤停', '严重过敏'];
+    const list = anesthesiaCases
+      .filter(
+        (c) =>
+          c.transferIcuPlanned ||
+          c.transferTo === 'ICU' ||
+          c.events.some((e) => UNPLANNED.includes(e.type) || (e.type.includes('非计划') && e.qualityIncluded)),
+      )
+      .map(caseToSummary);
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+
+  // ============ Slice 7 术前管理 ============
+  // ---- 申请接收 ----
+  if (path.includes('/preoperative/requestList')) {
+    const params = getSearchParams(path);
+    let list = mockPreopRequestState.slice();
+    if (params.get('status')) list = list.filter((r) => r.status === params.get('status'));
+    if (params.get('urgency')) list = list.filter((r) => r.urgency === params.get('urgency'));
+    if (params.get('department')) list = list.filter((r) => r.department === params.get('department'));
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/preoperative/requestGetById')) {
+    const id = Number(getSearchParams(path).get('id') ?? 0);
+    const row = mockPreopRequestState.find((r) => r.id === id) ?? null;
+    return row ? buildSamisSuccess(row) as T : buildSamisError('手术申请不存在', 1300) as T;
+  }
+  if (path.endsWith('/preoperative/requestCreate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const operationId = body.operationId ? String(body.operationId) : '';
+    if (operationId && mockPreopRequestState.some((r) => r.operationId === operationId)) {
+      return buildSamisError('该手术已存在申请记录，不可重复创建', 1301) as T;
+    }
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const row: MockPreopRequest = {
+      id: ++mockPreopRequestIdCounter.value,
+      operationId: operationId || `OP-${Date.now()}`,
+      patientName: null, department: null, surgeryName: null, surgeon: null,
+      urgency: '择期', requestDate: dayjs().format('YYYY-MM-DD'),
+      status: '待接收', receivedAt: null, receivedBy: null, remark: null,
+      createdAt: now, updatedAt: now,
+    };
+    for (const key of ['patientName', 'department', 'surgeryName', 'surgeon', 'urgency', 'requestDate', 'remark']) {
+      if (body[key] !== undefined) (row as unknown as Record<string, unknown>)[key] = body[key];
+    }
+    mockPreopRequestState.unshift(row);
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/preoperative/requestUpdate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const row = mockPreopRequestState.find((r) => r.id === Number(body.id ?? 0));
+    if (row) {
+      for (const key of ['patientName', 'department', 'surgeryName', 'surgeon', 'urgency', 'requestDate', 'remark']) {
+        if (body[key] !== undefined) (row as unknown as Record<string, unknown>)[key] = body[key];
+      }
+      row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    }
+    return row ? buildSamisSuccess(row) as T : buildSamisError('手术申请不存在', 1300) as T;
+  }
+  if (path.endsWith('/preoperative/requestReceive') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string }>(init);
+    const row = mockPreopRequestState.find((r) => r.id === Number(body.id ?? 0));
+    if (!row) return buildSamisError('手术申请不存在', 1300) as T;
+    if (row.status !== '待接收') return buildSamisError('该申请已处理（已排班/已取消），不可重复接收', 1302) as T;
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    row.status = '已排班'; row.receivedAt = now; row.receivedBy = '演示用户'; row.updatedAt = now;
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/preoperative/requestCancel') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string }>(init);
+    const row = mockPreopRequestState.find((r) => r.id === Number(body.id ?? 0));
+    if (!row) return buildSamisError('手术申请不存在', 1300) as T;
+    if (row.status === '已取消') return buildSamisError('该申请已取消，不可重复取消', 1302) as T;
+    row.status = '已取消'; row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    return buildSamisSuccess(row) as T;
+  }
+
+  // ---- 麻醉会诊（一 case 多条）----
+  if (path.includes('/preoperative/consultationList')) {
+    const params = getSearchParams(path);
+    let list = mockPreopConsultationState.slice();
+    if (params.get('caseId')) list = list.filter((r) => r.caseId === params.get('caseId'));
+    if (params.get('status')) list = list.filter((r) => r.status === params.get('status'));
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/preoperative/consultationGetById')) {
+    const id = Number(getSearchParams(path).get('id') ?? 0);
+    return buildSamisSuccess(mockPreopConsultationState.find((r) => r.id === id) ?? null) as T;
+  }
+  if (path.endsWith('/preoperative/consultationCreate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const row: MockPreopConsultation = {
+      id: ++mockPreopConsultationIdCounter.value,
+      caseId: String(body.caseId ?? ''),
+      operationId: String(body.caseId ?? ''),
+      patientName: body.patientName ? String(body.patientName) : null,
+      requestDept: body.requestDept ? String(body.requestDept) : null,
+      consultDate: body.consultDate ? String(body.consultDate) : null,
+      consultant: body.consultant ? String(body.consultant) : null,
+      opinion: body.opinion ? String(body.opinion) : null,
+      status: String(body.status ?? '待会诊'),
+      createdAt: now, updatedAt: now,
+    };
+    mockPreopConsultationState.unshift(row);
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/preoperative/consultationUpdate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const row = mockPreopConsultationState.find((r) => r.id === Number(body.id ?? 0));
+    if (row) {
+      for (const key of ['patientName', 'requestDept', 'consultDate', 'consultant', 'opinion', 'status']) {
+        if (body[key] !== undefined) (row as unknown as Record<string, unknown>)[key] = body[key];
+      }
+      row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    }
+    return buildSamisSuccess(row ?? null) as T;
+  }
+
+  // ---- 检查审核（一 case 多条）----
+  if (path.includes('/preoperative/examReviewList')) {
+    const params = getSearchParams(path);
+    let list = mockPreopExamReviewState.slice();
+    if (params.get('caseId')) list = list.filter((r) => r.caseId === params.get('caseId'));
+    if (params.get('reviewResult')) list = list.filter((r) => r.reviewResult === params.get('reviewResult'));
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/preoperative/examReviewGetById')) {
+    const id = Number(getSearchParams(path).get('id') ?? 0);
+    return buildSamisSuccess(mockPreopExamReviewState.find((r) => r.id === id) ?? null) as T;
+  }
+  if (path.endsWith('/preoperative/examReviewCreate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const row: MockPreopExamReview = {
+      id: ++mockPreopExamReviewIdCounter.value,
+      caseId: String(body.caseId ?? ''),
+      operationId: String(body.caseId ?? ''),
+      patientName: body.patientName ? String(body.patientName) : null,
+      labItems: body.labItems ? String(body.labItems) : null,
+      imagingItems: body.imagingItems ? String(body.imagingItems) : null,
+      reviewResult: String(body.reviewResult ?? '通过'),
+      reviewer: body.reviewer ? String(body.reviewer) : null,
+      reviewDate: body.reviewDate ? String(body.reviewDate) : null,
+      createdAt: now, updatedAt: now,
+    };
+    mockPreopExamReviewState.unshift(row);
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/preoperative/examReviewUpdate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const row = mockPreopExamReviewState.find((r) => r.id === Number(body.id ?? 0));
+    if (row) {
+      for (const key of ['patientName', 'labItems', 'imagingItems', 'reviewResult', 'reviewer', 'reviewDate']) {
+        if (body[key] !== undefined) (row as unknown as Record<string, unknown>)[key] = body[key];
+      }
+      row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    }
+    return buildSamisSuccess(row ?? null) as T;
+  }
+
+  // ---- 知情同意（1:1 per case）----
+  if (path.includes('/preoperative/consentList')) {
+    const params = getSearchParams(path);
+    let list = mockPreopConsentState.slice();
+    if (params.get('caseId')) list = list.filter((r) => r.caseId === params.get('caseId'));
+    if (params.get('status')) list = list.filter((r) => r.status === params.get('status'));
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/preoperative/consentGetById')) {
+    const id = Number(getSearchParams(path).get('id') ?? 0);
+    return buildSamisSuccess(mockPreopConsentState.find((r) => r.id === id) ?? null) as T;
+  }
+  if (path.includes('/preoperative/consentGetByCaseId')) {
+    const caseId = getSearchParams(path).get('caseId') ?? '';
+    return buildSamisSuccess(mockPreopConsentState.find((r) => r.caseId === caseId) ?? null) as T;
+  }
+  if (path.endsWith('/preoperative/consentCreate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const caseId = body.caseId ? String(body.caseId) : '';
+    if (caseId && mockPreopConsentState.some((r) => r.caseId === caseId)) {
+      return buildSamisError('该病例已存在知情同意书，不可重复创建', 1401) as T;
+    }
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const row: MockPreopConsent = {
+      id: ++mockPreopConsentIdCounter.value,
+      caseId,
+      operationId: caseId,
+      patientName: body.patientName ? String(body.patientName) : null,
+      surgeryName: body.surgeryName ? String(body.surgeryName) : null,
+      anesthesiaMethod: body.anesthesiaMethod ? String(body.anesthesiaMethod) : null,
+      surgeryDate: body.surgeryDate ? String(body.surgeryDate) : null,
+      commonRisks: false, severeRisks: false, specialRisks: false, planAccepted: false,
+      questionAnswered: false, patientSigned: false, familySigned: false, doctorSigned: false,
+      signedAt: null, status: '草稿', createdAt: now, updatedAt: now,
+    };
+    mockPreopConsentState.unshift(row);
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/preoperative/consentUpdate') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string; [k: string]: unknown }>(init);
+    const row = mockPreopConsentState.find((r) => r.id === Number(body.id ?? 0));
+    if (!row) return buildSamisError('知情同意书不存在', 1400) as T;
+    if (row.status === '已提交') return buildSamisError('该知情同意书已提交，不可修改', 1402) as T;
+    for (const key of ['patientName', 'surgeryName', 'anesthesiaMethod', 'surgeryDate']) {
+      if (body[key] !== undefined) (row as unknown as Record<string, unknown>)[key] = body[key];
+    }
+    for (const key of ['commonRisks', 'severeRisks', 'specialRisks', 'planAccepted', 'questionAnswered', 'patientSigned', 'familySigned', 'doctorSigned']) {
+      if (body[key] !== undefined) (row as unknown as Record<string, boolean>)[key] = Boolean(body[key]);
+    }
+    row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/preoperative/consentSubmit') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string }>(init);
+    const row = mockPreopConsentState.find((r) => r.id === Number(body.id ?? 0));
+    if (!row) return buildSamisError('知情同意书不存在', 1400) as T;
+    if (row.status === '已提交') return buildSamisError('该知情同意书已提交，不可重复提交', 1402) as T;
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    row.status = '已提交'; row.signedAt = now; row.updatedAt = now;
+    return buildSamisSuccess(row) as T;
+  }
+
+  // ---- 安全核查（1:1 per case）----
+  if (path.includes('/preoperative/safetyCheckList')) {
+    const params = getSearchParams(path);
+    let list = mockPreopSafetyCheckState.slice();
+    if (params.get('caseId')) list = list.filter((r) => r.caseId === params.get('caseId'));
+    if (params.get('status')) list = list.filter((r) => r.status === params.get('status'));
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/preoperative/safetyCheckGetById')) {
+    const id = Number(getSearchParams(path).get('id') ?? 0);
+    return buildSamisSuccess(mockPreopSafetyCheckState.find((r) => r.id === id) ?? null) as T;
+  }
+  if (path.includes('/preoperative/safetyCheckGetByCaseId')) {
+    const caseId = getSearchParams(path).get('caseId') ?? '';
+    return buildSamisSuccess(mockPreopSafetyCheckState.find((r) => r.caseId === caseId) ?? null) as T;
+  }
+  if (path.endsWith('/preoperative/safetyCheckCreate') && init?.method === 'POST') {
+    const body = parseBody<{ caseId?: string; [k: string]: unknown }>(init);
+    if (body.caseId && mockPreopSafetyCheckState.some((r) => r.caseId === body.caseId)) {
+      return buildSamisError('该病例已存在安全核查记录，不可重复创建', 1501) as T;
+    }
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const signIn = Boolean(body.signInComplete);
+    const timeOut = Boolean(body.timeOutComplete);
+    const signOut = Boolean(body.signOutComplete);
+    const row: MockPreopSafetyCheck = {
+      id: ++mockPreopSafetyCheckIdCounter.value,
+      caseId: String(body.caseId ?? ''),
+      operationId: String(body.caseId ?? ''),
+      patientName: body.patientName ? String(body.patientName) : null,
+      signInComplete: signIn,
+      timeOutComplete: timeOut,
+      signOutComplete: signOut,
+      checker: body.checker ? String(body.checker) : null,
+      checkDate: body.checkDate ? String(body.checkDate) : null,
+      status: signIn && timeOut && signOut ? '已完成' : '未完成',
+      createdAt: now, updatedAt: now,
+    };
+    mockPreopSafetyCheckState.unshift(row);
+    return buildSamisSuccess(row) as T;
+  }
+  if (path.endsWith('/preoperative/safetyCheckUpdate') && init?.method === 'POST') {
+    const body = parseBody<{ id?: string; [k: string]: unknown }>(init);
+    const row = mockPreopSafetyCheckState.find((r) => r.id === Number(body.id ?? 0));
+    if (row) {
+      for (const key of ['signInComplete', 'timeOutComplete', 'signOutComplete']) {
+        if (body[key] !== undefined) (row as unknown as Record<string, boolean>)[key] = Boolean(body[key]);
+      }
+      for (const key of ['patientName', 'checker', 'checkDate']) {
+        if (body[key] !== undefined) (row as unknown as Record<string, unknown>)[key] = body[key];
+      }
+      row.status = row.signInComplete && row.timeOutComplete && row.signOutComplete ? '已完成' : '未完成';
+      row.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    }
+    return buildSamisSuccess(row ?? null) as T;
   }
 
   throw new Error(`Mock backend route not implemented: ${path}`);

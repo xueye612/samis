@@ -6,8 +6,18 @@
 import { computed } from 'vue';
 import VitalSignDictPanel from '@/components/config/VitalSignDictPanel.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import { persistArrayDiff } from '@/composables/useDictArrayPersist';
+import type { VitalSignDictItem } from '@/types/system';
 
 const store = useAnesthesiaStore();
 const list = computed(() => store.configVitals);
-const save = (value: typeof store.configVitals) => store.upsertVitalSignDict(value);
+
+const save = async (value: VitalSignDictItem[]) => {
+  const prev = store.configVitals;
+  store.upsertVitalSignDict(value);
+  await persistArrayDiff<VitalSignDictItem>(value, prev, {
+    save: (item) => store.saveVitalSignDictEntry(item),
+    disable: (item) => store.disableVitalSignDictEntry(item.id),
+  });
+};
 </script>

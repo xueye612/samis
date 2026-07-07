@@ -9,6 +9,8 @@ import type {
 import { getAnesthesiaLocalDb } from '@/services/anesthesia/localDb';
 import { enqueueSyncItem, markSyncItemSuccess } from '@/services/anesthesia/anesthesiaSyncQueue';
 import { saveCaseToLocalDb } from '@/services/anesthesia/anesthesiaRecordRepository';
+import { anesthesiaSyncApi } from '@/api/anesthesiaSync';
+import { useRealAnesthesiaSync } from '@/config/apiFlags';
 import type { PushBatchResultItem } from '@/api/anesthesiaSync';
 
 const nowIso = () => dayjs().toISOString();
@@ -125,11 +127,27 @@ export async function findExistingDeviceRaw(
   return rows.find((row) => row.collect_time === collectTime);
 }
 
+/** 后端契约 §6.2 统一枚举 → 前端 SyncConflictType 映射（Slice 3e 全量）。 */
+const CONFLICT_TYPE_MAP: Record<string, SyncConflictType> = {
+  version_conflict: 'version_mismatch',
+  server_locked: 'record_locked',
+  record_printed: 'record_printed',
+  vital_corrected: 'vital_corrected',
+  deleted_remote: 'deleted_remote',
+  duplicate_time_point: 'duplicate_time_point',
+  field_conflict: 'entity_conflict',
+};
+
 export function parseConflictTypeFromResult(result: PushBatchResultItem): SyncConflictType {
-  if (result.conflictType) return result.conflictType;
+  if (result.conflictType) {
+    const mapped = CONFLICT_TYPE_MAP[result.conflictType] ?? (result.conflictType as SyncConflictType);
+    if (mapped) return mapped;
+  }
   if (result.message?.includes('locked')) return 'record_locked';
   if (result.message?.includes('printed')) return 'record_printed';
   if (result.message?.includes('corrected')) return 'vital_corrected';
+  if (result.message?.includes('deleted') || result.message?.includes('作废')) return 'deleted_remote';
+  if (result.message?.includes('duplicate') || result.message?.includes('重复')) return 'duplicate_time_point';
   return 'version_mismatch';
 }
 
@@ -218,6 +236,34 @@ export async function resolveSyncConflict(
     resolved_at: ts,
     updated_at: ts,
   });
+
+  // Slice 3e：真实同步模式下，best-effort 通知后端记录决策 + force-apply（使多端收敛）。
+  // 失败不阻断本地收敛（本地单一事实源）；仅 warn，下次 pushBatch 可能再冲突。
+  if (useRealAnesthesiaSync()) {
+    await notifyBackendResolveConflict(conflict, action, options).catch((error) => {
+      // eslint-disable-next-line no-console
+      console.warn('[anesthesiaSync] resolveConflict backend notify failed', error);
+    });
+  }
+}
+
+async function notifyBackendResolveConflict(
+  conflict: LocalSyncConflictRow,
+  action: SyncConflictResolveAction,
+  options?: { mergedPayload?: unknown; note?: string },
+): Promise<void> {
+  await anesthesiaSyncApi.resolveConflict({
+    conflictId: conflict.conflict_id,
+    operationId: conflict.operation_id,
+    entityType: conflict.entity_type,
+    localId: conflict.entity_local_id,
+    serverId: conflict.entity_server_id ?? null,
+    conflictType: conflict.conflict_type,
+    action,
+    mergedPayload: options?.mergedPayload,
+    serverSyncVersion: conflict.server_sync_version ?? conflict.local_sync_version,
+    note: options?.note,
+  });
 }
 
 export function conflictTypeLabel(type: SyncConflictType): string {
@@ -228,6 +274,8 @@ export function conflictTypeLabel(type: SyncConflictType): string {
     vital_corrected: '生命体征已人工修正',
     entity_conflict: '实体冲突',
     server_newer: '服务器版本更新',
+    deleted_remote: '服务端已作废',
+    duplicate_time_point: '同时间点重复',
   };
   return map[type] ?? type;
 }

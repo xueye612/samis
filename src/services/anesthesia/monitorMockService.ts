@@ -14,6 +14,8 @@ import { readEntityBaseSyncVersion, enqueueSyncItem } from '@/services/anesthesi
 
 import { triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthesiaSyncService';
 
+import { useRealDevice } from '@/config/apiFlags';
+
 import { buildMonitorSample } from '@/services/anesthesia/deviceMockSamples';
 
 import {
@@ -145,23 +147,26 @@ export function startMonitorMockService(
     });
 
     const rawBaseVersion = await readEntityBaseSyncVersion(recordLocalId, 'monitor_raw', localId);
-    await enqueueSyncItem({
-      recordLocalId,
-      operationId: recordLocalId,
-      entityType: 'monitor_raw',
-      entityLocalId: localId,
-      operationType: 'create',
-      baseSyncVersion: rawBaseVersion,
-      apiPath: '/api-samis/pc/v1/anesthesiaDevice/batchPushMonitorData',
-      payload: {
-        localId,
-        collectTime: dayjs(ts).format('YYYY-MM-DD HH:mm:ss.SSS'),
-        ...sample,
-        mapValue: sample.map_value,
-        rawPayload: JSON.stringify(sample),
-      },
-    });
-    triggerAnesthesiaSyncAfterChange('monitor_raw');
+    // device 实体（monitor_raw）门控：仅当开启真实设备同步（3d）才入队，防风暴。
+    if (useRealDevice()) {
+      await enqueueSyncItem({
+        recordLocalId,
+        operationId: recordLocalId,
+        entityType: 'monitor_raw',
+        entityLocalId: localId,
+        operationType: 'create',
+        baseSyncVersion: rawBaseVersion,
+        apiPath: '/api-samis/pc/v1/anesthesiaDevice/batchPushMonitorData',
+        payload: {
+          localId,
+          collectTime: dayjs(ts).format('YYYY-MM-DD HH:mm:ss.SSS'),
+          ...sample,
+          mapValue: sample.map_value,
+          rawPayload: JSON.stringify(sample),
+        },
+      });
+      triggerAnesthesiaSyncAfterChange('monitor_raw');
+    }
   };
 
   const maybePersistDisplayVital = async (ts: string, sample: ReturnType<typeof buildMonitorSample>, caseItem: SurgeryCase) => {
@@ -205,17 +210,20 @@ export function startMonitorMockService(
     const db = getAnesthesiaLocalDb();
     await db.vital_signs.put(mapVitalToRow(recordLocalId, savedVital, 1));
     const vitalBaseVersion = await readEntityBaseSyncVersion(recordLocalId, 'vital_sign', savedVital.id!);
-    await enqueueSyncItem({
-      recordLocalId,
-      operationId: recordLocalId,
-      entityType: 'vital_sign',
-      entityLocalId: savedVital.id!,
-      operationType: 'create',
-      baseSyncVersion: vitalBaseVersion,
-      apiPath: '/api-samis/pc/v1/anesthesiaRecord/batchSaveVitalSigns',
-      payload: savedVital,
-    });
-    triggerAnesthesiaSyncAfterChange('vital_sign');
+    // 设备派生 vital_sign 门控：仅当开启真实设备同步（3d）才入队；手工 vital 由 store 另行走 vital_sign 处理器。
+    if (useRealDevice()) {
+      await enqueueSyncItem({
+        recordLocalId,
+        operationId: recordLocalId,
+        entityType: 'vital_sign',
+        entityLocalId: savedVital.id!,
+        operationType: 'create',
+        baseSyncVersion: vitalBaseVersion,
+        apiPath: '/api-samis/pc/v1/anesthesiaRecord/batchSaveVitalSigns',
+        payload: savedVital,
+      });
+      triggerAnesthesiaSyncAfterChange('vital_sign');
+    }
     onVitalAppended(recordLocalId, savedVital);
     lastVitalBucketKey = bucketKey;
 

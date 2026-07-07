@@ -1,4 +1,3 @@
-import type { SyncConflictType } from '@/types/anesthesiaLocalDb';
 import { ANESTHESIA_USE_MOCK, samisRequest } from '@/api/samisClient';
 
 export interface PushBatchItem {
@@ -26,7 +25,9 @@ export interface PushBatchResultItem {
   serverId?: number | null;
   status: 'success' | 'failed' | 'conflict';
   message?: string;
-  conflictType?: SyncConflictType;
+  // 后端契约 §6.2 使用统一枚举名（version_conflict / server_locked / ...），
+  // 前端 parseConflictTypeFromResult 负责映射到本地 SyncConflictType。
+  conflictType?: string;
   serverSyncVersion?: number;
   serverPayload?: unknown;
 }
@@ -81,6 +82,10 @@ export const anesthesiaRecordApi = {
       ...(params.recordServerId ? { recordServerId: String(params.recordServerId) } : {}),
     });
     return samisRequest<unknown>(`/anesthesiaRecord/getRecordDetail?${query.toString()}`);
+  },
+  getPrintSnapshot(params: { operationId: string }) {
+    const query = new URLSearchParams({ operationId: params.operationId });
+    return samisRequest<unknown>(`/anesthesiaRecord/getPrintSnapshot?${query.toString()}`);
   },
   saveRecord(body: unknown) {
     return postJson<{ localId: string; serverId?: number }>('/anesthesiaRecord/saveRecord', body);

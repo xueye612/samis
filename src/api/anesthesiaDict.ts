@@ -182,6 +182,36 @@ export const anesthesiaDictApi = {
     return dictFormPost<void>('/disableBloodProductDict', data);
   },
 
+  // —— 生命体征字典 ——
+  getVitalDict(params?: PagedDictQuery) {
+    return dictGet<unknown>('/getVitalDict', {
+      id: params?.id,
+      page: params?.page,
+      page_size: params?.pageSize,
+    });
+  },
+  saveVitalDict(data: Record<string, unknown>) {
+    return dictFormPost<{ id?: string | number }>('/saveVitalDict', data);
+  },
+  disableVitalDict(id: string | number) {
+    return dictFormPost<void>('/disableVitalDict', { id });
+  },
+
+  // —— 麻醉人员字典 ——
+  getStaff(params?: PagedDictQuery) {
+    return dictGet<unknown>('/getStaff', {
+      id: params?.id,
+      page: params?.page,
+      page_size: params?.pageSize,
+    });
+  },
+  saveStaff(data: Record<string, unknown>) {
+    return dictFormPost<{ id?: string | number }>('/saveStaff', data);
+  },
+  disableStaff(id: string | number) {
+    return dictFormPost<void>('/disableStaff', { id });
+  },
+
   /** @deprecated OpenAPI 未定义；mock 保留 */
   getEventDict() {
     return dictGet<unknown[]>('/getEventDict');

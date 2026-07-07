@@ -12,18 +12,18 @@
           <a-table-column title="麻醉方式" data-index="anesthesiaMethod" />
           <a-table-column title="手术间" data-index="room" :width="90" />
           <a-table-column title="状态" :width="100">
-            <template #cell="{ record }"><StatusTag :value="record.status" /></template>
+            <template #cell="{ record }"><StatusTag :value="('status' in record && record.status) || '已完成'" /></template>
           </a-table-column>
           <a-table-column title="随访" :width="100">
             <template #cell="{ record }">
-              <a-tag :color="hasFollowUp(record.id) ? 'green' : 'orange'">{{ hasFollowUp(record.id) ? '已随访' : '待随访' }}</a-tag>
+              <a-tag :color="hasFollowUp(record) ? 'green' : 'orange'">{{ hasFollowUp(record) ? '已随访' : '待随访' }}</a-tag>
             </template>
           </a-table-column>
           <a-table-column title="操作" :width="200" fixed="right">
             <template #cell="{ record }">
               <a-space>
-                <a-button size="mini" type="primary" @click="goDetail(record.id)">详情</a-button>
-                <a-button size="mini" @click="goFollowUp(record.id)">随访</a-button>
+                <a-button size="mini" type="primary" @click="goDetail(caseIdOf(record))">详情</a-button>
+                <a-button size="mini" @click="goFollowUp(caseIdOf(record))">随访</a-button>
               </a-space>
             </template>
           </a-table-column>
@@ -34,20 +34,33 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import StatusTag from '@/components/StatusTag.vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import { useRealPostoperative } from '@/config/apiFlags';
+import type { PostCaseSummary } from '@/services/anesthesia/postoperativeService';
+import type { SurgeryCase } from '@/types/anesthesia';
 
 const store = useAnesthesiaStore();
 const router = useRouter();
 
-const analgesiaCases = computed(() => store.cases.filter((item) => item.postoperativeAnalgesia));
+const useRemote = computed(() => useRealPostoperative() && store.analgesiaCasesSource === 'remote');
+
+const analgesiaCases = computed<Array<SurgeryCase | PostCaseSummary>>(() =>
+  useRemote.value ? store.analgesiaCases : store.cases.filter((item) => item.postoperativeAnalgesia),
+);
+
 const followedIds = computed(() => new Set(store.followUps.map((item) => item.caseId)));
 const pendingFollowUp = computed(() => analgesiaCases.value.filter((item) => !followedIds.value.has(item.id)));
 
-const hasFollowUp = (caseId: string) => followedIds.value.has(caseId);
+const caseIdOf = (row: SurgeryCase | PostCaseSummary) => ('operationId' in row ? row.operationId : row.id);
+const hasFollowUp = (row: SurgeryCase | PostCaseSummary) => followedIds.value.has(caseIdOf(row));
 const goDetail = (id: string) => router.push(`/surgery/detail/${id}`);
 const goFollowUp = (id: string) => router.push({ path: '/postoperative/followup', query: { caseId: id } });
+
+onMounted(() => {
+  if (useRealPostoperative()) void store.loadRemoteAnalgesiaCases();
+});
 </script>

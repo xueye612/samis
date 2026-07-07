@@ -69,4 +69,87 @@ describe('samisMockRouter', () => {
       }),
     ]);
   });
+
+  it('postoperative followup mock CRUD round-trip', async () => {
+    const listBefore = await mockData<{ list: unknown[]; total: number }>(
+      '/postoperative/followupList?page=1&page_size=200',
+    );
+    const before = listBefore.total;
+
+    const created = await mockData<{ id: number; caseId: string; followupType: string }>(
+      '/postoperative/followupCreate',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          caseId: 'case-or99',
+          followupType: '术后镇痛随访',
+          followTime: '2026-07-05 10:00:00',
+          vasScore: '4',
+          nausea: '1',
+        }).toString(),
+      },
+    );
+    expect(created.id).toBeGreaterThan(0);
+    expect(created.followupType).toBe('术后镇痛随访');
+
+    const listAfter = await mockData<{ list: Array<{ id: number }>; total: number }>(
+      '/postoperative/followupList?page=1&page_size=200',
+    );
+    expect(listAfter.total).toBe(before + 1);
+    expect(listAfter.list.some((f) => f.id === created.id)).toBe(true);
+
+    const del = await mockData<{ id: number }>('/postoperative/followupDelete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ id: String(created.id) }).toString(),
+    });
+    expect(del.id).toBe(created.id);
+  });
+
+  it('postoperative complication mock CRUD round-trip', async () => {
+    const created = await mockData<{ id: number; type: string; severity: string }>(
+      '/postoperative/complicationCreate',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          caseId: 'case-or99',
+          complicationType: '低氧血症',
+          severity: '重度',
+          stage: '恢复期',
+          reportTime: '2026-07-05 11:00:00',
+          status: '草稿',
+        }).toString(),
+      },
+    );
+    expect(created.type).toBe('低氧血症');
+    expect(created.severity).toBe('重度');
+
+    const updated = await mockData<{ id: number; status: string }>(
+      '/postoperative/complicationUpdate',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          id: String(created.id),
+          status: '已提交',
+        }).toString(),
+      },
+    );
+    expect(updated.status).toBe('已提交');
+  });
+
+  it('analgesiaCases / unplannedCases mock aggregation returns postoperativeAnalgesia cases', async () => {
+    const analgesia = await mockData<{ list: Array<{ postoperativeAnalgesia: boolean }>; total: number }>(
+      '/postoperative/analgesiaCases?page=1&page_size=200',
+    );
+    expect(analgesia.total).toBeGreaterThan(0);
+    expect(analgesia.list.every((c) => c.postoperativeAnalgesia)).toBe(true);
+
+    const unplanned = await mockData<{ list: unknown[]; total: number }>(
+      '/postoperative/unplannedCases?page=1&page_size=200',
+    );
+    expect(unplanned.total).toBeGreaterThanOrEqual(0);
+  });
 });

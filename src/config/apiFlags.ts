@@ -51,6 +51,42 @@ export function useRealAnesthesiaDict(): boolean {
   return envTrue('VITE_USE_REAL_ANESTHESIA_DICT', false);
 }
 
+/**
+ * PACU 恢复记录（Slice 4）：独立 REST CRUD，默认 mock。
+ * 与记录单域（pushBatch 本地优先）不同，PACU 页面直连接口。
+ */
+export function useRealPacu(): boolean {
+  if (!ANESTHESIA_USE_MOCK) return false;
+  return envTrue('VITE_USE_REAL_PACU', false);
+}
+
+/**
+ * 术后管理（Slice 5）：术后随访/并发症 CRUD + 镇痛/非计划病例聚合。
+ * 独立 REST CRUD（同 PACU 风格），默认 mock。
+ */
+export function useRealPostoperative(): boolean {
+  if (!ANESTHESIA_USE_MOCK) return false;
+  return envTrue('VITE_USE_REAL_POSTOPERATIVE', false);
+}
+
+/**
+ * 质控 26 指标（Slice 6a）：服务端权威计算（indicators/indicatorDetail/report）。
+ * 默认 mock（前端 qualityCalculator 兜底）；VITE_USE_REAL_QUALITY=true 切服务端。
+ */
+export function useRealQuality(): boolean {
+  if (!ANESTHESIA_USE_MOCK) return false;
+  return envTrue('VITE_USE_REAL_QUALITY', false);
+}
+
+/**
+ * 术前管理（Slice 7）：申请接收/会诊/检查/知情同意/安全核查 CRUD。
+ * 独立 REST CRUD（同 PACU/术后 风格），默认 mock。
+ */
+export function useRealPreoperative(): boolean {
+  if (!ANESTHESIA_USE_MOCK) return false;
+  return envTrue('VITE_USE_REAL_PREOPERATIVE', false);
+}
+
 export type SamisApiModule =
   | 'auth'
   | 'operationInfo'
@@ -59,6 +95,10 @@ export type SamisApiModule =
   | 'anesthesiaSync'
   | 'anesthesiaDevice'
   | 'anesthesiaDict'
+  | 'pacu'
+  | 'postoperative'
+  | 'quality'
+  | 'preoperative'
   | 'legacy';
 
 export function resolveSamisModule(path: string): SamisApiModule {
@@ -70,6 +110,10 @@ export function resolveSamisModule(path: string): SamisApiModule {
   if (normalized.includes('/anesthesiaSync/')) return 'anesthesiaSync';
   if (normalized.includes('/anesthesiaDevice/')) return 'anesthesiaDevice';
   if (normalized.includes('/anesthesiaDict/')) return 'anesthesiaDict';
+  if (normalized.includes('/pacu/')) return 'pacu';
+  if (normalized.includes('/postoperative/')) return 'postoperative';
+  if (normalized.includes('/quality/')) return 'quality';
+  if (normalized.includes('/preoperative/')) return 'preoperative';
   return 'legacy';
 }
 
@@ -89,6 +133,14 @@ export function useRealForModule(module: SamisApiModule): boolean {
       return useRealDevice();
     case 'anesthesiaDict':
       return useRealAnesthesiaDict();
+    case 'pacu':
+      return useRealPacu();
+    case 'postoperative':
+      return useRealPostoperative();
+    case 'quality':
+      return useRealQuality();
+    case 'preoperative':
+      return useRealPreoperative();
     case 'legacy':
       return false;
     default:

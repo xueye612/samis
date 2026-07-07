@@ -40,11 +40,15 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import StatusTag from '@/components/StatusTag.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 
 const router = useRouter();
 const store = useAnesthesiaStore();
+onMounted(() => {
+  void store.loadTodayWorkbench();
+});
 const roomWarnings = (caseId: string) => store.qualityDefects.filter((item) => item.caseId === caseId).slice(0, 2).map((item) => item.defectType);
 </script>

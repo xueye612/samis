@@ -21,6 +21,16 @@ export function pickNumber(raw: unknown, keys: string[], fallback = 0): number {
   return Number.isFinite(num) ? num : fallback;
 }
 
+export function pickBoolean(raw: unknown, keys: string[], fallback = false): boolean {
+  const value = pickField(raw, keys);
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  const num = Number(value);
+  if (Number.isFinite(num)) return num !== 0;
+  const text = String(value).trim().toLowerCase();
+  return text === 'true' || text === 'yes' || text === 'y' || text === 'on' || text === 'enabled';
+}
+
 export function unwrapListPayload<T = unknown>(data: unknown): T[] {
   if (Array.isArray(data)) return data as T[];
   if (!data || typeof data !== 'object') return [];
