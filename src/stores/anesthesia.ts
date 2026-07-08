@@ -73,7 +73,7 @@ import {
   updateIntegrationEndpoint,
 } from '@/services/datasetStore';
 import { invalidateQualityCache } from '@/services/qualityCache';
-import { buildQualityScopeMeta, calculateIndicatorDetails } from '@/services/qualityCalculator';
+import { buildQualityScopeMeta, calculateIndicatorDetails, mergeRemoteIndicatorDetail } from '@/services/qualityCalculator';
 import { applyDefectOverrides, detectQualityDefects } from '@/services/qualityDefectRules';
 import {
   getDoctorCases,
@@ -117,6 +117,7 @@ import type {
   PrintTemplateItem,
   PdcaRecord,
   StaffDictItem,
+  SystemUser,
   TodoItem,
   VitalSignDictItem,
 } from '@/types/system';
@@ -194,7 +195,7 @@ import {
   persistTemplateItem,
   persistVitalDictItem,
 } from '@/services/anesthesia/anesthesiaDictConfigService';
-import { useRealOperationInfo, useRealAnesthesiaDict, useRealPacu, useRealQuality } from '@/config/apiFlags';
+import { useRealOperationInfo, useRealAnesthesiaDict, useRealPacu, useRealQuality, useRealAdmin } from '@/config/apiFlags';
 import {
   admitPacuPatient,
   loadRemotePacuList,
@@ -210,6 +211,8 @@ import {
 import {
   loadHypothermiaCases,
   loadAdverseEvents,
+  loadIndicators,
+  loadIndicatorDetail,
   loadQualityChecks,
   createQualityCheckRemote,
   updateQualityCheckRemote,
@@ -217,10 +220,26 @@ import {
   type QualityCheckInput,
   type QualityCheckPatch,
 } from '@/services/anesthesia/qualityAggregatorService';
+import {
+  loadAdminUsers,
+  loadAdminUserGroups,
+  loadMenuTree,
+  createAdminUserRemote,
+  updateAdminUserRemote,
+  deleteAdminUserRemote,
+  changePasswordRemote,
+  type AdminUserInput,
+} from '@/services/anesthesia/adminAggregatorService';
+import type {
+  AdminUserGroupApi,
+  AdminMenuNodeApi,
+} from '@/api/adminUser';
 import type {
   QualityHypothermiaResultApi,
   QualityAdverseEventResultApi,
   QualityCheckApi,
+  QualityIndicatorApi,
+  QualityIndicatorDetailApi,
 } from '@/api/quality';
 import {
   loadRemoteFollowups,
@@ -468,6 +487,15 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     remoteHypothermiaCases: { total: 0, list: [] } as QualityHypothermiaResultApi,
     remoteAdverseEvents: { total: 0, list: [] } as QualityAdverseEventResultApi,
     aggregatorSource: 'mock' as 'remote' | 'mock',
+    remoteIndicators: [] as QualityIndicatorApi[],
+    remoteIndicatorsSource: 'mock' as 'remote' | 'mock',
+    remoteIndicatorDetail: null as QualityIndicatorDetailApi | null,
+    remoteAdminUsers: [] as SystemUser[],
+    remoteAdminUsersSource: 'mock' as 'remote' | 'mock',
+    remoteAdminUserGroups: [] as AdminUserGroupApi[],
+    remoteAdminUserGroupsSource: 'mock' as 'remote' | 'mock',
+    remoteMenuTree: [] as AdminMenuNodeApi[],
+    remoteMenuTreeSource: 'mock' as 'remote' | 'mock',
     drugInventory: buildDrugInventory() as DrugInventoryItem[],
     todoOverrides: {} as Record<string, TodoItem['status']>,
     hasShiftToday: true,
@@ -487,13 +515,39 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         ...item,
         favorite: state.favoriteIndicatorCodes.includes(item.code),
       }));
-      return state.qualityFilter.category === '全部' ? details : details.filter((item) => item.category === state.qualityFilter.category);
+      // T28：真实模式且后端指标为权威来源时，用后端权威值覆盖列表展示项的数值/状态
+      // （列表无需趋势/维度分析，保留本地 trend/yoy/mom 演示与标签即可）。
+      const merged = useRealQuality() && state.remoteIndicatorsSource === 'remote' && state.remoteIndicators.length
+        ? (() => {
+            const byCode = new Map(state.remoteIndicators.map((item) => [item.code, item]));
+            return details.map((item) => {
+              const remote = byCode.get(item.code);
+              if (!remote) return item;
+              return {
+                ...item,
+                currentValue: typeof remote.value === 'number' ? remote.value : Number(remote.value),
+                numerator: remote.numerator,
+                denominator: remote.denominator,
+                displayValue: remote.displayValue,
+                expression: remote.expression,
+                status: remote.status,
+              };
+            });
+          })()
+        : details;
+      return state.qualityFilter.category === '全部' ? merged : merged.filter((item) => item.category === state.qualityFilter.category);
     },
     selectedIndicator(state) {
       void state.datasetVersion;
-      return calculateIndicatorDetails(getMutableDataset(), state.qualityFilter)
+      const base = calculateIndicatorDetails(getMutableDataset(), state.qualityFilter)
         .map((item) => ({ ...item, favorite: state.favoriteIndicatorCodes.includes(item.code) }))
         .find((item) => item.code === state.selectedIndicatorCode);
+      // T28：真实模式且已加载该指标后端穿透详情 → 混合合并（后端权威值+穿透cases+维度再派生；
+      // 趋势/yoy/mom 维持本地演示；nullAnalysis 置空）。否则维持 TS 计算。
+      if (base && useRealQuality() && state.remoteIndicatorDetail && state.remoteIndicatorDetail.code === base.code) {
+        return mergeRemoteIndicatorDetail(base, state.remoteIndicatorDetail);
+      }
+      return base;
     },
     rawQualityDefects(): QualityDefect[] {
       void this.datasetVersion;
@@ -627,7 +681,12 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     },
     auditLogs: () => getAuditLogs(),
     integrationEndpoints: () => getIntegrationEndpoints(),
-    systemUsers: () => getSystemUsers(),
+    systemUsers(state): SystemUser[] {
+      if (useRealAdmin() && state.remoteAdminUsersSource === 'remote') {
+        return state.remoteAdminUsers;
+      }
+      return getSystemUsers();
+    },
     qualityReportCache: () => getQualityReportCache(),
   },
   actions: {
@@ -934,6 +993,30 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       this.remoteAdverseEvents = result;
       this.aggregatorSource = source;
       return result;
+    },
+    /** 加载 26 指标列表（真实开关开→远程权威值；关→保持空，视图回退本地 TS 计算）。 */
+    async loadRemoteIndicators() {
+      if (!useRealQuality()) {
+        this.remoteIndicators = [];
+        this.remoteIndicatorsSource = 'mock';
+        return this.remoteIndicators;
+      }
+      const { result, source } = await loadIndicators(this.qualityFilter);
+      this.remoteIndicators = result;
+      this.remoteIndicatorsSource = source;
+      return result;
+    },
+    /** 加载单指标穿透详情（真实开关开→远程权威值+穿透cases；关→保持 null）。 */
+    async loadRemoteIndicatorDetail(code: string) {
+      if (!useRealQuality()) {
+        this.remoteIndicatorDetail = null;
+        return this.remoteIndicatorDetail;
+      }
+      // 先清空：避免切换指标的网络往返期内 selectedIndicator getter 用旧指标详情合并。
+      this.remoteIndicatorDetail = null;
+      const { result, source } = await loadIndicatorDetail(code, this.qualityFilter);
+      this.remoteIndicatorDetail = source === 'remote' ? result : null;
+      return this.remoteIndicatorDetail;
     },
     /** 加载质控抽查记录（真实开关开→远程；关→mock 路由兜底）。 */
     async loadRemoteQualityChecks() {
@@ -2926,6 +3009,89 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     },
     saveSystemUser(user: Parameters<typeof upsertSystemUser>[0]) {
       upsertSystemUser(user);
+    },
+    /** 加载用户列表（真实开关开→远程；关→清空回退本地 seed）。 */
+    async loadRemoteAdminUsers(params?: { gh?: string; name?: string; groupid?: number }) {
+      if (!useRealAdmin()) {
+        this.remoteAdminUsers = [];
+        this.remoteAdminUsersSource = 'mock';
+        return { list: this.remoteAdminUsers, total: 0 };
+      }
+      const { list, total, source } = await loadAdminUsers(params);
+      this.remoteAdminUsers = list;
+      this.remoteAdminUsersSource = source;
+      return { list, total };
+    },
+    /** 加载角色组列表（真实开关开→远程真组；关→清空）。 */
+    async loadRemoteAdminUserGroups() {
+      if (!useRealAdmin()) {
+        this.remoteAdminUserGroups = [];
+        this.remoteAdminUserGroupsSource = 'mock';
+        return this.remoteAdminUserGroups;
+      }
+      const { list, source } = await loadAdminUserGroups();
+      this.remoteAdminUserGroups = list;
+      this.remoteAdminUserGroupsSource = source;
+      return list;
+    },
+    /** 加载菜单树（getMenu，作用于当前登录用户 groupid；关→清空）。 */
+    async loadRemoteMenuTree() {
+      if (!useRealAdmin()) {
+        this.remoteMenuTree = [];
+        this.remoteMenuTreeSource = 'mock';
+        return this.remoteMenuTree;
+      }
+      const { tree, source } = await loadMenuTree();
+      this.remoteMenuTree = tree;
+      this.remoteMenuTreeSource = source;
+      return tree;
+    },
+    /** 新增用户（真实开关开→远程创建+刷新；关→本地 upsert）。 */
+    async createSystemUser(input: AdminUserInput) {
+      if (useRealAdmin()) {
+        await createAdminUserRemote(input);
+        await this.loadRemoteAdminUsers();
+        return;
+      }
+      upsertSystemUser({
+        id: input.id ? String(input.id) : `u-${Date.now()}`,
+        username: input.username,
+        name: input.name,
+        role: input.role,
+        department: input.department,
+        active: true,
+      });
+    },
+    /** 编辑用户（真实开关开→远程更新+刷新；关→本地 upsert）。 */
+    async updateSystemUser(input: AdminUserInput) {
+      if (useRealAdmin()) {
+        await updateAdminUserRemote(input);
+        await this.loadRemoteAdminUsers();
+        return;
+      }
+      upsertSystemUser({
+        id: String(input.id ?? ''),
+        username: input.username,
+        name: input.name,
+        role: input.role,
+        department: input.department,
+        active: true,
+      });
+    },
+    /** 删除用户（真实开关开→远程删除+刷新；关→本地移除）。 */
+    async deleteSystemUser(id: string | number) {
+      if (useRealAdmin()) {
+        await deleteAdminUserRemote(id);
+        await this.loadRemoteAdminUsers();
+        return;
+      }
+      this.remoteAdminUsers = this.remoteAdminUsers.filter((u) => String(u.id) !== String(id));
+    },
+    /** 修改密码（真实开关开→远程 changePassword，作用于当前登录用户；关→空操作）。 */
+    async changeSystemPassword(payload: { password: string; newPassword: string }) {
+      if (useRealAdmin()) {
+        await changePasswordRemote(payload);
+      }
     },
     saveIntegration(id: string, patch: Parameters<typeof updateIntegrationEndpoint>[1]) {
       updateIntegrationEndpoint(id, patch);

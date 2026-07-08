@@ -12,7 +12,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/api-samis': {
-        target: 'http://47.105.38.226:8022',
+        // 本地联调：指向 index 后端（DB 同机 192.168.10.178:2881）。
+        // 回滚：改回 'http://47.105.38.226:8022'（远程 Apifox）。
+        target: 'http://192.168.10.178:8022',
         changeOrigin: true,
       },
     },

@@ -16,7 +16,7 @@ import { anesthesiaRecordApi } from '@/api/anesthesiaSync';
 import { emptyClinicalShell } from '@/services/anesthesia/adapters/operationInfoAdapter';
 import { persistCaseNow } from '@/services/anesthesia/anesthesiaPersistenceBridge';
 import { loadCaseFromLocalDb } from '@/services/anesthesia/anesthesiaRecordRepository';
-import { ANESTHESIA_USE_MOCK } from '@/api/samisClient';
+import { useRealAnesthesiaRecord } from '@/config/apiFlags';
 
 /**
  * Slice 3f —— 服务端记录回读：getRecordDetail 聚合响应 → 重建 SurgeryCase。
@@ -303,15 +303,15 @@ export async function fetchRecordDetail(operationId: string): Promise<RecordDeta
 /**
  * 冷启动回读：若本地 IndexedDB 无该 operationId 的 case，则从服务端拉取重建并 seed 本地。
  * 本地已有 → 直接返回本地（不覆盖）。
- * Mock 模式（ANESTHESIA_USE_MOCK）→ 不发起请求，返回 null。
+ * 非真实记录模式（!useRealAnesthesiaRecord）→ 不发起请求，返回 null。
  *
- * @returns 重建后的 SurgeryCase，或 null（无服务端记录 / mock 模式）。
+ * @returns 重建后的 SurgeryCase，或 null（无服务端记录 / 非真实模式）。
  */
 export async function hydrateCaseFromServer(
   operationId: string,
   seedCase?: SurgeryCase | null,
 ): Promise<SurgeryCase | null> {
-  if (ANESTHESIA_USE_MOCK) return null;
+  if (!useRealAnesthesiaRecord()) return null;
   const local = await loadCaseFromLocalDb(operationId);
   if (local) return local;
 
@@ -341,7 +341,7 @@ export async function reloadCaseFromServer(
   operationId: string,
   seedCase?: SurgeryCase | null,
 ): Promise<SurgeryCase | null> {
-  if (ANESTHESIA_USE_MOCK) return null;
+  if (!useRealAnesthesiaRecord()) return null;
   let detail: RecordDetailResponse;
   try {
     detail = await fetchRecordDetail(operationId);

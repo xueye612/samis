@@ -172,6 +172,27 @@
 | `getEventDict/getDeviceDict` 路径未在 OpenAPI 确认 | 旧 mock 保留，不应作为真实联调依据 | 事件类型/设备类型字段、启停用字段待确认 | 若后端不提供，改走通用 `getDictItem(category_code)` |
 | `saveAuditLog` 未定义 | 本地有 `audit_log` 概念，但主接口未确认 | 操作人、操作时间、实体、前后值、客户端信息 | 待后端确认是否纳入 `pushBatch` 或独立接口 |
 
+## 错误码分层约定（联调实测，2026-07-08）
+
+> 来源：T01 第四/五轮联调据实确认（详见 `docs/04_delivery/联调日志.md`）；登记任务 T26。
+> 统一响应信封：`{ code, message, data }`；`code:0` 成功，非 0 失败（HTTP 默认 400，系统级 500）。
+
+samis 控制器的错误码分两层，**校验层与业务层不同源**——计划/文档常误把「校验失败」当作「业务码」：
+
+| 层 | 触发 | body `code` | HTTP | message 示例 |
+|---|---|---|---|---|
+| 校验层（控制器先于 service 执行） | `$this->validate($params, XxxValidate::class.'.scene')` 失败 → ThinkPHP `ValidateException`（`getCode()=0`） | **500** | 400 | 校验消息（如「followupType 必须为 术后镇痛随访/…」） |
+| 业务层（service 内） | `BaseService::throwBizException(code, msg)` → `BizException`（`getCode()=业务码`） | **业务码**（1003/1004/1104/1201~1204/1301/1302/1401/1402/1501/2101/2102 …） | 400 | 业务消息（如「同 case 存在活跃 PACU 单」） |
+| 系统级 | 未捕获 `\Exception` / SQL 等（`getCode()=0`） | 500 | 500 | 系统错误（非 debug 脱敏） |
+
+**根因**（为何校验失败是 `500` 而非 `2001`）：samis 控制器统一写法 `try { … } catch (\Exception $e) { return api_error($e->getCode() ?: 500, $e->getMessage()); }`（见 `index/app/samis/api/controller/pc/*.php`）。`ValidateException` 继承 `\RuntimeException`、其 `getCode()` 恒为 0，`0 ?: 500` 即落到 500；而 `BizException` 经 `parent::__construct(msg, code)` 把业务码写进 `code`，故业务码原样透传。全局中间件 `app/shared/middleware/ApiException.php`（本会把 `ValidateException` 映射为 `ErrorCode::VALIDATION_REQUIRED=2001`/HTTP400）因控制器自身已 catch 而不生效。
+
+**后果与对策**：
+
+- 联调/测试：断言「必填缺失/枚举非法」类负向用例须期望 `code:500`（非文档业务码）；只有「唯一性/状态前置/不存在」才期望业务码。
+- 前端：按业务码分支的 catch 会漏接校验失败（统一落兜底提示），契约错误码字典与实现不符。
+- 建议修复（T26）：控制器对 `ValidateException` 单独 catch 并映射为 `4xx`/`ErrorCode::VALIDATION_*`（2001~2005），或文档据实修正错误码字典（校验类=500）。
+
 ## 验收记录
 
 本清单要求：

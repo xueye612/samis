@@ -23,7 +23,10 @@ export interface SystemUser {
   id: string;
   username: string;
   name: string;
-  role: 'admin' | 'anesthesiologist' | 'nurse' | 'viewer';
+  /** 真实模式=角色组 groupid(number)；mock 模式=本地枚举('admin'|'anesthesiologist'|'nurse'|'viewer') */
+  role: number | string;
+  /** 展示用角色名（可选） */
+  roleName?: string;
   department: string;
   active: boolean;
 }

@@ -67,12 +67,13 @@
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import MetricCard from '@/components/MetricCard.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import { useRealPacu } from '@/config/apiFlags';
 import type { PacuPatient } from '@/types/anesthesia';
 import type { PacuBed } from '@/types/clinicalModules';
 
@@ -87,6 +88,15 @@ const currentPatients = computed(() => store.pacuPatients.filter((item) => item.
 const outPatients = computed(() => store.pacuPatients.filter((item) => item.status === '已转出'));
 const delayPatients = computed(() => store.pacuPatients.filter((item) => stayMinutes(item) > 120 && item.status !== '已转出'));
 const bedStatusClass = (status: PacuBed['status']) => ({ 空闲: 'free', 占用: 'busy', 预留: 'reserved', 维护: 'maint' }[status] ?? 'free');
+
+// 走真时 onMounted 主动拉取恢复单/床位（与 postop/preop 页面一致的 opt-in 读路径触发）。
+// 背景：bootstrapRemoteConfigs（含 PACU 预载）当前未在登录流程调用，页面须自行触发，否则渲染空。
+onMounted(() => {
+  if (useRealPacu()) {
+    void store.loadRemotePacuList();
+    void store.loadRemotePacuBeds();
+  }
+});
 </script>
 
 <style scoped>

@@ -48,6 +48,13 @@
 
 **Apifox 写回编码（2026-06-02）：** `updateOperationInfo`、`saveNursePb`（`data`=JSON 数组字符串）、`updateNumberOfStations` 使用 `application/x-www-form-urlencoded`；工具见 `src/api/samisFormBody.ts`。
 
+## AI 审计（跨三仓库，2026-07-07）
+
+| 文档 | 说明 |
+|---|---|
+| [AI-三项目功能完成度审计](AI-三项目功能完成度审计.md) | index/samisWeb/huliWeb 三仓库功能完成度总表（已完成/半完成/框架）+ 代码目录索引 |
+| [AI-待开发任务清单](AI-待开发任务清单.md) | 半完成模块转 P0-P3 任务，含建议执行顺序与验收口径 |
+
 ## 补充参考（非主事实）
 
 | 文档 | 说明 |

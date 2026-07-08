@@ -15,6 +15,7 @@ import type {
   QualityStatus,
   QualityUnit,
 } from '@/types/quality';
+import type { QualityIndicatorDetailApi, QualityCaseSummaryApi } from '@/api/quality';
 
 const DEFECT_TYPES_BY_INDICATOR: Record<string, string[]> = {
   'AQI-PVR-04': ['择期手术未完成术前访视'],
@@ -512,4 +513,109 @@ function buildNullAnalysis(dataset: QualityDataset, indicatorCode: string, denom
   }
 
   return [];
+}
+
+/**
+ * 按后端病例穿透汇总（QualityCaseSummaryApi）派生维度分析，逻辑与本地 groupAnalysis 对齐，
+ * 但维度字段直接取后端汇总（department/doctorName/room），无需 dataset 关联。
+ */
+const groupSummaryAnalysis = (
+  cases: QualityCaseSummaryApi[],
+  key: (item: QualityCaseSummaryApi) => string,
+  numeratorCases: Set<string>,
+  unit: QualityUnit,
+): AnalysisPoint[] => {
+  const map = new Map<string, { denominator: number; numerator: number }>();
+  cases.forEach((item) => {
+    const name = key(item) || '未标注';
+    const current = map.get(name) ?? { denominator: 0, numerator: 0 };
+    current.denominator += 1;
+    if (numeratorCases.has(item.caseId)) current.numerator += 1;
+    map.set(name, current);
+  });
+  return [...map.entries()].map(([unitName, value]) => ({
+    unitName,
+    value: rateValue(value.numerator, value.denominator, unit),
+    numerator: value.numerator,
+    denominator: value.denominator,
+  }));
+};
+
+const mapRemoteCaseSummary = (c: QualityCaseSummaryApi): CaseSummary => ({
+  caseId: c.caseId,
+  patientName: c.patientName,
+  room: c.room,
+  department: c.department,
+  operationName: c.operationName,
+  anesthesiaMethod: c.anesthesiaMethod,
+  doctorName: c.doctorName,
+  status: c.status,
+  defectDesc: c.defectDesc ?? undefined,
+});
+
+/**
+ * T28 混合合并：以本地 TS 计算的 IndicatorDetail 为富展示基底（保留 trend/yoy/mom 演示波形、
+ * 标签、图表策略等），再用后端权威值（value/numerator/denominator/status/expression）与穿透
+ * cases 覆盖，并基于后端 cases 在 client 侧再派生维度分析；nullAnalysis 后端模式置空（依赖
+ * vitalSigns temp，后端不返）。返回新的 IndicatorDetail（不改基底）。
+ */
+export function mergeRemoteIndicatorDetail(
+  base: IndicatorDetail,
+  remote: QualityIndicatorDetailApi,
+): IndicatorDetail {
+  const numericValue = typeof remote.value === 'number' ? remote.value : Number(remote.value);
+  const safeValue = Number.isFinite(numericValue) ? numericValue : remote.numerator;
+
+  const numeratorCaseIds = new Set(remote.numeratorCases.map((item) => item.caseId));
+  const subUnitAnalysis = groupSummaryAnalysis(remote.denominatorCases, (item) => item.department, numeratorCaseIds, base.unit);
+  const doctorAnalysis = groupSummaryAnalysis(remote.denominatorCases, (item) => item.doctorName, numeratorCaseIds, base.unit).map((item) => ({
+    ...item,
+    doctorName: item.unitName,
+  }));
+  const roomAnalysis = groupSummaryAnalysis(remote.denominatorCases, (item) => item.room, numeratorCaseIds, base.unit).map((item) => ({
+    ...item,
+    roomName: item.unitName,
+  }));
+  const numeratorCases = remote.numeratorCases.map(mapRemoteCaseSummary);
+  const denominatorCases = remote.denominatorCases.map(mapRemoteCaseSummary);
+  const defectCases = remote.defectCases.map(mapRemoteCaseSummary);
+  const trend = makeTrend(safeValue, remote.numerator, remote.denominator);
+
+  const display = buildQualityMetricDisplayData({
+    indicator: base,
+    presentation: base,
+    currentValue: safeValue,
+    displayValue: remote.displayValue ?? base.displayValue,
+    numerator: remote.numerator,
+    denominator: remote.denominator,
+    expression: remote.expression ?? base.expression,
+    status: remote.status,
+    yoy: base.yoy,
+    mom: base.mom,
+    index: 0,
+    subUnitAnalysis,
+    doctorAnalysis,
+    roomAnalysis,
+    nullAnalysis: [],
+    defectCases,
+  });
+
+  return {
+    ...base,
+    ...display,
+    currentValue: safeValue,
+    displayValue: remote.displayValue ?? base.displayValue,
+    numerator: remote.numerator,
+    denominator: remote.denominator,
+    expression: remote.expression ?? base.expression,
+    status: remote.status,
+    trend,
+    subUnitAnalysis,
+    doctorAnalysis,
+    roomAnalysis,
+    nullAnalysis: [],
+    numeratorCases,
+    denominatorCases,
+    defectCases,
+  };
 }

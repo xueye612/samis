@@ -58,10 +58,11 @@ export function buildModuleRows(store: Store, key: string): ModuleRowItem[] {
     }));
   }
   if (key === 'systemUsers') {
+    const groupNameById = new Map(store.remoteAdminUserGroups.map((g) => [String(g.groupid), g.name]));
     return store.systemUsers.map((item) => ({
       id: item.id,
       label: item.name,
-      desc: item.role,
+      desc: groupNameById.get(String(item.role)) ?? String(item.role),
     }));
   }
   if (key === 'pacuPatients') {

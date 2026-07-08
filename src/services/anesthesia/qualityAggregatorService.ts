@@ -1,5 +1,5 @@
 import { Message } from '@arco-design/web-vue';
-import { qualityApi, type QualityFilterQuery, type QualityHypothermiaResultApi, type QualityAdverseEventResultApi, type QualityCheckApi, type QualityCheckListApi, type QualityCheckListQuery, type QualityCheckResultApi, type QualityRectifyStatusApi } from '@/api/quality';
+import { qualityApi, type QualityFilterQuery, type QualityHypothermiaResultApi, type QualityAdverseEventResultApi, type QualityCheckApi, type QualityCheckListApi, type QualityCheckListQuery, type QualityCheckResultApi, type QualityRectifyStatusApi, type QualityIndicatorApi, type QualityIndicatorDetailApi } from '@/api/quality';
 import { useRealQuality } from '@/config/apiFlags';
 import { SamisHttpError } from '@/api/samisHttpClient';
 import { isSamisLoggedIn } from '@/services/session/samisSession';
@@ -44,6 +44,40 @@ export async function loadAdverseEvents(params: QualityFilterQuery = {}): Promis
   } catch (error) {
     Message.warning(`${describeError(error, '加载不良事件失败')}，已使用本地数据`);
     return { result: { total: 0, list: [] }, source: 'mock' };
+  }
+}
+
+/** 26 指标列表（真实开关开→远程权威值；失败返回空 + 警告，视图回退本地 TS 计算）。 */
+export async function loadIndicators(params: QualityFilterQuery = {}): Promise<{
+  result: QualityIndicatorApi[];
+  source: 'remote' | 'mock';
+}> {
+  if (!shouldUseReal()) {
+    return { result: [], source: 'mock' };
+  }
+  try {
+    const result = await qualityApi.getIndicators(params);
+    return { result: result ?? [], source: 'remote' };
+  } catch (error) {
+    Message.warning(`${describeError(error, '加载质控指标失败')}，已使用本地数据`);
+    return { result: [], source: 'mock' };
+  }
+}
+
+/** 单指标穿透详情（真实开关开→远程权威值 + 穿透 cases；失败返回 null + 警告）。 */
+export async function loadIndicatorDetail(code: string, params: QualityFilterQuery = {}): Promise<{
+  result: QualityIndicatorDetailApi | null;
+  source: 'remote' | 'mock';
+}> {
+  if (!shouldUseReal()) {
+    return { result: null, source: 'mock' };
+  }
+  try {
+    const result = await qualityApi.getIndicatorDetail(code, params);
+    return { result, source: 'remote' };
+  } catch (error) {
+    Message.warning(`${describeError(error, '加载指标穿透明细失败')}，已使用本地数据`);
+    return { result: null, source: 'mock' };
   }
 }
 

@@ -23,7 +23,7 @@
       </template>
       <template #extra>
         <div class="quality-filter-extra">
-          <a-button type="primary" @click="store.refreshQualityIndicators">
+          <a-button type="primary" @click="runQuery">
             <template #icon><icon-search /></template>
             查询
           </a-button>
@@ -119,7 +119,11 @@
       </div>
     </a-card>
 
-    <a-alert class="quality-demo-banner" type="info" show-icon>
+    <a-alert v-if="usingRemoteIndicators" class="quality-demo-banner" type="success" show-icon>
+      <template #icon><icon-info-circle /></template>
+      真实数据：指标值与穿透病例来自后端（{{ store.remoteIndicators.length }} 项指标）；维度分析由后端病例再派生；趋势与同比/环比仍为演示波形。
+    </a-alert>
+    <a-alert v-else class="quality-demo-banner" type="info" show-icon>
       <template #icon><icon-info-circle /></template>
       演示数据：指标值由本地 Mock 病例（{{ store.qualityScope.totalCaseCount }} 例）推导；趋势与同比/环比为演示波形。
     </a-alert>
@@ -172,9 +176,10 @@
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { HOSPITAL_NAME } from '@/config/hospital';
+import { useRealQuality } from '@/config/apiFlags';
 import IndicatorDetail from '@/components/quality/IndicatorDetail.vue';
 import IndicatorList from '@/components/quality/IndicatorList.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
@@ -193,7 +198,30 @@ const onMonthRangeChange = (_value: unknown, _date: unknown, dateString?: (strin
 };
 
 const selected = computed(() => store.selectedIndicator ?? store.indicatorDetails[0]);
+const usingRemoteIndicators = computed(() => useRealQuality() && store.remoteIndicatorsSource === 'remote' && store.remoteIndicators.length > 0);
 const goCaseDetail = (caseId: string) => router.push({ name: 'record', params: { id: caseId }, query: { from: 'plan' } });
+
+// T28：真实模式下面板接后端——挂载时拉取 26 指标列表 + 默认选中指标穿透详情。
+onMounted(async () => {
+  if (!useRealQuality()) return;
+  await store.loadRemoteIndicators();
+  const code = store.selectedIndicatorCode;
+  if (code) void store.loadRemoteIndicatorDetail(code);
+});
+
+// T28：切换选中指标时，真实模式重新拉取该指标的穿透明细（权威值 + 穿透 cases）。
+watch(
+  () => store.selectedIndicatorCode,
+  (code) => {
+    if (useRealQuality() && code) void store.loadRemoteIndicatorDetail(code);
+  },
+);
+
+// T28：真实模式查询时同步刷新后端指标列表（同时失效本地缓存，保持 TS fallback 新鲜）。
+const runQuery = () => {
+  store.refreshQualityIndicators();
+  if (useRealQuality()) void store.loadRemoteIndicators();
+};
 const setCategory = (value: string | number | boolean | Record<string, unknown> | Array<string | number | boolean | Record<string, unknown>>) => {
   const next = Array.isArray(value) ? value[0] : value;
   store.setQualityCategory((next || '全部') as '全部' | QualityCategory);

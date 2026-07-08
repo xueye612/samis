@@ -87,6 +87,15 @@ export function useRealPreoperative(): boolean {
   return envTrue('VITE_USE_REAL_PREOPERATIVE', false);
 }
 
+/**
+ * 系统管理（T04/T05）：用户/角色/菜单管理消费已有后端。
+ * opt-in，默认 false（SystemUsers/SystemRoles 回本地 seed/静态）。
+ */
+export function useRealAdmin(): boolean {
+  if (!ANESTHESIA_USE_MOCK) return false;
+  return envTrue('VITE_USE_REAL_ADMIN', false);
+}
+
 export type SamisApiModule =
   | 'auth'
   | 'operationInfo'
@@ -99,10 +108,12 @@ export type SamisApiModule =
   | 'postoperative'
   | 'quality'
   | 'preoperative'
+  | 'admin'
   | 'legacy';
 
 export function resolveSamisModule(path: string): SamisApiModule {
   const normalized = path.replace(/.*\/api-samis\/pc\/v1/, '');
+  if (normalized.includes('/adminUser/') || normalized.includes('/adminUserGroup/') || normalized.includes('/adminCategory/')) return 'admin';
   if (/\/(login|auth|user|admin)\//i.test(normalized) || normalized.startsWith('/login')) return 'auth';
   if (normalized.includes('/operationInfo/')) return 'operationInfo';
   if (normalized.includes('/room/')) return 'room';
@@ -141,6 +152,8 @@ export function useRealForModule(module: SamisApiModule): boolean {
       return useRealQuality();
     case 'preoperative':
       return useRealPreoperative();
+    case 'admin':
+      return useRealAdmin();
     case 'legacy':
       return false;
     default:

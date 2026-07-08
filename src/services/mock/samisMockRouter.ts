@@ -929,6 +929,38 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
     }) as T;
   }
 
+  // ============ 系统管理（T04/T05）mock 兜底：adminUserList / adminUserGroupsList / getMenu ============
+  if (path.includes('/adminUser/adminUserList')) {
+    const list = [
+      { id: 1, name: '质控管理员', GH: 'quality_admin', NumGh: 'quality_admin', groupid: 999, department_name: '麻醉科', department_code: 'ANES', type: 1, is_del: 0 },
+      { id: 2, name: '王睿', GH: 'wangrui', NumGh: 'wangrui', groupid: 1, department_name: '麻醉科', department_code: 'ANES', type: 3, is_del: 0 },
+      { id: 3, name: '陈洁', GH: 'chenjie', NumGh: 'chenjie', groupid: 2, department_name: '麻醉科', department_code: 'ANES', type: 3, is_del: 0 },
+    ];
+    return buildSamisSuccess({ list, page: 1, page_size: list.length, total: list.length }) as T;
+  }
+  if (path.includes('/adminUserGroup/adminUserGroupsList')) {
+    const list = [
+      { id: 1, groupid: 999, name: '质控管理员', catids: '1,2,3,4,5', catidsList: ['质控看板', '缺陷整改', '用户管理', '系统配置', '报表导出'] },
+      { id: 2, groupid: 1, name: '麻醉医师', catids: '6,7,8', catidsList: ['手术排班', '麻醉记录单', '术前访视'] },
+      { id: 3, groupid: 2, name: '麻醉护士', catids: '9,10', catidsList: ['PACU接收', '转出登记'] },
+    ];
+    return buildSamisSuccess({ page: 1, pageSize: list.length, total: list.length, list }) as T;
+  }
+  if (path.includes('/adminCategory/getMenu')) {
+    const tree = [
+      { id: 1, name: '工作台', pid: 0, url: '/workbench', childsList: [{ id: 11, name: '总览', pid: 1 }] },
+      { id: 2, name: '质控', pid: 0, url: '/quality', childsList: [{ id: 21, name: '质控看板', pid: 2 }] },
+      { id: 3, name: '系统管理', pid: 0, url: '/system', childsList: [{ id: 31, name: '用户管理', pid: 3 }, { id: 32, name: '角色权限', pid: 3 }] },
+    ];
+    return buildSamisSuccess(tree) as T;
+  }
+  if (path.includes('/adminUser/adminUserCreate') && init?.method === 'POST') {
+    return buildSamisSuccess({ id: nextServerId() }) as T;
+  }
+  if ((path.endsWith('/adminUser/adminUserUpdate') || path.endsWith('/adminUser/adminUserDelete') || path.endsWith('/adminUser/changePassword')) && init?.method === 'POST') {
+    return buildSamisSuccess(true) as T;
+  }
+
   if (path.includes('/anesthesiaDict/getSpecialDrugCategories')) {
     return buildSamisSuccess(SPECIAL_DRUG_CATEGORY_OPTIONS) as T;
   }
