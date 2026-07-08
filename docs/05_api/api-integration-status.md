@@ -1,8 +1,8 @@
 # SAMIS-PC API 集成状态清单
 
-更新时间：2026-07-04  
+更新时间：2026-07-08（T04/T05 系统管理用户全 CRUD + 角色/菜单只读接真）  
 接口前缀：`/api-samis/pc/v1`  
-测试策略：Mock + API wrapper / adapter 单测，不依赖真实 token 或后端环境。
+测试策略：Mock + API wrapper / adapter 单测 + 真实链路 e2e（`e2e/real-integration-*.spec.ts`）。
 
 ## 来源与范围
 
@@ -27,13 +27,13 @@
 | auth | 登录用户 | GET | `/user/getLoginUser` | token/header | 用户 id/name/loginName/角色 | `authStore` fallback | 当前用户基础信息 | 已集成 | `src/services/auth/authAdapter.test.ts` | 当前公开页未直接列出，前端保留 fallback |
 | auth | 当前用户 | GET | `/user/getCurrentUser` | token/header | 同上 | `authStore` fallback | 当前用户基础信息 | 已集成 | `src/services/auth/authAdapter.test.ts` | 前端保留 fallback |
 | adminUser | 当前管理员信息 | GET | `/adminUser/getAdminUserInfo` | token/header | `userId/userName/loginName/gh/room/roomGroup/roleNames` | `authStore` fallback | 当前用户基础信息 | 已集成 | `src/services/auth/authAdapter.test.ts` | Apifox 可见 |
-| adminUser | 用户列表 | GET | `/adminUser/adminUserList` | 分页、关键字、科室/角色筛选待确认 | 用户列表、分页总数 | 暂无 | 暂无 | 未集成 | 无 | Apifox 可见，非当前麻醉业务页面消费 |
-| adminUser | 用户详情 | GET | `/adminUser/getAdminUserById` | 用户 id | 用户详情 | 暂无 | 暂无 | 未集成 | 无 | Apifox 可见 |
-| adminUser | 新增用户 | POST | `/adminUser/adminUserCreate` | 用户表单字段待确认 | 创建结果/id | 暂无 | 暂无 | 未集成 | 无 | Apifox 可见 |
-| adminUser | 更新用户 | POST | `/adminUser/adminUserUpdate` | 用户 id + 用户表单字段待确认 | 更新结果 | 暂无 | 暂无 | 未集成 | 无 | Apifox 可见 |
-| adminUser | 删除用户 | POST | `/adminUser/adminUserDelete` | 用户 id | 删除结果 | 暂无 | 暂无 | 未集成 | 无 | Apifox 可见 |
-| adminUser | 修改密码 | POST | `/adminUser/changePassword` | old/new password 字段待确认 | 修改结果 | 暂无 | 暂无 | 未集成 | 无 | Apifox 可见 |
-| adminCategory | 获取菜单 | GET | `/adminCategory/getMenu` | token/header | 菜单树 | 暂无 | 暂无 | 未集成 | 无 | Apifox 可见 |
+| adminUser | 用户列表 | GET | `/adminUser/adminUserList` | 分页、关键字、科室/角色筛选（groupid） | 用户列表、分页总数 | SystemUsers（系统管理） | seed 用户 | 已集成 | `src/api/adminUser.ts`、`e2e/real-integration-admin.spec.ts` | T04 接真；groupid↔role 字段映射 adapter |
+| adminUser | 用户详情 | GET | `/adminUser/getAdminUserById` | 用户 id | 用户详情 | SystemUsers 编辑 | seed 用户 | 已集成 | `src/api/adminUser.ts` | T04 |
+| adminUser | 新增用户 | POST | `/adminUser/adminUserCreate` | 用户表单字段（含 groupid/role） | 创建结果/id | SystemUsers 新增 | 返回 id | 已集成 | `src/api/adminUser.ts` | T04 写往返 code:0 |
+| adminUser | 更新用户 | POST | `/adminUser/adminUserUpdate` | 用户 id + 用户表单字段 | 更新结果 | SystemUsers 编辑 | true | 已集成 | `src/api/adminUser.ts` | T04 |
+| adminUser | 删除用户 | POST | `/adminUser/adminUserDelete` | 用户 id | 删除结果 | SystemUsers 删除 | true | 已集成 | `src/api/adminUser.ts` | T04（后端改用 repository->deleteUser 修 500） |
+| adminUser | 修改密码 | POST | `/adminUser/changePassword` | old/new password | 修改结果 | SystemUsers 改密 | true | 已集成 | `src/api/adminUser.ts` | T04 |
+| adminCategory | 获取菜单 | GET | `/adminCategory/getMenu` | token/header（当前登录用户 groupid） | 菜单树 | SystemRoles 菜单树 | seed 菜单 | 已集成 | `src/api/adminUser.ts`、`e2e/real-integration-admin.spec.ts` | T05 只读接真；菜单为当前登录用户权限，非全角色 |
 | adminCategory | 新增菜单 | POST | `/adminCategory/menuCreate` | 菜单表单字段待确认 | 创建结果 | 暂无 | 暂无 | 未集成 | 无 | Apifox 可见 |
 | adminCategory | 更新菜单 | POST | `/adminCategory/menuUpdate` | 菜单 id + 字段待确认 | 更新结果 | 暂无 | 暂无 | 未集成 | 无 | Apifox 可见 |
 | adminCategory | 删除菜单 | POST | `/adminCategory/menuDelete` | 菜单 id | 删除结果 | 暂无 | 暂无 | 未集成 | 无 | Apifox 可见 |
@@ -166,8 +166,7 @@
 | 缺口 | 影响 | 数据要求 | 建议处理 |
 |---|---|---|---|
 | Apifox 公开页不是完整 OpenAPI JSON | 无法自动确认所有响应字段 | 需要导出 SAMIS-PC OpenAPI JSON，包含请求、响应、示例和字段说明 | 后端/接口负责人提供 OpenAPI 导出后，再把 `待后端确认` 改为确认字段 |
-| adminUser / adminCategory 管理接口未接入 | 当前麻醉业务页面无消费者；若后续做用户/菜单管理会缺 API wrapper | 需要确认分页字段、表单字段、权限字段、删除语义 | 新增 `src/api/adminUser.ts`、`src/api/adminCategory.ts` 并补 mock/test |
-| room 模块写接口未接入 | 当前只用于房间筛选；房间维护页若启用会缺 CRUD | 需要确认 `roomCreate/roomUpdate/roomDelete`、手术部 CRUD 的准确路径和字段 | 等 Apifox 路径确认后接入 |
+| adminCategory 菜单 CRUD 未接入 | 当前 SystemRoles 仅读菜单树（T05 只读接真） | 菜单表单字段、排序、权限字段 | menuCreate/Update/Delete/BatchUpdateOrder 仍「未集成」；启用 SystemRoles 完整 CRUD 时需补 wrapper + mock/test |
 | 部分字典配置接口只有空分页 mock | 页面可稳定运行，但不能真实验证配置数据结构 | 模板、模板字段、字典分类/项、血制品字段要给出完整示例 | 后端给字段后补 adapter 测试和 seed mock |
 | `getEventDict/getDeviceDict` 路径未在 OpenAPI 确认 | 旧 mock 保留，不应作为真实联调依据 | 事件类型/设备类型字段、启停用字段待确认 | 若后端不提供，改走通用 `getDictItem(category_code)` |
 | `saveAuditLog` 未定义 | 本地有 `audit_log` 概念，但主接口未确认 | 操作人、操作时间、实体、前后值、客户端信息 | 待后端确认是否纳入 `pushBatch` 或独立接口 |

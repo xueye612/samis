@@ -1,9 +1,8 @@
-# 待开发任务清单（AI 生成）
+# 待开发任务清单
 
-> 生成时间：2026-07-07
-> 配套文档：[AI-三项目功能完成度审计.md](./AI-三项目功能完成度审计.md)
-> 来源：完成度审计中的"半完成/只有框架"模块 + `docs/05_api/api-integration-status.md` 现有缺口清单
-> 原则：本次为审计与文档整理，**未修改业务代码**。下表为建议任务，按优先级排序，需人工确认后再开发。
+> 更新：2026-07-08（精简：已关闭项压缩为摘要，仅展开 open backlog）
+> 配套：[current-completed-features](04_delivery/current-completed-features.md)（已实现状态）、[联调日志](04_delivery/联调日志.md)（逐轮过程）
+> 原则：审计与文档整理，建议任务按优先级排序，需人工确认后再开发。
 
 ## 一、优先级说明
 
@@ -14,59 +13,56 @@
 | P2 | 增强/补全，可排期 |
 | P3 | 低频/展示性，可延后 |
 
-## 二、待开发任务总表
+## 二、已关闭 / 已修复（摘要，2026-07-08）
 
-| 编号 | 功能模块 | 文档要求 | 前端位置 | 后端位置 | 当前状态 | 缺少细节 | 优先级 | 建议修改仓库 | 备注 |
-|---|---|---|---|---|---|---|---|---|---|
-| T01 | 真实链路启用与联调（全局） | 各模块 `VITE_USE_REAL_*=true` 走真 | `samisWeb/src/config/apiFlags.ts`、`.env.example` | `index/route/samis.php`（已就绪） | **第五轮已完成（2026-07-08）—— T01 全模块联调收尾** | 第一轮 auth/operationInfo/room + 第二轮 anesthesiaDict（读路径全 code:0；7 类写往返 32/32 PASS、0 残留）+ 第三轮 anesthesiaRecord/Sync（3a 集成测试 6/6、3b-curl 主表+medication 7/7）+ 第四轮 pacu/postoperative/preoperative 三模块统一 CRUD（curl 矩阵 93/93 + 收尾 6/6 + e2e 3/3）+ **第五轮 quality 服务端权威聚合计算（5 聚合读 code:0+26 结构 + check CRUD 物理删往返 + 合成病例 PHT-17 计算端到端验证 + e2e 3/3）**（详见 `docs/04_delivery/联调日志.md`）；device 仍默认 false | P0 | samisWeb | 第二轮 dict 新增后端路由接线 6 条；累计登记缺陷 T20/T21/T22/T23/T24/T25/T26/T27/T28；**第五轮：quality 读路径 5/5（indicators 26 行/indicatorDetail + 2002 未知码/report 26 指标×7 月/hypothermiaCases/adverseEvents）、check CRUD 往返（create→update→delete 物理删→getById 2101，空 checkItem 500 同 T26）、合成病例计算验证（saveRecord casePayload blob 全麻→admit firstTemp=35.5→hypothermiaCases 命中 pacu_first_temp 35.5 + PHT-17 num=1/den=1/value=100/status=warning + indicatorDetail.numeratorCases 含该 case→voidRecord 后出聚合）；新登记 T28（indicators 页无 on-mount loader，与 T25/T27 同源）；**T25/T27/T28 已合并为「统一预载/loader 治理」任务（见 T27）**；device raw 真链路/冲突 resolveConflict/其余 24 指标逐条公式验证（需临床种子）仍范围外** |
-| T02 | 报表统计后端端点 | 工作量/麻醉方式/运营统计报表 | `samisWeb/src/views/reports/*.vue`、`src/mock/clinicalModulesSeed.ts`（buildWorkloadStats） | **无 report 端点/域** | 半完成 | 前端本地计算；缺后端聚合 + 导出（CSV/Excel） | P1 | index | 建议新增 `app/samis/domain/report/` 或复用 quality 聚合 |
-| T03 | 麻醉计划/交班/小结 持久化 | 计划、交班、小结记录 | `samisWeb/src/views/surgery/AnesthesiaPlan.vue`、`AnesthesiaHandover.vue`、`AnesthesiaSummary.vue` | 无专用表/接口 | 半完成 | 确认是否随 `anes_record.case_payload` 持久化；若需独立查询/历史，需建表 + 接口 | P1 | index | 需先与业务确认持久化与回读需求 |
-| T04 | 系统管理-用户管理接入 | 用户列表/CRUD/改密 | `samisWeb/src/views/system/SystemUsers.vue`、`src/api/adminUser.ts` | `...AdminUser.php`（adminUserList/Create/Update/Delete/changePassword 已实现） | **已完成（2026-07-08）** | 新增 `src/api/adminUser.ts`（user/group/menu wrapper）+ `adminAggregatorService.ts`（token-safe + groupid↔role 字段映射 adapter）+ store 接线（remote 状态/CRUD actions/systemUsers getter 真实优先）+ SystemUsers 全 CRUD（onMounted 先组后用户、角色下拉来自真组 groupid、删除按钮、新增/编辑/改密 modal、数据源标签）；vue-tsc 0 error；curl(token) create→update→delete 往返 code:0（修复后端 `UserInformationService::deleteUser` 误用 `updateUser` 单参致 500，改用 `repository->deleteUser`）；.env.local 启用 `VITE_USE_REAL_ADMIN=true` | P1 | samisWeb | role↔groupid 映射：弃硬编码枚举，SystemUser.role 改 number(groupid)\|string(mock枚举)；getMenu 用当前登录用户 groupid（非参数） |
-| T05 | 系统管理-角色/菜单接入 | 角色、菜单、用户组管理 | `samisWeb/src/views/system/SystemRoles.vue` | `...AdminCategory.php`、`AdminUserGroup.php`（已实现） | **已完成（2026-07-08）** | 复用 T04 `adminUser.ts`（adminUserGroupsList + adminCategory/getMenu）；SystemRoles 只读接真（onMounted 并发拉组+菜单树；真实模式展示真组 id/name/权限(catidsList)/按 groupid 统计人数 + a-tree 渲染 getMenu 菜单树；mock 模式回退静态 ROLE_DEFS）；保持只读无 CRUD UI；curl(token) adminUserGroupsList/getMenu code:0；e2e `real-integration-admin.spec.ts` 覆盖两页读路径 | P1 | samisWeb | 真实库当前仅 1 组(999:麻醉系统管理员)/1 用户/9 菜单节点；菜单树为当前登录用户权限，非全角色 |
-| T06 | 审计日志接口定义 | 操作审计日志 | `samisWeb/src/views/system/SystemAudit.vue` | **`saveAuditLog` 未定义** | 半完成 | 待后端确认：纳入 pushBatch 审计项 or 独立 `audit/*` 接口；字段（操作人/时间/实体/前后值/客户端） | P1 | index | 本地已有 audit_log 概念 |
-| T07 | 设备监测真实硬件直连 | 监护仪/呼吸机真实采集 | `samisWeb/src/views/monitor/*.vue`、`src/services/anesthesia/monitorMockService.ts` | `...AnesthesiaDevice.php`（getLatestDeviceData）+ device_raw 经 pushBatch | 半完成 | 当前仅 mock 采集；独立 `batchPushMonitorData/VentilatorData` 端点暂缓；需硬件网关/适配层 | P2 | index/samisWeb | 真实硬件摄入属未来能力 |
-| T08 | 事件/设备字典专用端点 | getEventDict / getDeviceDict | `samisWeb/src/views/config/ConfigEvents.vue` | 无专用端点（走通用 getDictItem） | 半完成 | 路径未在 OpenAPI 确认；若后端不提供，明确改走通用 getDictItem(category_code) | P2 | index | 含设备字典配置预留 |
-| T09 | ConfigRooms 写接口启用 | 手术间维护 CRUD | `samisWeb/src/views/config/ConfigRooms.vue` | `...Room.php`（roomCreate/Update/Delete/Group 已实现） | 半完成 | 页面"预留"，wrapper 已有但未启用新增/编辑/删除 UI | P2 | samisWeb | room 归 huli，samis 委托 |
-| T10 | 评分模板字段建模 | 评分规则/模板字段 | `samisWeb/src/views/config/ConfigScores.vue` | `...AnesDict.php`（getDictItem） | 半完成 | 评分仅走通用 dict item；评分规则/分项未单独建模 | P3 | index | — |
-| T11 | PDCA 后端建模 | PDCA 持续改进环 | `samisWeb/src/views/quality/QualityPdca.vue` | 无 PDCA 接口 | 半完成（展示框架） | 走 store 展示；缺 PDCA 计划/执行/检查/处理环节后端 | P3 | index | — |
-| T12 | 质控历史快照表 | 质控趋势历史 | `samisWeb/src/views/quality/QualityReports.vue`（趋势模拟） | `anes_quality_snapshot` 表留后续 | 半完成 | 趋势为模拟；缺定时快照写入 + 历史查询接口 | P2 | index | 文档 R4 已标记留后续 |
-| T13 | field_conflict 冲突类型产出 | 字段级冲突检测 | `samisWeb/src/services/anesthesia/anesthesiaSyncConflict.ts`、`SyncConflictPanel.vue` | `...AnesthesiaSync.php`（resolveConflict 已支持全量类型） | 半完成 | record_printed/vital_corrected 等已产出，**field_conflict 待产出** | P2 | index | Slice 3e 遗留 |
-| T14 | 模板字段（templateField）确认 | 打印模板字段维护 | `samisWeb/src/views/config/ConfigPrint.vue` | `...AnesDict.php`（getTemplateField/save/disable） | 半完成 | 仅空分页 mock，页面预留；字段定义待后端示例 | P3 | index/samisWeb | — |
-| T15 | huliWeb↔samis 接口字段对齐梳理 | 跨系统字段一致性 | `huliWeb/`（无文档）、`samisWeb/docs/护理系统新版本数据库文档.md` | `index/app/huli/` ↔ `app/samis/` | 半完成（参考） | **无文档**；患者/手术/护理字段在两前端间未对齐梳理 | P2 | 文档任务 | 输出字段映射 md，不改业务代码 |
-| T16 | 接口配置页定位（sys-4） | 接口配置展示 | `samisWeb/src/views/system/SystemIntegration.vue` | n/a | 只有框架 | 明确：补真实能力 or 标注为占位/废弃 | P3 | samisWeb | — |
-| T17 | huliWeb 文档补齐 | 护理前端文档 | `huliWeb/README.md`（空） | — | 未开始 | 无任何文档；建议补 README + 手术安排/护理流程/接口字段说明 | P3 | 文档任务 | 仅参考用 |
-| T18 | `getOperationList` 分页疑似失效 | `pageSize` 应限制返回行数 | `samisWeb/src/store/...`（排班列表） | `index/app/samis/...OperationInfo@getOperationInfoList` | **已修复（2026-07-08）** | **根因**：`index/app/shared/service/BaseService.php::handlePaginationParams:266` 仅读 snake `page_size`、不读 camel `pageSize` → 前端传 `pageSize` 时被忽略（联调中 `?page=1&pageSize=2` 仍返回 100 行）。**修复**：改 `$rawSize = $params['page_size'] ?? $params['pageSize'] ?? null` 双键兜底（共享基类，覆盖所有走 `handlePaginationParams` 的列表）。**验收**：curl `getOperationList?page=1&pageSize=2`→list≤2（分页生效）。来源计划 `.kilo/plans/1783417413321-samis-real-integration-auth-op-room.md` | P2 | index | 来源 T01 第一轮联调（2026-07-07）；**已关闭** |
-| T19 | 远程地址引用统一 | 配置注释/示例统一指向目标后端 | `samisWeb/.env.example`（注释 `47.105.38.226`）、`vite.config.mjs`（已改 target，注释待统一） | — | 待处理 | T01 第一轮仅改了 vite 代理 target；`.env.example` 的直连示例及多处注释仍写 `47.105.38.226:8022`（远程 Apifox），与本地 `192.168.10.178:8022` 不一致，需统一（或抽到单一变量） | P3 | samisWeb | 来源 T01 第一轮联调（2026-07-07） |
-| T20 | dict 列表分页 `page_size` 被忽略 | `page_size` 应限制返回行数 | `samisWeb/src/api/anesthesiaDict.ts`（query 用 snake `page_size`） | `index/app/samis/domain/dict/service/AnesDictService.php::getList`（仅读 `pageSize`）+ `app/shared/response/ApiResponse.php::paginate`（不切片） | **已修复（2026-07-08）** | **根因**：`index/app/samis/domain/dict/service/AnesDictService.php::getList:72` 仅读 camelCase `pageSize`、不读 snake `page_size` → 前端字典查询传 `page_size` 被忽略（`getStaff?page_size=2` 仍返回 6 行，响应 `data.page_size=2` 但 list 未切片）。**修复**：改 `$pageSize = (int)($params['page_size'] ?? $params['pageSize'] ?? 10)` 双键兜底；同步对控制器 `AnesDict.php:~508`（`api_paginate` 元数据 `pageSize` 同改双键）、`AdminUserGroupService::getGroupList:33`、`UserInformationService::getUserList:147` 同改（预防性，均直读分页参数）。注：实际切片由 repository `paginateList` 完成，`ApiResponse::paginate` 仅包元数据——pageSize 正确读入后切片即生效（原「双重根因」判断修正为单一根因：参数名读取）。**验收**：curl `getStaff?page_size=2`→list≤2（此前 6 行，现已切片生效）。来源计划 `.kilo/plans/1783417413321-samis-real-integration-auth-op-room.md` | P2 | index | 来源 T01 第二轮联调（2026-07-07）；**已关闭** |
-| T21 | 启动期 dict GET token 竞态（引导预载失效） | 引导阶段预载应在 token 就绪后发 | `samisWeb/src/main.ts`（启动期 bootstrap）+ `router.beforeEach`（每次导航 bootstrap）+ `stores/anesthesia.ts::bootstrapAnesthesiaLocalPersistence`（`localPersistenceReady` 守卫）+ `services/auth/authService.ts::loginWithCredentials` | —（后端 `api_error` 对鉴权失败统一返回 HTTP 400） | **已修复（2026-07-08）** | **修复**：① `main.ts` 将 `restoreSessionIfPresent()` 移到 `bootstrapAnesthesiaLocalPersistence()` 之前（刷新页 saved-session 有 token 再加载远程目录）；② `loginWithCredentials` 在 `setSamisSession` 后 fire-and-forget 触发 `loadSamisBaseCatalog()`（fresh 登录重载 dict/room/operationInfo，绕过 bootstrap guard）。验收：fresh 登录 + 刷新页 catalog GET（dict/room/operationInfo/pacu）均 `code:0`（非 pre-token 400）。来源计划 `.kilo/plans/1783417413321-samis-real-integration-auth-op-room.md` | P2 | samisWeb | 来源 T01 第二轮联调（2026-07-07）；**已关闭** |
-| T22 | `saveVitalDict` 缺 `short_code` 触发 NOT NULL | `short_code` 未传时不应置 null | `samisWeb/src/views/config/ConfigVitals.vue`（需保证提交 short_code） | `index/app/samis/domain/dict/service/AnesDictService.php::normalizeVitalDictData`（`short_code` 默认 null）+ `anes_vital_dict.short_code` 为 `NOT NULL` | **已修复（2026-07-08）** | **根因**：`index/app/samis/domain/dict/service/AnesDictService.php::normalizeVitalDictData:573` 未传 `short_code` 时显式置 null，但 `anes_vital_dict.short_code` 为 `NOT NULL` → `saveVitalDict` 不带 `short_code` 触发 `SQLSTATE[23000] 1048 Column 'short_code' cannot be null`。**修复**：`short_code` 缺省回退 `$params['code']`（`$params['shortCode'] ?? $params['short_code'] ?? $params['code']`），**不改 DDL**（列保持 `NOT NULL DEFAULT ''`）。**验收**：curl `saveVitalDict` 不带 `short_code`→`code:0`，回读 `short_code=code`。注：同表 `code/item_name/unit` 亦 NOT NULL、normalize 未传同样置 null（理论上不传亦 1048），但前端恒传，本轮未动（留后续：NOT NULL 列缺省统一落 `''` 而非 null）。来源计划 `.kilo/plans/1783417413321-samis-real-integration-auth-op-room.md` | P2 | index | 来源 T01 第二轮联调（2026-07-07）；本轮写往返补传 short_code 规避；**已关闭** |
-| T23 | `getRecordDetail` 浏览器门控：hydrate/reload 以全局 `ANESTHESIA_USE_MOCK` skip，不经浏览器 UI 触发 | 服务端回读应在「record 走真」时生效 | `samisWeb/src/services/anesthesia/anesthesiaRecordHydrate.ts`（`hydrateCaseFromServer`/`reloadCaseFromServer` 的门控）+ `src/config/apiFlags.ts`（`ANESTHESIA_USE_MOCK` opt-in 配置下恒 true） | —（后端 getRecordDetail 正常，curl/集成测试通过） | **已修复（2026-07-08）** | **修复**：门控由 `if (ANESTHESIA_USE_MOCK) return null` 改为 `if (!useRealAnesthesiaRecord()) return null`（import 同步替换 `ANESTHESIA_USE_MOCK`→`useRealAnesthesiaRecord`）。验收：record opted-in 时，对有服务端主表的病例开记录单/重载现发 `getRecordDetail` 并聚合回读；getRecordDetail 失败仍降级本地不崩。mock 模式（flag false）仍 skip，行为不变。来源计划 `.kilo/plans/1783417413321-samis-real-integration-auth-op-room.md` | P2 | samisWeb | 来源 T01 第三轮联调（2026-07-07）；**已关闭** |
-| T24 | Slice 3c 临床子表（`anes_fluid`/`anes_transfusion`/`anes_io_record`/`anes_lab_result`）+ snapshot 4 列在 samis 库缺失 | 文档声明「已落地」但实际未建表 | —（表定义在 `index/doc/sql/samis_anes_clinical.sql`） | `samis` 库（OceanBase 2881） | 缺陷（已确认，已临时补齐） | 第三轮联调暴露：`getRecordDetail` 聚合 7 子表时查 `anes_fluid` → `1146 Table doesn't exist`，导致 3a 2 个用例失败。根因：Slice 3c 的 `samis_anes_clinical.sql` 仅入仓库未实际导入 samis 库；`anes_record_snapshot` 亦缺 `snapshot_no/printed_at/operator/immutable`。**已临时补齐**（导入 4 表 + 普通 ALTER 补 4 列，OceanBase 不支持 `ADD COLUMN/INDEX IF NOT EXISTS` 报 1064）。后续建议：① 将建表纳入部署/初始化脚本，避免文档与库不一致；② 同步导入其余 `doc/sql/samis_anes_*.sql` 核对全量表齐备 | P2 | index（运维/部署） | 来源 T01 第三轮联调（2026-07-07）；已临时补表，需固化为部署步骤 |
-| T25 | **（已并入 T27）** 统一预载 / onMounted loader 治理 | — | — | — | 已并入 T27（PACU 页面级补丁已落） | 同源根因（`bootstrapRemoteConfigs` 从未调用）；PACU 列表页读路径缺失已用 `PacuList.vue` onMounted 规避，根治见 T27 | P2 | samisWeb | 来源 T01 第四轮联调（2026-07-08）；**已合并入 T27** |
-| T26 | 校验器层枚举/必填缺失统一返回 `code:500`，与文档声明的业务码不符 | 文档/计划标注业务码（1201/1301 等） | `samisWeb/...api/*.ts`（无）；文档 `04_delivery/...` | `index/app/samis/domain/{pacu,postoperative,preoperative}/validate/*Validate.php`（`$this->validate()` 失败）+ 全局异常处理（ValidateException→`code:500`） | 缺陷（文档/契约不一致） | 第四轮联调据实确认：控制器 `$this->validate()` **先于 service** 拦截，**必填缺失/枚举非法统一返回 `code:500`**（app 的 ValidateException 兜底），而非计划/文档声明的业务码——如 followupType 非法（文档说 1201，实为 500）、caseId 空（500）、complicationType 空（文档说 1301，实为 500）、pacuInTime/bookingTime 等必填缺失（500）。业务码（1003/1004/1201~1204/1104/1301/1302/1401/1402/1501/1300 等）仅在 service 层唯一性/状态前置/不存在时返回。**影响**：前端按业务码分支的 catch 逻辑会漏接校验失败（统一落兜底提示）；对外契约（错误码字典）与实现不符。建议：① 校验失败映射为 4xx/专用码（如 400 + field detail）；或 ② 文档据实修正错误码字典（校验类=500） | P2 | index | 来源 T01 第四轮联调（2026-07-08）；非阻塞，本轮据实断言全通过 |
-| T27 | **统一预载 / onMounted loader 治理（合并 T25/T28）** | 登录/启动应在 token 就绪后统一预载远程配置（dict/pacu/quality 等），替代分散逐页 onMounted | `samisWeb/src/stores/anesthesia.ts`（`bootstrapRemoteConfigs`/`loadSamisBaseCatalog` 定义但**无统一调用方**）+ `src/main.ts` + `src/views/PacuList.vue`（已补 onMounted）+ `src/views/QualityDashboard.vue`（T28 已补 onMounted 接后端） | — | 缺陷（已确认，部分缓解） | **根因**：统一预载 `bootstrapRemoteConfigs`（并发预载 drug/fluid/template/vital/staff/method/event/score/room + pacu list/booking/beds）无中央调用方。**三处同源症状**：① T25 PACU 列表页（**已页面级补丁**：`PacuList.vue` onMounted）；② T28 质控 indicators 页（**已修复 2026-07-08**：`QualityDashboard` onMounted 接 `loadRemoteIndicators`/`loadRemoteIndicatorDetail` + 查询/切换触发）；③ 与 T21 叠加（**T21 已修复**：登录后 fire-and-forget 触发 `loadSamisBaseCatalog`）。**剩余根治建议**：登录成功（token 就绪）后统一调用一次 `loadSamisBaseCatalog()`（并补 indicators 进预载清单），替代逐页 onMounted；同时复核其余 PACU/质控子页是否同样缺挂载拉取 | P2 | samisWeb | 来源 T01 第四/五轮联调（2026-07-08）；**T21/T23/T28 已于 2026-07-08 修复；T25（页面级补丁）保留；统一预载中央根治仍待办** |
-| T28 | **（已并入 T27，质量面板部分已修复 2026-07-08）** 统一预载 / onMounted loader 治理 | — | `samisWeb/src/views/QualityDashboard.vue` | — | **质量面板部分已修复（2026-07-08）** | 同源根因（`bootstrapRemoteConfigs` 从未调用）；**质控 indicators 页已补 onMounted + 查询/切换触发 `loadRemoteIndicators`/`loadRemoteIndicatorDetail`（T28 面板接后端，见 completed-features）**；中央统一预载根治（`loadSamisBaseCatalog` 登录后统一调用）仍属 T27 范围 | P2 | samisWeb | 来源 T01 第五轮联调（2026-07-08）；**质量面板子项已关闭；统一预载根治仍归 T27** |
+> 详情见 [联调日志](04_delivery/联调日志.md) 各轮结论与 [current-completed-features](04_delivery/current-completed-features.md)。
 
-### 路由接线说明（T01 第二轮，2026-07-07）
+- **T01 全模块真实链路联调收尾**：auth / operationInfo / room / anesthesiaDict / anesthesiaRecord / anesthesiaSync / pacu / postoperative / preoperative / quality / admin 共 **11 模块端到端走真**（device 仍 mock）。累计登记缺陷 T20~T28 已修或并入。
+- **T04 系统管理-用户管理**：新增 `src/api/adminUser.ts` + adminAggregatorService（token-safe + groupid↔role 映射）+ store 接线 + SystemUsers 全 CRUD（create/update/delete/changePassword 往返 code:0）。
+- **T05 系统管理-角色/菜单（只读接真）**：SystemRoles 只读接真（真组 id/name/权限 + getMenu 菜单树）；curl + e2e 覆盖。**完整 CRUD UI 仍 open（见下）**。
+- **分页修复**：T18 `getOperationList` pageSize 被忽略、T20 dict `page_size` 被忽略——根因均为共享基类/服务仅读 camel 或 snake 单键；改双键兜底（`$params['page_size'] ?? $params['pageSize'] ?? null`），切片生效。
+- **T21 启动期 token 竞态**：`main.ts` 将 `restoreSessionIfPresent()` 前置；`loginWithCredentials` 登录后 fire-and-forget 触发 `loadSamisBaseCatalog()`。
+- **T22 saveVitalDict short_code NOT NULL**：normalizeVitalData 缺省回退 `$params['code']`，不改 DDL（NOT NULL DEFAULT ''）。留后续：同表 NOT NULL 列缺省统一落 `''` 而非 null。
+- **T23 getRecordDetail 浏览器门控**：由 `if (ANESTHESIA_USE_MOCK) return null` 改 `if (!useRealAnesthesiaRecord()) return null`。
+- **T24 临床子表缺表**：`anes_fluid`/`anes_transfusion`/`anes_io_record`/`anes_lab_result` + snapshot 4 列已临时导入 samis 库。**固化部署仍 open（见下）**。
+- **T25 / T28**：同源根因（`bootstrapRemoteConfigs` 从未统一调用），已并入 T27；质量面板子项已页面级补丁关闭。
+- **T27 统一预载/loader（部分缓解）**：T21/T23/T28 已修，PACU/质量已页面级 onMounted 补丁。**登录后中央统一预载根治仍 open（见下）**。
+- **路由接线**：`route/samis.php` 的 `anesthesiaDict` 组补注册 6 条端点（getStaff/saveStaff/disableStaff、getVitalDict/saveVitalDict/disableVitalDict）——控制器/服务已就绪仅缺路由，零逻辑变更（已登记例外）。
 
-- **背景**：`route/samis.php` 的 `anesthesiaDict` 路由组此前**遗漏** 6 条专用端点——`getStaff/saveStaff/disableStaff`、`getVitalDict/saveVitalDict/disableVitalDict`。控制器 `AnesDict.php` 与服务层 `AnesDictService.php` 对应方法均已实现，仅缺路由注册 → 真链路下这些端点返回 HTTP 404（ThinkPHP 渲染 HTML 错误页），阻塞 vital/staff 读写往返与前端 `/config/vitals`、`/config/staff`。
-- **改动**：在 `anesthesiaDict` 组补注册上述 6 条 `Route`（PcAuth 由组级中间件继承），**零逻辑变更**，属"接线既有控制器方法"。计划 `1783417413321...md` 原护栏为"不改后端代码"，因控制器/服务均已就绪、仅缺路由且阻塞联调，经确认后作为唯一例外执行并在此登记。
-- **影响范围**：仅暴露既有功能；mock 模式（`VITE_USE_REAL_ANESTHESIA_DICT=false`）不受影响（仍走前端 `samisMockRouter`）。
-- **验证**：补注册后 `getStaff`/`getVitalDict` 返回 `code:0`（staff=6 条、vital=10 条种子）；`save/disable` 写往返通过（见 T3.4/T3.5）。
+## 三、Open backlog（待开发）
 
-## 三、建议执行顺序
+| 编号 | 功能 | 仓库 | 状态 | 待办 | 优先级 |
+|---|---|---|---|---|---|
+| T02 | 报表统计后端端点（工作量/麻醉方式/运营） | index | 半完成 | 前端本地计算；缺后端聚合 + CSV/Excel 导出。建议 `app/samis/domain/report/` 或复用 quality 聚合 | P1 |
+| T03 | 麻醉计划/交班/小结 持久化 | index | 半完成 | 确认是否随 `anes_record.case_payload` 持久化；若需独立查询/历史，需建表 + 接口。**需先与业务确认回读需求** | P1 |
+| T06 | 审计日志接口定义 | index | 半完成 | `saveAuditLog` 未定义；待确认纳入 pushBatch 审计项 or 独立 `audit/*`（操作人/时间/实体/前后值/客户端） | P1 |
+| T05 | 角色/菜单 完整 CRUD UI | samisWeb | 部分（只读已接真） | 当前 SystemRoles 仅只读；角色/菜单/用户组 CRUD UI 未启用 | P2 |
+| T07 | 设备监测真实硬件直连 | index/samisWeb | 半完成 | 当前 mock 采集；需硬件网关/适配层；独立 batchPush* 端点暂缓 | P2 |
+| T13 | field_conflict 冲突类型产出 | index | 半完成 | resolveConflict 已支持全量类型，但 **field_conflict 待产出**（Slice 3e 遗留；record_printed/vital_corrected 已产出） | P2 |
+| T24 | 临床子表 缺表 固化部署 | index（运维/部署） | 已临时补齐 | 4 表 + snapshot 4 列已临时导入；**需纳入部署/初始化脚本**避免文档与库不一致；同步核对其余 `doc/sql/samis_anes_*.sql` 全量表 | P2 |
+| T26 | 校验器层统一返回 code:500 | index | 缺陷（契约不一致） | 控制器 `ValidateException`→`code:500`（非文档业务码 1201/1301 等）；详见 [api-integration-status](05_api/api-integration-status.md)「错误码分层约定」。建议映射 4xx/VALIDATION_*（2001~2005）或据实修错误码字典 | P2 |
+| T27 | 统一预载/loader 中央根治 | samisWeb | 部分缓解 | 登录成功（token 就绪）后统一调用 `loadSamisBaseCatalog()`（并补 indicators 进预载清单），替代逐页 onMounted；复核其余 PACU/质控子页是否缺挂载拉取 | P2 |
+| T12 | 质控历史快照表 | index | 半完成 | 趋势为模拟；缺定时快照写入 + 历史查询接口（`anes_quality_snapshot`，文档 R4 已标记留后续） | P2 |
+| T15 | huliWeb↔samis 字段对齐梳理 | 文档任务 | 半完成(参考) | **无文档**；患者/手术/护理字段两前端未对齐。输出字段映射 md，不改业务代码 | P2 |
+| T08 | 事件/设备字典专用端点 | index | 半完成 | getEventDict/getDeviceDict 路径未确认；若后端不提供，改走通用 getDictItem(category_code) | P2 |
+| T09 | ConfigRooms 写接口启用 | samisWeb | 半完成 | wrapper 已有但未启用新增/编辑/删除 UI（room 委托 huli） | P2 |
+| T10 | 评分模板字段建模 | index | 半完成 | 评分仅走通用 dict item；规则/分项未单独建模 | P3 |
+| T11 | PDCA 后端建模 | index | 半完成(框架) | 走 store 展示；缺 PDCA 计划/执行/检查/处理环节后端 | P3 |
+| T14 | 模板字段 templateField 确认 | index/samisWeb | 半完成 | 仅空分页 mock；字段定义待后端示例 | P3 |
+| T16 | 接口配置页定位（sys-4） | samisWeb | 只有框架 | 补真实能力 or 标注为占位/废弃 | P3 |
+| T17 | huliWeb 文档补齐 | 文档任务 | 未开始 | 无任何文档；建议 README + 手术安排/护理流程/接口字段说明 | P3 |
+| T19 | 远程地址引用统一 | samisWeb | 待处理 | `.env.example` 注释仍写 `47.105.38.226:8022`（远程 Apifox），与本地 `192.168.10.178:8022` 不一致，需统一（或抽到单一变量） | P3 |
 
-1. **P0（先做）**：T01 — 启用真实链路联调。这是所有"已完成"模块转为生产可用的前置条件。建议按风险从低到高：auth/room/operationInfo → dict → anesthesiaRecord/Sync → pacu/postoperative/preoperative → quality。**进度：2026-07-07~08 已完成第一轮（auth/room/operationInfo）+ 第二轮（anesthesiaDict 端到端走真，读路径全 code:0、7 类写往返 32/32 PASS）+ 第三轮（anesthesiaRecord/Sync：3a 集成测试 6/6、3b-curl 主表+medication 全往返 7/7、3b-浏览器 live 管线冒烟通过）+ 第四轮（pacu/postoperative/preoperative：curl 矩阵 93/93 + 收尾 6/6 + e2e 3/3）+ 第五轮（quality 服务端权威聚合计算：5 聚合读 code:0+26 结构、check CRUD 物理删往返、合成病例 PHT-17 计算端到端验证、e2e 3/3，详见 completed-features「第五轮结论」）**。**T01 全模块联调收尾（auth/op/room/dict/record/sync/pacu/postop/preop/quality 共 10 模块端到端走真）**；累计登记 P2 缺陷 T20~T28 待后续修复，device raw 真链路/冲突 resolveConflict/其余 24 指标逐条公式验证（需临床种子）仍范围外。
+## 四、建议执行顺序
 
-2. **P1（本迭代）**：T02 报表端点、T03 计划/交班/小结持久化、T06 审计日志。**T04/T05 系统管理接入已补齐（2026-07-08：用户全 CRUD + 角色/菜单只读接真，详见对应行 + completed-features「第六轮结论」）**；剩余 T02/T03/T06 补齐后，samisWeb 的"半完成"核心管理链路即闭环。
+1. **P0（已完成）**：T01 真实链路联调——11 模块端到端走真（device 仍 mock）。
+2. **P1（本迭代）**：T02 报表端点、T03 计划/交班/小结持久化、T06 审计日志。补齐后 samisWeb「半完成」核心管理链路闭环。
+3. **P2（排期）**：T05 完整 CRUD UI、T07 设备直连、T13 field_conflict、T24 固化部署、T26 错误码契约、T27 中央预载根治、T12 质控快照、T15 字段对齐文档、T08 事件/设备字典、T09 ConfigRooms 启用。
+4. **P3（延后）**：T10 评分建模、T11 PDCA、T14 模板字段、T16 接口配置页、T17 huliWeb 文档、T19 地址统一。
 
-3. **P2（排期）**：T07 设备直连、T08 事件/设备字典、T09 ConfigRooms 启用、T12 质控快照、T13 field_conflict、T15 字段对齐文档、T24 临床子表缺表（已临时补齐，需固化部署）、T26 校验器层统一返回 500（错误码契约不一致，详见 `05_api/api-integration-status.md`「错误码分层约定」）、T27 统一预载/loader 治理（**已合并 T25/T28**）。**已修复（2026-07-08）：T18（getOperationList 分页 pageSize 被忽略）、T20（dict 分页 page_size 被忽略）、T21（启动期 token 竞态）、T22（saveVitalDict short_code NOT NULL）、T23（getRecordDetail 浏览器门控）、T28（质控面板接后端，质量面板子项关闭）**。
+## 五、验收口径
 
-4. **P3（延后）**：T10 评分建模、T11 PDCA、T14 模板字段、T16 接口配置页、T17 huliWeb 文档、T19 远程地址引用统一。
-
-## 四、验收口径
-
-- 每个任务完成后，须在 `docs/05_api/api-integration-status.md` 与 `04_delivery/current-completed-features.md` 同步更新对应行（状态由"部分集成/未集成/待后端确认"改为"已集成"）。
+- 每个任务完成后，须在 [api-integration-status](05_api/api-integration-status.md) 与 [current-completed-features](04_delivery/current-completed-features.md) 同步更新对应行（状态改为「已集成」）。
 - 涉及新接口须补 API wrapper + adapter + mock 分支 + 测试文件（沿用现有 `src/api/*.test.ts` 模式）。
 - 涉及新表须在 `index/doc/sql/` 补 `samis_anes_*.sql` 并在 `数据库文档.md` 登记。
-- 涉及跨库（写 huli 表）必须走 `huli export`（见 `samis_huli_跨库实现规范.md`），不得在 samis 直写。
+- 涉及跨库（写 huli 表）必须走 `huli export`（见 `index/doc/samis_huli_跨库实现规范.md`），不得在 samis 直写。
