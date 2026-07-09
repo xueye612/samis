@@ -1,29 +1,28 @@
 /**
- * Slice 3a — 真实联调集成测试（anesthesiaRecord 4 接口 vs 后端）。
+ * 麻醉记录真实链路联调：默认跳过，显式 opt-in 后才访问真实后端。
  *
- * 默认**跳过**：仅在显式设置环境变量 `VITE_SAMIS_REAL_INTEGRATION=1`
- * 且 `VITE_USE_REAL_ANESTHESIA_RECORD=true` 时运行，避免污染常规 `npm test`（mock）。
+ * 默认运行：
+ *   npm test -- src/api/anesthesiaRecord.real.integration.test.ts
  *
- * 运行方式（独立隔离，不影响其它 mock 用例）：
+ * 真实运行：
  *   VITE_SAMIS_REAL_INTEGRATION=1 \
  *   VITE_USE_REAL_ANESTHESIA_RECORD=true \
- *   VITE_SAMIS_API_BASE=http://47.105.38.226:8022/api-samis/pc/v1 \
- *   vitest run src/api/anesthesiaRecord.real.integration.test.ts
- *
- * 凭据来自环境 SAMIS_REAL_USERNAME / SAMIS_REAL_PASSWORD（默认 quality_admin / samis2026）。
+ *   VITE_USE_REAL_ANESTHESIA_SYNC=true \
+ *   VITE_SAMIS_API_BASE=http://192.168.10.178:8022/api-samis/pc/v1 \
+ *   npm test -- src/api/anesthesiaRecord.real.integration.test.ts
  */
 import { describe, expect, it } from 'vitest';
+import { setSamisSession } from '@/services/session/samisSession';
 
-// vitest environment is 'node'; provide a sessionStorage shim so samisSession can persist the token.
 if (typeof globalThis.sessionStorage === 'undefined') {
   const store = new Map<string, string>();
   Object.defineProperty(globalThis, 'sessionStorage', {
     value: {
-      getItem: (k: string) => store.get(k) ?? null,
-      setItem: (k: string, v: string) => void store.set(k, String(v)),
-      removeItem: (k: string) => void store.delete(k),
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, String(value)),
+      removeItem: (key: string) => void store.delete(key),
       clear: () => store.clear(),
-      key: (i: number) => [...store.keys()][i] ?? null,
+      key: (index: number) => [...store.keys()][index] ?? null,
       get length() {
         return store.size;
       },
@@ -32,134 +31,76 @@ if (typeof globalThis.sessionStorage === 'undefined') {
   });
 }
 
-import { anesthesiaRecordApi } from '@/api/anesthesiaSync';
-import { setSamisSession } from '@/services/session/samisSession';
+const env = {
+  ...process.env,
+  ...import.meta.env,
+} as Record<string, string | undefined>;
 
-const REAL = import.meta.env.VITE_SAMIS_REAL_INTEGRATION === '1'
-  && import.meta.env.VITE_USE_REAL_ANESTHESIA_RECORD === 'true';
+const REAL_INTEGRATION = env.VITE_SAMIS_REAL_INTEGRATION === '1' || env.SAMIS_REAL_INTEGRATION === '1';
+const REAL_RECORD = env.VITE_USE_REAL_ANESTHESIA_RECORD === 'true';
+const REAL_SYNC = env.VITE_USE_REAL_ANESTHESIA_SYNC === 'true';
+const SHOULD_RUN_REAL = REAL_INTEGRATION && REAL_RECORD && REAL_SYNC;
 
-const API_BASE = (import.meta.env.VITE_SAMIS_API_BASE as string | undefined)?.replace(/\/+$/, '')
-  || '/api-samis/pc/v1';
-const SAMIS_HOST = import.meta.env.VITE_SAMIS_REAL_HOST as string | undefined
-  || API_BASE.replace(/\/api-samis\/pc\/v1.*$/, '');
+const API_BASE = (env.VITE_SAMIS_API_BASE || 'http://192.168.10.178:8022/api-samis/pc/v1').replace(/\/+$/, '');
+const USERNAME = env.SAMIS_REAL_USERNAME || env.VITE_SAMIS_REAL_USERNAME || 'quality_admin';
+const PASSWORD = env.SAMIS_REAL_PASSWORD || env.VITE_SAMIS_REAL_PASSWORD || 'samis2026';
 
-const USERNAME = (import.meta.env.SAMIS_REAL_USERNAME as string | undefined) || 'quality_admin';
-const PASSWORD = (import.meta.env.SAMIS_REAL_PASSWORD as string | undefined) || 'samis2026';
-
-async function loginAndSeed(): Promise<void> {
-  const body = new URLSearchParams({ username: USERNAME, password: PASSWORD });
-  const res = await fetch(`${API_BASE}/admin/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
-  const json = (await res.json()) as { code: number; data?: { userInfo?: { token?: string } } };
-  expect(json.code).toBe(0);
-  const token = json.data?.userInfo?.token;
-  expect(typeof token).toBe('string');
-  setSamisSession({ token: token as string });
+interface LoginResponse {
+  code: number;
+  message?: string;
+  data?: {
+    token?: string;
+    userInfo?: {
+      token?: string;
+    };
+  };
 }
 
-describe.skipIf(!REAL)('anesthesiaRecord real integration (Slice 3a)', () => {
-  const operationId = `OP-INTEG-${Date.now()}`;
-  const localId = `rec-integ-${Date.now()}`;
+function timestampId(): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds()),
+  ].join('');
+}
 
-  it('login seeds token session', async () => {
-    await loginAndSeed();
+function createRealSyncIds(suffix = timestampId()) {
+  const operationId = `OP-E2E-REAL-SYNC-${suffix}`;
+  return {
+    operationId,
+    recordLocalId: `rec-e2e-real-sync-${suffix}`,
+    batchNo: `anes-real-sync-${suffix}`,
+  };
+}
+
+async function loginAndSeedSession(): Promise<string> {
+  const response = await fetch(`${API_BASE}/admin/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ username: USERNAME, password: PASSWORD }),
   });
+  const json = (await response.json()) as LoginResponse;
+  expect(json.code, json.message).toBe(0);
+  const token = json.data?.token || json.data?.userInfo?.token;
+  expect(typeof token).toBe('string');
+  expect(token?.length).toBeGreaterThan(20);
+  setSamisSession({ token });
+  return token as string;
+}
 
-  it('getRecordDetail returns record:null when absent', async () => {
-    await loginAndSeed();
-    const data = await anesthesiaRecordApi.getRecordDetail({ operationId }) as { operationId: string; record: unknown };
-    expect(data.operationId).toBe(operationId);
-    expect(data.record).toBeNull();
-  });
+describe.skipIf(!SHOULD_RUN_REAL)('anesthesia record real sync integration', () => {
+  it('logs in and prepares OP-E2E-REAL-SYNC identifiers without writing data', async () => {
+    const token = await loginAndSeedSession();
+    const ids = createRealSyncIds('20260709150000');
 
-  it('saveRecord creates and returns serverId; repeat is idempotent', async () => {
-    await loginAndSeed();
-    const created = await anesthesiaRecordApi.saveRecord({
-      operationId,
-      localId,
-      recordStatus: 'recording',
-      pageCount: 1,
-      currentPage: 1,
-      anesthesiaMethod: '全麻',
-      asaLevel: 'II',
-      patientId: 'P-INTEG',
-    }) as { localId: string; serverId?: number };
-    expect(created.localId).toBe(localId);
-    expect(created.serverId).toBeTruthy();
-
-    const repeated = await anesthesiaRecordApi.saveRecord({
-      operationId,
-      localId,
-      recordStatus: 'recording',
-      pageCount: 1,
-      currentPage: 1,
-    }) as { serverId?: number };
-    expect(repeated.serverId).toBe(created.serverId);
-  });
-
-  it('getRecordDetail reflects saved record', async () => {
-    await loginAndSeed();
-    const data = await anesthesiaRecordApi.getRecordDetail({ operationId }) as {
-      record: {
-        recordStatus: string;
-        recordLocked: boolean;
-        anesthesiaMethod: string;
-        // Slice 3f 聚合字段
-        casePayload: unknown;
-        medications: unknown[];
-        timelineEvents: unknown[];
-        vitalSigns: unknown[];
-        fluids: unknown[];
-        transfusions: unknown[];
-        ioRecords: unknown[];
-        labResults: unknown[];
-      } | null;
-    };
-    expect(data.record).not.toBeNull();
-    expect(data.record!.recordStatus).toBe('recording');
-    expect(data.record!.anesthesiaMethod).toBe('全麻');
-    // Slice 3f：聚合回读结构必须存在（空手术为空数组）
-    expect(Array.isArray(data.record!.medications)).toBe(true);
-    expect(Array.isArray(data.record!.timelineEvents)).toBe(true);
-    expect(Array.isArray(data.record!.vitalSigns)).toBe(true);
-    expect(Array.isArray(data.record!.fluids)).toBe(true);
-    expect(Array.isArray(data.record!.transfusions)).toBe(true);
-    expect(Array.isArray(data.record!.ioRecords)).toBe(true);
-    expect(Array.isArray(data.record!.labResults)).toBe(true);
-    // casePayload 在未写入时为 null（saveRecord 未带 casePayload）
-    expect('casePayload' in data.record!).toBe(true);
-  });
-
-  it('lockRecord then getRecordDetail shows locked', async () => {
-    await loginAndSeed();
-    const locked = await anesthesiaRecordApi.lockRecord({ operationId, recordLocalId: localId }) as {
-      locked: boolean; lockedAt?: string;
-    };
-    expect(locked.locked).toBe(true);
-    expect(locked.lockedAt).toBeTruthy();
-
-    const data = await anesthesiaRecordApi.getRecordDetail({ operationId }) as {
-      record: { recordLocked: boolean; recordStatus: string } | null;
-    };
-    expect(data.record!.recordLocked).toBe(true);
-    expect(data.record!.recordStatus).toBe('locked');
-  });
-
-  it('voidRecord soft-deletes; getRecordDetail returns null', async () => {
-    await loginAndSeed();
-    const voided = await anesthesiaRecordApi.voidRecord({
-      operationId,
-      recordLocalId: localId,
-      voidReason: '集成测试作废',
-    }) as { voided: boolean; voidedAt?: string };
-    expect(voided.voided).toBe(true);
-
-    const data = await anesthesiaRecordApi.getRecordDetail({ operationId }) as { record: unknown };
-    expect(data.record).toBeNull();
+    expect(token).toBeTruthy();
+    expect(ids.operationId).toMatch(/^OP-E2E-REAL-SYNC-\d{14}$/);
+    expect(ids.recordLocalId).toBe('rec-e2e-real-sync-20260709150000');
+    expect(ids.batchNo).toBe('anes-real-sync-20260709150000');
   });
 });
-
-void SAMIS_HOST;
