@@ -37,8 +37,9 @@ if (typeof globalThis.sessionStorage === 'undefined') {
   });
 }
 
+const processEnv = ((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {});
 const env = {
-  ...process.env,
+  ...processEnv,
   ...import.meta.env,
 } as Record<string, string | undefined>;
 
