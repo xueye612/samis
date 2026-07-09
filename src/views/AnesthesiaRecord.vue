@@ -606,6 +606,14 @@ interface UiSmokeSyntheticResult {
   };
 }
 
+interface UiSmokeReloadResult {
+  operationId: string;
+  record: boolean;
+  timelineEvents: number;
+  medications: number;
+  vitalSigns: number;
+}
+
 const canExposeUiSmokeHarness = () => import.meta.env.DEV
   && import.meta.env.VITE_SAMIS_REAL_INTEGRATION === '1'
   && useRealAnesthesiaRecord()
@@ -1205,6 +1213,20 @@ onMounted(async () => {
         };
       },
       readUiSmokeLocalState: inspectUiSmokeLocalState,
+      reloadUiSmokeFromServer: async (operationId: string): Promise<UiSmokeReloadResult> => {
+        if (!canExposeUiSmokeHarness()) throw new Error('UI smoke harness requires explicit real integration opt-in');
+        if (!operationId.startsWith(UI_SMOKE_OPERATION_PREFIX)) {
+          throw new Error(`UI smoke operationId must start with ${UI_SMOKE_OPERATION_PREFIX}`);
+        }
+        const reconstructed = await store.reloadCaseFromServer(operationId);
+        return {
+          operationId,
+          record: Boolean(reconstructed),
+          timelineEvents: reconstructed?.events?.length ?? 0,
+          medications: reconstructed?.medications?.length ?? 0,
+          vitalSigns: reconstructed?.vitals?.length ?? 0,
+        };
+      },
     };
   }
   await syncActiveCaseSelection();

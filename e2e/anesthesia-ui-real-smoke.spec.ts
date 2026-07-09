@@ -34,6 +34,13 @@ interface UiSmokeHarness {
       queueEntityTypes: string[];
     };
   }>;
+  reloadUiSmokeFromServer: (operationId: string) => Promise<{
+    operationId: string;
+    record: boolean;
+    timelineEvents: number;
+    medications: number;
+    vitalSigns: number;
+  }>;
 }
 
 interface RecordDetailResponse {
@@ -156,6 +163,23 @@ test.describe('anesthesia UI real smoke', () => {
       expect(detail.record?.timelineEvents?.some((item) => item.localId === `timeline-e2e-ui-${operationId}`)).toBe(true);
       expect(detail.record?.medications?.some((item) => item.localId === `med-e2e-ui-${operationId}`)).toBe(true);
       expect(detail.record?.vitalSigns?.some((item) => item.localId === `vital-e2e-ui-${operationId}`)).toBe(true);
+
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => Boolean(
+        (window as Window & { __samisAnesthesiaE2E?: UiSmokeHarness }).__samisAnesthesiaE2E?.reloadUiSmokeFromServer,
+      ), { timeout: 30_000 });
+      const reloaded = await page.evaluate(async (id) => {
+        const harness = (window as Window & { __samisAnesthesiaE2E?: UiSmokeHarness }).__samisAnesthesiaE2E;
+        if (!harness?.reloadUiSmokeFromServer) throw new Error('UI smoke reload harness is unavailable');
+        return harness.reloadUiSmokeFromServer(id);
+      }, operationId);
+      expect(reloaded).toEqual({
+        operationId,
+        record: true,
+        timelineEvents: 1,
+        medications: 1,
+        vitalSigns: 1,
+      });
     } finally {
       if (token) {
         const beforeCleanup = await apiGetRecordDetail(request, token, operationId);
