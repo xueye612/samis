@@ -12,6 +12,7 @@
  *   npm test -- src/api/anesthesiaRecord.real.integration.test.ts
  */
 import { describe, expect, it } from 'vitest';
+import { anesthesiaSyncApi, type PushBatchRequest, type PushBatchResultItem } from '@/api/anesthesiaSync';
 import { setSamisSession } from '@/services/session/samisSession';
 
 if (typeof globalThis.sessionStorage === 'undefined') {
@@ -66,6 +67,7 @@ function timestampId(): string {
     pad(now.getHours()),
     pad(now.getMinutes()),
     pad(now.getSeconds()),
+    String(now.getMilliseconds()).padStart(3, '0'),
   ].join('');
 }
 
@@ -77,6 +79,8 @@ function createRealSyncIds(suffix = timestampId()) {
     batchNo: `anes-real-sync-${suffix}`,
   };
 }
+
+const realSyncIds = createRealSyncIds();
 
 async function loginAndSeedSession(): Promise<string> {
   const response = await fetch(`${API_BASE}/admin/login`, {
@@ -93,14 +97,139 @@ async function loginAndSeedSession(): Promise<string> {
   return token as string;
 }
 
+function buildPushBatchRequest(): PushBatchRequest {
+  const { operationId, recordLocalId, batchNo } = realSyncIds;
+  const eventTime = '2026-07-09 15:10:00';
+  return {
+    batchNo,
+    operationId,
+    recordLocalId,
+    clientTime: new Date().toISOString(),
+    items: [
+      {
+        entityType: 'record',
+        operationType: 'create',
+        localId: recordLocalId,
+        baseSyncVersion: 0,
+        apiPath: '/api-samis/pc/v1/anesthesiaSync/pushBatch',
+        payload: {
+          recordNo: `ANES-${operationId}`,
+          patientId: 'P-E2E-REAL-SYNC',
+          operationRoomId: 'OR-E2E',
+          recordStatus: 'recording',
+          recordStartTime: eventTime,
+          anesthesiaMethod: 'E2E全麻',
+          asaLevel: 'II',
+          pageCount: 1,
+          currentPage: 1,
+          casePayload: {
+            patient: {
+              id: 'P-E2E-REAL-SYNC',
+              name: 'E2E麻醉记录联调',
+            },
+            operation: {
+              operationId,
+              name: 'E2E真实链路测试手术',
+            },
+          },
+        },
+      },
+      {
+        entityType: 'timeline_event',
+        operationType: 'create',
+        localId: `timeline-e2e-${operationId}`,
+        baseSyncVersion: 0,
+        apiPath: '/api-samis/pc/v1/anesthesiaSync/pushBatch',
+        payload: {
+          eventType: '入室',
+          eventCode: 'E2E_ROOM_IN',
+          eventName: 'E2E患者入室',
+          eventTime,
+          stage: 'induction',
+          severity: 'info',
+          source: 'real-integration',
+          status: 'active',
+        },
+      },
+      {
+        entityType: 'medication',
+        operationType: 'create',
+        localId: `med-e2e-${operationId}`,
+        baseSyncVersion: 0,
+        apiPath: '/api-samis/pc/v1/anesthesiaSync/pushBatch',
+        payload: {
+          drugName: 'E2E_TEST_丙泊酚',
+          drugCode: 'E2E_PROPOFOL',
+          drugCategory: 'anesthetic',
+          dose: '100',
+          doseUnit: 'mg',
+          route: 'iv',
+          mode: 'bolus',
+          eventTime,
+          displayText: 'E2E_TEST_丙泊酚 100mg',
+          executor: 'quality_admin',
+          source: 'real-integration',
+          status: 'active',
+        },
+      },
+      {
+        entityType: 'vital_sign',
+        operationType: 'create',
+        localId: `vital-e2e-${operationId}`,
+        baseSyncVersion: 0,
+        apiPath: '/api-samis/pc/v1/anesthesiaSync/pushBatch',
+        payload: {
+          measureTime: eventTime,
+          HR: 80,
+          SBP: 120,
+          DBP: 70,
+          SpO2: 99,
+          source: 'manual',
+          isDisplayPoint: true,
+          displayRow: 1,
+        },
+      },
+    ],
+  };
+}
+
+function summarizePushResults(batchNo: string, results: PushBatchResultItem[]): string {
+  return results
+    .map((item) => JSON.stringify({
+      batchNo,
+      entityType: item.entityType,
+      localId: item.localId,
+      status: item.status,
+      code: item.conflictType,
+      result: item.message,
+    }))
+    .join('\n');
+}
+
 describe.skipIf(!SHOULD_RUN_REAL)('anesthesia record real sync integration', () => {
   it('logs in and prepares OP-E2E-REAL-SYNC identifiers without writing data', async () => {
     const token = await loginAndSeedSession();
-    const ids = createRealSyncIds('20260709150000');
 
     expect(token).toBeTruthy();
-    expect(ids.operationId).toMatch(/^OP-E2E-REAL-SYNC-\d{14}$/);
-    expect(ids.recordLocalId).toBe('rec-e2e-real-sync-20260709150000');
-    expect(ids.batchNo).toBe('anes-real-sync-20260709150000');
+    expect(realSyncIds.operationId).toMatch(/^OP-E2E-REAL-SYNC-\d{17}$/);
+    expect(realSyncIds.recordLocalId).toBe(realSyncIds.operationId.replace('OP-E2E-REAL-SYNC-', 'rec-e2e-real-sync-'));
+    expect(realSyncIds.batchNo).toBe(realSyncIds.operationId.replace('OP-E2E-REAL-SYNC-', 'anes-real-sync-'));
+  });
+
+  it('pushes record, timeline_event, medication, and vital_sign through pushBatch', async () => {
+    await loginAndSeedSession();
+    const request = buildPushBatchRequest();
+    const response = await anesthesiaSyncApi.pushBatch(request);
+    const summary = summarizePushResults(response.batchNo, response.results);
+
+    expect(response.batchNo).toBe(request.batchNo);
+    expect(response.results).toHaveLength(4);
+    expect(response.results.map((item) => item.entityType)).toEqual([
+      'record',
+      'timeline_event',
+      'medication',
+      'vital_sign',
+    ]);
+    expect(response.results.every((item) => item.status === 'success'), summary).toBe(true);
   });
 });
