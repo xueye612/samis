@@ -12,7 +12,12 @@
  *   npm test -- src/api/anesthesiaRecord.real.integration.test.ts
  */
 import { describe, expect, it } from 'vitest';
-import { anesthesiaSyncApi, type PushBatchRequest, type PushBatchResultItem } from '@/api/anesthesiaSync';
+import {
+  anesthesiaRecordApi,
+  anesthesiaSyncApi,
+  type PushBatchRequest,
+  type PushBatchResultItem,
+} from '@/api/anesthesiaSync';
 import { setSamisSession } from '@/services/session/samisSession';
 
 if (typeof globalThis.sessionStorage === 'undefined') {
@@ -193,6 +198,15 @@ function buildPushBatchRequest(): PushBatchRequest {
   };
 }
 
+function expectedChildLocalIds() {
+  const { operationId } = realSyncIds;
+  return {
+    timelineEventLocalId: `timeline-e2e-${operationId}`,
+    medicationLocalId: `med-e2e-${operationId}`,
+    vitalSignLocalId: `vital-e2e-${operationId}`,
+  };
+}
+
 function summarizePushResults(batchNo: string, results: PushBatchResultItem[]): string {
   return results
     .map((item) => JSON.stringify({
@@ -204,6 +218,48 @@ function summarizePushResults(batchNo: string, results: PushBatchResultItem[]): 
       result: item.message,
     }))
     .join('\n');
+}
+
+interface RealRecordDetail {
+  operationId: string;
+  record: null | {
+    operationId?: string;
+    localId?: string;
+    recordLocalId?: string;
+    casePayload?: unknown;
+    timelineEvents?: Array<{ localId?: string; eventType?: string; eventName?: string }>;
+    medications?: Array<{ localId?: string; drugName?: string; dose?: string | number; doseUnit?: string }>;
+    vitalSigns?: Array<Record<string, unknown> & { localId?: string }>;
+    fluids?: unknown[];
+    transfusions?: unknown[];
+    ioRecords?: unknown[];
+    labResults?: unknown[];
+  };
+}
+
+function isRecordCleared(detail: RealRecordDetail): boolean {
+  return detail.record === null || detail.record === undefined;
+}
+
+function expectHydratedRecord(detail: RealRecordDetail): void {
+  const childIds = expectedChildLocalIds();
+  expect(detail.operationId).toBe(realSyncIds.operationId);
+  expect(detail.record).not.toBeNull();
+  const record = detail.record!;
+
+  expect(record.localId || record.recordLocalId).toBe(realSyncIds.recordLocalId);
+  expect(record.casePayload).toBeTruthy();
+  expect(Array.isArray(record.timelineEvents)).toBe(true);
+  expect(Array.isArray(record.medications)).toBe(true);
+  expect(Array.isArray(record.vitalSigns)).toBe(true);
+  expect(Array.isArray(record.fluids)).toBe(true);
+  expect(Array.isArray(record.transfusions)).toBe(true);
+  expect(Array.isArray(record.ioRecords)).toBe(true);
+  expect(Array.isArray(record.labResults)).toBe(true);
+
+  expect(record.timelineEvents?.some((item) => item.localId === childIds.timelineEventLocalId)).toBe(true);
+  expect(record.medications?.some((item) => item.localId === childIds.medicationLocalId)).toBe(true);
+  expect(record.vitalSigns?.some((item) => item.localId === childIds.vitalSignLocalId)).toBe(true);
 }
 
 describe.skipIf(!SHOULD_RUN_REAL)('anesthesia record real sync integration', () => {
@@ -231,5 +287,33 @@ describe.skipIf(!SHOULD_RUN_REAL)('anesthesia record real sync integration', () 
       'vital_sign',
     ]);
     expect(response.results.every((item) => item.status === 'success'), summary).toBe(true);
+  });
+
+  it('reads pushed record detail and voids the synthetic test record', async () => {
+    await loginAndSeedSession();
+    let readbackFailure: unknown;
+
+    try {
+      const detail = await anesthesiaRecordApi.getRecordDetail({
+        operationId: realSyncIds.operationId,
+      }) as RealRecordDetail;
+      expectHydratedRecord(detail);
+    } catch (error) {
+      readbackFailure = error;
+    }
+
+    const voided = await anesthesiaRecordApi.voidRecord({
+      operationId: realSyncIds.operationId,
+      recordLocalId: realSyncIds.recordLocalId,
+      voidReason: 'real sync integration cleanup',
+    }) as { voided: boolean; voidedAt?: string };
+    expect(voided.voided).toBe(true);
+
+    const afterCleanup = await anesthesiaRecordApi.getRecordDetail({
+      operationId: realSyncIds.operationId,
+    }) as RealRecordDetail;
+    expect(isRecordCleared(afterCleanup)).toBe(true);
+
+    if (readbackFailure) throw readbackFailure;
   });
 });
