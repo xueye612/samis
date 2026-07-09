@@ -45,6 +45,48 @@ export type OperationDetailDto = Record<string, unknown> & {
   operationId: string;
 };
 
+export interface OperationCase extends Record<string, unknown> {
+  operationId?: string;
+  patientId?: string;
+  patientName?: string;
+  patientNo?: string;
+  visitNo?: string;
+  gender?: string;
+  age?: number | string;
+  departmentName?: string;
+  wardName?: string;
+  roomName?: string;
+  roomGroup?: string;
+  operationName?: string;
+  operationDate?: string;
+  sequence?: number | string;
+  status?: string;
+  surgeonName?: string;
+  anesthesiologistName?: string;
+  scrubNurseName?: string;
+  circulatingNurseName?: string;
+  plannedStartTime?: string;
+  actualInRoomTime?: string;
+  actualAnesthesiaStartTime?: string;
+  actualOperationStartTime?: string;
+  actualOperationEndTime?: string;
+  actualOutRoomTime?: string;
+}
+
+export interface OperationTimeline extends Record<string, unknown> {
+  inRoomTime?: string;
+  anesthesiaStartTime?: string;
+  anesthesiaInductionTime?: string;
+  airwayEstablishedTime?: string;
+  operationStartTime?: string;
+  operationEndTime?: string;
+  anesthesiaEndTime?: string;
+  extubationTime?: string;
+  outRoomTime?: string;
+  pacuInTime?: string;
+  pacuOutTime?: string;
+}
+
 const STATUS_MAP: Record<string, CaseStatus> = {
   待入室: '待入室',
   已入室: '已入室',
@@ -120,10 +162,55 @@ export function emptyClinicalShell(id: string): SurgeryCase {
   };
 }
 
-export function mapOperationDetail(raw: unknown): OperationDetailDto {
-  const operationId = pickString(raw, ['operationId', 'OPERATIONID', 'id'], '');
+function asRecord<T extends Record<string, unknown> = Record<string, unknown>>(value: unknown): T {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as T : {} as T;
+}
+
+function firstDefined(...values: unknown[]): unknown {
+  return values.find((value) => value !== undefined && value !== null && value !== '');
+}
+
+function normalizeOperationContractFields(raw: unknown): Record<string, unknown> {
+  const legacy = asRecord(raw);
+  const operationCase = asRecord<OperationCase>(legacy.operationCase);
+  const operationTimeline = asRecord<OperationTimeline>(legacy.operationTimeline);
+
   return {
-    ...(typeof raw === 'object' && raw ? raw as Record<string, unknown> : {}),
+    ...legacy,
+    operationId: firstDefined(operationCase.operationId, legacy.operationId, legacy.OPERATIONID, legacy.id),
+    patientId: firstDefined(operationCase.patientId, legacy.patientId, legacy.PATIENT_ID),
+    patientNumber: firstDefined(operationCase.patientNo, legacy.patientNumber, legacy.PATIENT_NUMBER, legacy.INPATIENTNO, legacy.inpatientNo),
+    inpatientNo: firstDefined(operationCase.patientNo, legacy.inpatientNo, legacy.INPATIENTNO),
+    patientName: firstDefined(operationCase.patientName, legacy.patientName, legacy.PATIENT_NAME, legacy.PATIENTNAME),
+    gender: firstDefined(operationCase.gender, legacy.gender, legacy.sex, legacy.GENDER, legacy.PATIENT_SEX),
+    age: firstDefined(operationCase.age, legacy.age, legacy.AGE, legacy.PATIENT_AGE),
+    department: firstDefined(operationCase.departmentName, legacy.department, legacy.deptName, legacy.DEPTNAME, legacy.PATIENT_DEPARTMENT_NAME, legacy.PATIENT_DEPARTMENT_CODE),
+    room: firstDefined(operationCase.roomName, legacy.room, legacy.roomName, legacy.ROOMNAME, legacy.OPERATINGROOM_CODE),
+    roomName: firstDefined(operationCase.roomName, legacy.roomName, legacy.ROOMNAME, legacy.OPERATINGROOM_CODE),
+    operationName: firstDefined(operationCase.operationName, legacy.operationName, legacy.OPERATION_NAME, legacy.OPERATIONNAME),
+    operationDate: firstDefined(operationCase.operationDate, legacy.operationDate, legacy.OPERATIONDATE),
+    sequence: firstDefined(operationCase.sequence, legacy.sequence, legacy.numberOfStations, legacy.NUMBER_OF_STATIONS, legacy.stationNo),
+    status: firstDefined(operationCase.status, legacy.status, legacy.operationStatus, legacy.OPERATION_STATUS, legacy.recordStatus),
+    surgeonName: firstDefined(operationCase.surgeonName, legacy.surgeonName, legacy.surgeon, legacy.SURGEON, legacy.DOCTOR_NAME, legacy.OPERATOR_NAME),
+    anesthesiologist: firstDefined(operationCase.anesthesiologistName, legacy.anesthesiologist, legacy.anesDoctor, legacy.ANESTHESIOLOGIST, legacy.ANESTHETIST_NAME, legacy.ANESTHETIST_PB_NAME),
+    circulatingNurses: firstDefined(operationCase.circulatingNurseName, legacy.circulatingNurses, legacy.circulatingNurse, legacy.CIRCULATINGNURSE_NAME),
+    scrubNurses: firstDefined(operationCase.scrubNurseName, legacy.scrubNurses, legacy.scrubNurse, legacy.SCRUBNURSE_NAME),
+    plannedStart: firstDefined(operationCase.plannedStartTime, legacy.plannedStart, legacy.PLANNING_BEGINTIME),
+    actualStart: firstDefined(operationTimeline.inRoomTime, operationCase.actualInRoomTime, legacy.actualStart, legacy.roomInTime, legacy.ENTER_ROOM_TIME, legacy.FIRST_SCANNING),
+    roomInTime: firstDefined(operationTimeline.inRoomTime, operationCase.actualInRoomTime, legacy.roomInTime, legacy.actualStart, legacy.ENTER_ROOM_TIME, legacy.FIRST_SCANNING),
+    anesthesiaStart: firstDefined(operationTimeline.anesthesiaStartTime, operationCase.actualAnesthesiaStartTime, legacy.anesthesiaStart, legacy.ANESTHESIA_START_TIME),
+    surgeryStart: firstDefined(operationTimeline.operationStartTime, operationCase.actualOperationStartTime, legacy.surgeryStart, legacy.OPERATION_START_TIME),
+    surgeryEnd: firstDefined(operationTimeline.operationEndTime, operationCase.actualOperationEndTime, legacy.surgeryEnd, legacy.OPERATION_END_TIME, legacy.PLANNING_ENDTIME),
+    anesthesiaEnd: firstDefined(operationTimeline.anesthesiaEndTime, legacy.anesthesiaEnd, legacy.ANESTHESIA_END_TIME),
+    leaveRoomTime: firstDefined(operationTimeline.outRoomTime, operationCase.actualOutRoomTime, legacy.leaveRoomTime, legacy.LEAVE_ROOM_TIME, legacy.LAST_SCANNING),
+  };
+}
+
+export function mapOperationDetail(raw: unknown): OperationDetailDto {
+  const normalized = normalizeOperationContractFields(raw);
+  const operationId = pickString(normalized, ['operationId', 'OPERATIONID', 'id'], '');
+  return {
+    ...normalized,
     operationId,
   };
 }
@@ -192,7 +279,7 @@ export function mergeOperationIntoCase(existing: SurgeryCase, detail: OperationD
   const surgeryStart = timelineTime(['surgeryStart', 'OPERATION_START_TIME']);
   const surgeryEnd = timelineTime(['surgeryEnd', 'OPERATION_END_TIME', 'PLANNING_ENDTIME']);
   const leaveRoomTime = timelineTime(['leaveRoomTime', 'LEAVE_ROOM_TIME']);
-  const enterRoomTime = timelineTime(['actualStart', 'roomInTime', 'ENTER_ROOM_TIME']);
+  const enterRoomTime = timelineTime(['actualStart', 'roomInTime', 'ENTER_ROOM_TIME', 'FIRST_SCANNING']);
   const plannedStart = timelineTime(['plannedStart', 'PLANNING_BEGINTIME'])
     ?? pickString(detail, ['scheduledStart', 'operationDate', 'OPERATIONDATE', 'scheduleTime'], existing.plannedStart);
 
