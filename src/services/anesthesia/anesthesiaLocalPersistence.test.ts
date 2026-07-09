@@ -4,6 +4,7 @@ import type { SurgeryCase } from '@/types/anesthesia';
 import { resetAnesthesiaLocalDbForTests } from '@/services/anesthesia/localDb';
 import { saveCaseToLocalDb, loadCaseFromLocalDb, loadCurrentPageFromLocalDb } from '@/services/anesthesia/anesthesiaRecordRepository';
 import { ANESTHESIA_SYNC_QUEUE_API_PATH, getPendingSyncCount, listPendingSyncItems } from '@/services/anesthesia/anesthesiaSyncQueue';
+import { mapSyncQueueRowsToPushBatchItems } from '@/services/anesthesia/syncPayloadMapper';
 
 const baseCase = (): SurgeryCase => ({
   id: 'case-persist-test',
@@ -44,8 +45,8 @@ const baseCase = (): SurgeryCase => ({
     doctorSignature: '王医生',
   },
   vitals: [{ id: 'v1', time: '2026-06-02T09:00:00.000Z', HR: 80, SBP: 120, DBP: 70, SpO2: 99, source: '手工录入' }],
-  events: [],
-  medications: [],
+  events: [{ id: 'e1', time: '2026-06-02T08:55:00.000Z', type: '入室', stage: '入室后', severity: '轻度', staff: ['王医生'], treatment: '患者入室', reported: false, qualityIncluded: false }],
+  medications: [{ id: 'm1', drug: '丙泊酚', dose: 100, unit: 'mg', route: '静脉', mode: '单次用药', time: '2026-06-02T09:05:00.000Z', executor: '王医生' }],
   fluids: [],
   outputs: { urine: 0, bloodLoss: 0, drainage: 0 },
 });
@@ -67,6 +68,29 @@ describe('anesthesia local persistence', () => {
   it('enqueues sync item on save', async () => {
     await saveCaseToLocalDb(baseCase(), 1);
     expect(await getPendingSyncCount('case-persist-test')).toBeGreaterThan(0);
+  });
+
+  it('enqueues record, timeline_event, medication and vital_sign items for a local save and maps them to pushBatch items', async () => {
+    await saveCaseToLocalDb(baseCase(), 1);
+
+    const queueItems = await listPendingSyncItems(50, 'case-persist-test');
+    expect(queueItems.map((it) => it.entity_type)).toEqual(expect.arrayContaining([
+      'record',
+      'timeline_event',
+      'medication',
+      'vital_sign',
+    ]));
+
+    const payloadItems = await mapSyncQueueRowsToPushBatchItems(queueItems);
+    expect(payloadItems.map((it) => it.entityType)).toEqual(expect.arrayContaining([
+      'record',
+      'timeline_event',
+      'medication',
+      'vital_sign',
+    ]));
+    expect(payloadItems.find((it) => it.entityType === 'timeline_event')?.payload).toMatchObject({ eventType: '入室' });
+    expect(payloadItems.find((it) => it.entityType === 'medication')?.payload).toMatchObject({ drugName: '丙泊酚' });
+    expect(payloadItems.find((it) => it.entityType === 'vital_sign')?.payload).toMatchObject({ HR: 80, SBP: 120 });
   });
 
   it('Slice 3f: record entity enqueue carries casePayload with lists stripped', async () => {

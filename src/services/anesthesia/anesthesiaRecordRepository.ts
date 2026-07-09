@@ -104,6 +104,42 @@ function mapVitalToRowBase(caseId: string, vital: VitalSign, syncVersion: number
   };
 }
 
+async function enqueueCaseEntitySyncItems(caseItem: SurgeryCase, nextVersion: number, recordServerId?: number | null) {
+  const base = {
+    recordLocalId: caseItem.id,
+    recordServerId,
+    operationId: caseItem.id,
+    operationType: 'create' as SyncOperationType,
+    baseSyncVersion: nextVersion,
+    apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
+    payload: {},
+  };
+  const queue: Array<{ entityType: SyncEntityType; entityLocalId: string }> = [];
+
+  caseItem.events?.forEach((event) => queue.push({ entityType: 'timeline_event', entityLocalId: event.id }));
+  caseItem.medications?.forEach((medication) => queue.push({ entityType: 'medication', entityLocalId: medication.id }));
+  caseItem.fluids?.forEach((fluid) => {
+    queue.push({
+      entityType: fluid.category === '血液制品' ? 'transfusion' : 'fluid',
+      entityLocalId: fluid.id,
+    });
+  });
+  caseItem.vitals?.forEach((vital) => queue.push({ entityType: 'vital_sign', entityLocalId: vital.id ?? `vital-${Date.now()}` }));
+  caseItem.outputRecords?.forEach((row) => queue.push({ entityType: 'io_record', entityLocalId: row.id }));
+  caseItem.labResults?.forEach((row) => queue.push({ entityType: 'lab_result', entityLocalId: row.id }));
+  if (caseItem.recordSnapshot) {
+    queue.push({ entityType: 'snapshot', entityLocalId: `${caseItem.id}-snapshot` });
+  }
+
+  for (const item of queue) {
+    await enqueueSyncItem({
+      ...base,
+      entityType: item.entityType,
+      entityLocalId: item.entityLocalId,
+    });
+  }
+}
+
 export async function saveCaseToLocalDb(
   caseItem: SurgeryCase,
   currentPage?: number,
@@ -367,6 +403,7 @@ export async function saveCaseToLocalDb(
     const entityLocalId = meta?.entityLocalId ?? caseItem.id;
     const operationType = meta?.operationType ?? 'update';
     const apiPath = meta?.apiPath ?? ANESTHESIA_SYNC_QUEUE_API_PATH;
+    const recordServerId = (await db.records.get(caseItem.id))?.server_id ?? null;
     // Slice 3f：record 类实体入队时携带 case 级非列表 payload（剥离列表数组），
     // 落入 anes_record.case_payload；列表数据由各自关系子表 sync 项承载。
     const isRecordEntity = entityType === 'record';
@@ -381,7 +418,7 @@ export async function saveCaseToLocalDb(
       payload: {
         ...(meta?.payload && typeof meta.payload === 'object' ? meta.payload as object : {}),
         localId: entityLocalId,
-        serverId: (await db.records.get(caseItem.id))?.server_id ?? null,
+        serverId: recordServerId,
         syncVersion: nextVersion,
         baseSyncVersion: meta?.baseSyncVersion ?? nextVersion,
         recordLocked: caseItem.locked,
@@ -390,6 +427,9 @@ export async function saveCaseToLocalDb(
         ...(isRecordEntity ? { casePayload: buildCasePayload(caseItem) } : {}),
       },
     });
+    if (!meta) {
+      await enqueueCaseEntitySyncItems(caseItem, nextVersion, recordServerId);
+    }
   }
 }
 
