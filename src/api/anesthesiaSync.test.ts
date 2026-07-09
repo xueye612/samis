@@ -1,5 +1,26 @@
-import { describe, expect, it } from 'vitest';
-import { anesthesiaDeviceApi, anesthesiaRecordApi, anesthesiaSyncApi } from '@/api/anesthesiaSync';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+type AnesthesiaSyncModule = typeof import('@/api/anesthesiaSync');
+
+let anesthesiaDeviceApi: AnesthesiaSyncModule['anesthesiaDeviceApi'];
+let anesthesiaRecordApi: AnesthesiaSyncModule['anesthesiaRecordApi'];
+let anesthesiaSyncApi: AnesthesiaSyncModule['anesthesiaSyncApi'];
+
+beforeAll(async () => {
+  vi.stubEnv('VITE_ANESTHESIA_USE_MOCK', 'true');
+  vi.stubEnv('VITE_USE_REAL_ANESTHESIA_RECORD', 'false');
+  vi.stubEnv('VITE_USE_REAL_ANESTHESIA_SYNC', 'false');
+  vi.stubEnv('VITE_USE_REAL_DEVICE', 'false');
+
+  const api = await import('@/api/anesthesiaSync');
+  anesthesiaDeviceApi = api.anesthesiaDeviceApi;
+  anesthesiaRecordApi = api.anesthesiaRecordApi;
+  anesthesiaSyncApi = api.anesthesiaSyncApi;
+});
+
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('anesthesia sync API wrappers', () => {
   it('covers sync core endpoints in mock mode', async () => {
