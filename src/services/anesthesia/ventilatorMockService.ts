@@ -10,7 +10,7 @@ import { mapVitalToRow } from '@/services/anesthesia/anesthesiaRecordRepository'
 
 import { canDeviceOverwriteVital, findExistingDeviceRaw } from '@/services/anesthesia/anesthesiaSyncConflict';
 
-import { readEntityBaseSyncVersion, enqueueSyncItem } from '@/services/anesthesia/anesthesiaSyncQueue';
+import { ANESTHESIA_SYNC_QUEUE_API_PATH, readEntityBaseSyncVersion, enqueueSyncItem } from '@/services/anesthesia/anesthesiaSyncQueue';
 
 import { triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthesiaSyncService';
 
@@ -182,7 +182,7 @@ export function startVentilatorMockService(
         entityLocalId: savedVital.id!,
         operationType: 'create',
         baseSyncVersion: vitalBaseVersion,
-        apiPath: '/api-samis/pc/v1/anesthesiaRecord/batchSaveVitalSigns',
+        apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
         payload: savedVital,
       });
       triggerAnesthesiaSyncAfterChange('vital_sign');

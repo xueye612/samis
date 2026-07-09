@@ -14,8 +14,9 @@ import {
   getPendingConflictCount,
   parseConflictTypeFromResult,
 } from '@/services/anesthesia/anesthesiaSyncConflict';
-import { anesthesiaSyncApi, type PushBatchItem } from '@/api/anesthesiaSync';
+import { anesthesiaSyncApi } from '@/api/anesthesiaSync';
 import { getAnesthesiaLocalDb } from '@/services/anesthesia/localDb';
+import { mapSyncQueueRowsToPushBatchItems } from '@/services/anesthesia/syncPayloadMapper';
 
 type SyncListener = (state: AnesthesiaSyncState) => void;
 
@@ -160,15 +161,7 @@ async function pushBatchForItems(items: Awaited<ReturnType<typeof listPendingSyn
   const batchNo = buildBatchNo();
   const queueIds = items.map((item) => item.queue_id);
   await assignBatchNo(queueIds, batchNo);
-  const payloadItems: PushBatchItem[] = items.map((item) => ({
-    entityType: item.entity_type,
-    operationType: item.operation_type,
-    localId: item.local_id,
-    serverId: item.server_id,
-    baseSyncVersion: item.base_sync_version,
-    apiPath: item.api_path,
-    payload: JSON.parse(item.payload || '{}'),
-  }));
+  const payloadItems = await mapSyncQueueRowsToPushBatchItems(items);
   const first = items[0];
   try {
     const response = await anesthesiaSyncApi.pushBatch({

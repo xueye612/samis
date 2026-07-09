@@ -287,6 +287,7 @@ import {
   subscribeAnesthesiaSyncState,
   syncStatesEqual,
 } from '@/services/anesthesia/anesthesiaSyncService';
+import { ANESTHESIA_SYNC_QUEUE_API_PATH } from '@/services/anesthesia/anesthesiaSyncQueue';
 import { startMonitorMockService, readMonitorDisplayIntervalMinutes, type MonitorMockHandle } from '@/services/anesthesia/monitorMockService';
 import { startVentilatorMockService, type VentilatorMockHandle } from '@/services/anesthesia/ventilatorMockService';
 import type { AnesthesiaSyncState, RecordPersistMeta, SyncConflictResolveAction } from '@/types/anesthesiaLocalDb';
@@ -2351,7 +2352,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
-      this.afterRecordMutation(caseId, { entityType: 'timeline_event', entityLocalId: target.events[target.events.length - 1]?.id, operationType: 'create', apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveTimelineEvent' });
+      this.afterRecordMutation(caseId, { entityType: 'timeline_event', entityLocalId: target.events[target.events.length - 1]?.id, operationType: 'create', apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH });
     },
     appendVital(caseId: string, vital: VitalSign) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -2360,7 +2361,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
-      this.afterRecordMutation(caseId, { entityType: 'vital_sign', entityLocalId: vital.id, operationType: 'create', apiPath: '/api-samis/pc/v1/anesthesiaRecord/batchSaveVitalSigns' });
+      this.afterRecordMutation(caseId, { entityType: 'vital_sign', entityLocalId: vital.id, operationType: 'create', apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH });
     },
     upsertVital(caseId: string, vital: VitalSign) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -2374,7 +2375,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
-      this.afterRecordMutation(caseId, { entityType: 'vital_sign', entityLocalId: row.id, operationType: index >= 0 ? 'update' : 'create', apiPath: '/api-samis/pc/v1/anesthesiaRecord/batchSaveVitalSigns' });
+      this.afterRecordMutation(caseId, { entityType: 'vital_sign', entityLocalId: row.id, operationType: index >= 0 ? 'update' : 'create', apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH });
     },
     deleteVital(caseId: string, vitalId: string) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -2385,7 +2386,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
-      this.afterRecordMutation(caseId, { entityType: 'vital_sign', entityLocalId: vitalId, operationType: 'delete', apiPath: '/api-samis/pc/v1/anesthesiaRecord/batchSaveVitalSigns' });
+      this.afterRecordMutation(caseId, { entityType: 'vital_sign', entityLocalId: vitalId, operationType: 'delete', apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH });
     },
     appendMedication(caseId: string, medication: Omit<MedicationRecord, 'id'>) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -2395,7 +2396,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
-      this.afterRecordMutation(caseId, { entityType: 'medication', entityLocalId: target.medications[target.medications.length - 1]?.id, operationType: 'create', apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveMedication' });
+      this.afterRecordMutation(caseId, { entityType: 'medication', entityLocalId: target.medications[target.medications.length - 1]?.id, operationType: 'create', apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH });
     },
     upsertMedication(caseId: string, medication: MedicationRecord) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -2410,7 +2411,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
-      this.afterRecordMutation(caseId, { entityType: 'medication', entityLocalId: row.id, operationType: index >= 0 ? 'update' : 'create', apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveMedication' });
+      this.afterRecordMutation(caseId, { entityType: 'medication', entityLocalId: row.id, operationType: index >= 0 ? 'update' : 'create', apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH });
     },
     deleteMedication(caseId: string, medicationId: string) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -2421,7 +2422,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
-      this.afterRecordMutation(caseId, { entityType: 'medication', entityLocalId: medicationId, operationType: 'delete', apiPath: '/api-samis/pc/v1/anesthesiaRecord/deleteMedication' });
+      this.afterRecordMutation(caseId, { entityType: 'medication', entityLocalId: medicationId, operationType: 'delete', apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH });
     },
     appendFluid(caseId: string, fluid: Omit<FluidRecord, 'id'>) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -2437,9 +2438,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         entityType: isTransfusion ? 'transfusion' : 'fluid',
         entityLocalId: row.id,
         operationType: 'create',
-        apiPath: isTransfusion
-          ? '/api-samis/pc/v1/anesthesiaRecord/batchSaveTransfusions'
-          : '/api-samis/pc/v1/anesthesiaRecord/batchSaveFluids',
+        apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
       });
     },
     upsertFluid(caseId: string, fluid: FluidRecord) {
@@ -2460,9 +2459,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         entityType: isTransfusion ? 'transfusion' : 'fluid',
         entityLocalId: row.id,
         operationType: index >= 0 ? 'update' : 'create',
-        apiPath: isTransfusion
-          ? '/api-samis/pc/v1/anesthesiaRecord/batchSaveTransfusions'
-          : '/api-samis/pc/v1/anesthesiaRecord/batchSaveFluids',
+        apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
       });
     },
     deleteFluid(caseId: string, fluidId: string) {
@@ -2480,9 +2477,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         entityType: isTransfusion ? 'transfusion' : 'fluid',
         entityLocalId: fluidId,
         operationType: 'delete',
-        apiPath: isTransfusion
-          ? '/api-samis/pc/v1/anesthesiaRecord/batchSaveTransfusions'
-          : '/api-samis/pc/v1/anesthesiaRecord/batchSaveFluids',
+        apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
       });
     },
     upsertOutputRecord(caseId: string, output: OutputDetailRecord) {
@@ -2504,7 +2499,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         entityType: 'io_record',
         entityLocalId: row.id,
         operationType: index >= 0 ? 'update' : 'create',
-        apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveIoRecord',
+        apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
       });
     },
     deleteOutputRecord(caseId: string, outputId: string) {
@@ -2522,7 +2517,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         entityType: 'io_record',
         entityLocalId: outputId,
         operationType: 'delete',
-        apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveIoRecord',
+        apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
       });
     },
     upsertAnesthesiaPlane(caseId: string, plane: AnesthesiaPlaneRecord) {
@@ -2569,7 +2564,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       };
       target.transfusionEvents = syncTransfusionEventsFromFluids(target);
       target.recordSummary = buildRecordSummaryFields(target);
-      this.afterRecordMutation(caseId, { entityType: 'record', entityLocalId: caseId, operationType: 'update', apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveRecord' });
+      this.afterRecordMutation(caseId, { entityType: 'record', entityLocalId: caseId, operationType: 'update', apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH });
     },
     upsertLabResult(caseId: string, lab: LabResultRecord) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -2589,7 +2584,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         entityType: 'lab_result',
         entityLocalId: row.id,
         operationType: index >= 0 ? 'update' : 'create',
-        apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveLabResult',
+        apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
       });
     },
     voidEvent(caseId: string, eventId: string, reason = '事件作废') {
@@ -2790,14 +2785,14 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
-      this.afterRecordMutation(caseId, { entityType: 'record', entityLocalId: caseId, operationType: 'lock', apiPath: '/api-samis/pc/v1/anesthesiaRecord/lockRecord' });
+      this.afterRecordMutation(caseId, { entityType: 'record', entityLocalId: caseId, operationType: 'lock', apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH });
       // 打印追溯：每次打印入队不可变 snapshot（服务端 immutable=1、snapshot_no 递增不覆盖）
       if (target.recordSnapshot) {
         this.afterRecordMutation(caseId, {
           entityType: 'snapshot',
           entityLocalId: `${caseId}-snapshot-${Date.now()}`,
           operationType: 'update',
-          apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveSnapshot',
+          apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
           payload: {
             snapshotAt: printedAt,
             snapshotReason: 'print',

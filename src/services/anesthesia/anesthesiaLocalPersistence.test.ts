@@ -3,7 +3,7 @@ import 'fake-indexeddb/auto';
 import type { SurgeryCase } from '@/types/anesthesia';
 import { resetAnesthesiaLocalDbForTests } from '@/services/anesthesia/localDb';
 import { saveCaseToLocalDb, loadCaseFromLocalDb, loadCurrentPageFromLocalDb } from '@/services/anesthesia/anesthesiaRecordRepository';
-import { getPendingSyncCount, listPendingSyncItems } from '@/services/anesthesia/anesthesiaSyncQueue';
+import { ANESTHESIA_SYNC_QUEUE_API_PATH, getPendingSyncCount, listPendingSyncItems } from '@/services/anesthesia/anesthesiaSyncQueue';
 
 const baseCase = (): SurgeryCase => ({
   id: 'case-persist-test',
@@ -74,7 +74,7 @@ describe('anesthesia local persistence', () => {
       entityType: 'record',
       entityLocalId: 'case-persist-test',
       operationType: 'update',
-      apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveRecord',
+      apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
     });
     const items = await listPendingSyncItems(50, 'case-persist-test');
     const recordItem = items.find((it) => it.entity_type === 'record');
@@ -98,7 +98,7 @@ describe('anesthesia local persistence', () => {
       entityType: 'medication',
       entityLocalId: 'm1',
       operationType: 'create',
-      apiPath: '/api-samis/pc/v1/anesthesiaRecord/saveMedication',
+      apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
     });
     const items = await listPendingSyncItems(50, 'case-persist-test');
     const medItem = items.find((it) => it.entity_type === 'medication');

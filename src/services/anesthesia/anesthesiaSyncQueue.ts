@@ -7,6 +7,7 @@ import type {
 import { getAnesthesiaLocalDb } from '@/services/anesthesia/localDb';
 
 const nowIso = () => dayjs().toISOString();
+export const ANESTHESIA_SYNC_QUEUE_API_PATH = '/api-samis/pc/v1/anesthesiaSync/pushBatch';
 
 export interface EnqueueSyncInput {
   recordLocalId: string;
