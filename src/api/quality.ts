@@ -156,6 +156,13 @@ export interface QualityCheckListQuery {
   pageSize?: number;
 }
 
+export type IndicatorCaseStatus = 'pass' | 'warn' | 'fail' | 'not_applicable';
+export interface IndicatorResultApi { indicatorCode: string; indicatorName: string; status: IndicatorCaseStatus; severity: string; sourceModule: string; sourceRecordId: string | null; message: string; occurredAt: string | null; }
+export interface QualityOperationCaseApi { operationId: string; patientName?: string | null; departmentName?: string | null; operationName?: string | null; anesthesiologistName?: string | null; [key: string]: unknown; }
+export interface QualityDrilldownCaseApi { operationId: string; operationCase: QualityOperationCaseApi; riskLevel: string; indicatorResults: IndicatorResultApi[]; defectCount: number; latestDefectStatus: string | null; moduleSummaries?: Record<string, unknown>; }
+export interface QualityCaseListApi { list: QualityDrilldownCaseApi[]; total: number; }
+export interface DefectRecordApi { defectId: string; operationId: string; indicatorCode: string; severity: string; description: string; ownerId: string | null; ownerName: string | null; status: 'open'|'rectifying'|'resolved'|'closed'; rectification: string | null; reviewedBy: string | null; reviewedAt: string | null; }
+
 function buildQuery(params: QualityFilterQuery = {}): string {
   const query = new URLSearchParams();
   if (params.startMonth) query.set('startMonth', params.startMonth);
@@ -172,6 +179,15 @@ function buildQuery(params: QualityFilterQuery = {}): string {
 }
 
 export const qualityApi = {
+  caseList(params: Record<string, string | number | undefined> = {}) {
+    const q = new URLSearchParams(); Object.entries(params).forEach(([k,v]) => { if (v !== undefined && v !== '') q.set(k,String(v)); });
+    return samisRequest<QualityCaseListApi>(`/quality/caseList${q.size ? `?${q}` : ''}`, { method:'GET' }, { module:'quality' });
+  },
+  caseDetail(operationId: string) { return samisRequest<QualityDrilldownCaseApi>(`/quality/caseDetail?operationId=${encodeURIComponent(operationId)}`, { method:'GET' }, { module:'quality' }); },
+  indicatorSummary(params: Record<string, string | number | undefined> = {}) { const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!=='')q.set(k,String(v));});return samisRequest<Array<Record<string,unknown>>>(`/quality/indicatorSummary${q.size?`?${q}`:''}`,{method:'GET'},{module:'quality'}); },
+  defectCreate(data: Record<string, unknown>) { return samisRequest<DefectRecordApi>('/quality/defectCreate', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
+  defectUpdate(data: Record<string, unknown>) { return samisRequest<DefectRecordApi>('/quality/defectUpdate', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
+  defectClose(data: Record<string, unknown>) { return samisRequest<DefectRecordApi>('/quality/defectClose', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
   /** 26 指标列表（rate/target/met/status）。 */
   getIndicators(params: QualityFilterQuery = {}) {
     return samisRequest<QualityIndicatorApi[]>(`/quality/indicators${buildQuery(params)}`, {

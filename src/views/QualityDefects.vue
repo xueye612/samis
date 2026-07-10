@@ -7,6 +7,16 @@
       </div>
       <a-tag color="red">{{ store.qualityDefects.length }} 条自动触发</a-tag>
     </header>
+    <a-card v-if="realCases.length" class="section-card" title="真实质控病例穿透" :bordered="false">
+      <a-table :data="realCases" row-key="operationId" :pagination="false">
+        <a-table-column title="operationId" data-index="operationId" />
+        <a-table-column title="患者" data-index="operationCase.patientName" />
+        <a-table-column title="手术" data-index="operationCase.operationName" />
+        <a-table-column title="风险" data-index="riskLevel" />
+        <a-table-column title="指标缺陷"><template #cell="{ record }">{{ defectIndicatorCount(record) }}</template></a-table-column>
+        <a-table-column title="操作"><template #cell="{ record }"><a-link @click="goCaseDetail(record.operationId)">穿透病例</a-link></template></a-table-column>
+      </a-table>
+    </a-card>
     <a-card class="section-card quality-defects-card" :bordered="false">
       <template #title>
         <icon-exclamation-circle />
@@ -30,12 +40,18 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import QualityDefectTable from '@/components/quality/QualityDefectTable.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import { loadQualityCases } from '@/services/anesthesia/qualityCaseService';
+import type { QualityDrilldownCaseApi } from '@/api/quality';
 
 const router = useRouter();
 const store = useAnesthesiaStore();
+const realCases = ref<QualityDrilldownCaseApi[]>([]);
+onMounted(async () => { realCases.value = (await loadQualityCases({ page: 1, pageSize: 50 })).list; });
+const defectIndicatorCount = (record: QualityDrilldownCaseApi) => record.indicatorResults.filter((item) => item.status === 'fail' || item.status === 'warn').length;
 const goCaseDetail = (caseId: string) => router.push({ name: 'record', params: { id: caseId }, query: { from: 'plan' } });
 </script>
 
