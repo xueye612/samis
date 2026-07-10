@@ -18,6 +18,7 @@ import {
   type PushBatchRequest,
   type PushBatchResultItem,
 } from '@/api/anesthesiaSync';
+import { operationInfoApi } from '@/api/operationInfo';
 import { setSamisSession } from '@/services/session/samisSession';
 
 if (typeof globalThis.sessionStorage === 'undefined') {
@@ -47,6 +48,8 @@ const REAL_INTEGRATION = env.VITE_SAMIS_REAL_INTEGRATION === '1' || env.SAMIS_RE
 const REAL_RECORD = env.VITE_USE_REAL_ANESTHESIA_RECORD === 'true';
 const REAL_SYNC = env.VITE_USE_REAL_ANESTHESIA_SYNC === 'true';
 const SHOULD_RUN_REAL = REAL_INTEGRATION && REAL_RECORD && REAL_SYNC;
+const SCHEDULE_OPERATION_ID = env.SAMIS_E2E_SCHEDULE_OPERATION_ID || '';
+const SHOULD_VERIFY_SCHEDULE = SHOULD_RUN_REAL && /^OP-E2E-(?:SCHEDULE|NATURAL)-/.test(SCHEDULE_OPERATION_ID);
 
 const API_BASE = (env.VITE_SAMIS_API_BASE || 'http://192.168.10.178:8022/api-samis/pc/v1').replace(/\/+$/, '');
 const USERNAME = env.SAMIS_REAL_USERNAME || env.VITE_SAMIS_REAL_USERNAME || 'quality_admin';
@@ -316,5 +319,27 @@ describe.skipIf(!SHOULD_RUN_REAL)('anesthesia record real sync integration', () 
     expect(isRecordCleared(afterCleanup)).toBe(true);
 
     if (readbackFailure) throw readbackFailure;
+  });
+});
+
+describe.skipIf(!SHOULD_VERIFY_SCHEDULE)('operationInfo natural schedule integration', () => {
+  it('returns the synthetic schedule through the authenticated real operation list contracts', async () => {
+    await loginAndSeedSession();
+    const raw = await operationInfoApi.getOperationList({
+      operationDate: new Date().toISOString().slice(0, 10),
+    }) as { list?: Array<Record<string, unknown>> };
+    const row = raw.list?.find((item) => item.OPERATIONID === SCHEDULE_OPERATION_ID);
+
+    expect(row, `missing ${SCHEDULE_OPERATION_ID} from real operationInfo list`).toBeTruthy();
+    expect(row?.OPERATIONID).toBe(SCHEDULE_OPERATION_ID);
+    expect(row?.PATIENT_NAME).toMatch(/^OP-E2E-SCHEDULE-/);
+    expect(row?.operationCase).toMatchObject({ operationId: SCHEDULE_OPERATION_ID });
+    expect(row?.operationTimeline).toEqual(expect.objectContaining({
+      inRoomTime: null,
+      anesthesiaStartTime: null,
+      operationStartTime: null,
+      operationEndTime: null,
+      outRoomTime: null,
+    }));
   });
 });
