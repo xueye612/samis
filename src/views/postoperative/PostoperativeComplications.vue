@@ -4,8 +4,19 @@
       <a-tag color="orangered">记录 {{ store.complications.length }}</a-tag>
     </template>
     <template #toolbar>
+      <a-button :disabled="!form.caseId" @click="refreshDetail">刷新回读</a-button>
       <a-button type="primary" @click="openCreate">登记并发症</a-button>
     </template>
+    <a-card v-if="detail" class="section-card" :bordered="false" title="OperationCase / 结构化并发症">
+      <div>{{ detail.operationCase.patientName ?? '-' }} · {{ detail.operationCase.operationName ?? '-' }} · {{ detail.operationCase.operationId }}</div>
+      <a-table :data="detail.complications" row-key="complicationId" :pagination="false" style="margin-top: 12px">
+        <template #columns>
+          <a-table-column title="类型" data-index="complicationType" /><a-table-column title="严重度" data-index="severity" />
+          <a-table-column title="状态" data-index="reportStatus" /><a-table-column title="转归" data-index="outcome" />
+          <a-table-column title="操作"><template #cell="{ record }"><a-button size="mini" status="danger" :disabled="record.reportStatus === 'voided'" @click="voidCurrent(record.complicationId)">作废</a-button></template></a-table-column>
+        </template>
+      </a-table>
+    </a-card>
     <a-card class="section-card" :bordered="false" title="并发症列表">
       <a-table :data="store.complications" row-key="id" :pagination="{ pageSize: 8 }">
         <template #columns>
@@ -69,6 +80,8 @@ import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 import { useRealPostoperative } from '@/config/apiFlags';
 import type { ComplicationRecord } from '@/types/clinicalModules';
+import type { PostoperativeDetail } from '@/services/anesthesia/postoperativeWorkflow';
+import { loadPostoperativeDetail, saveComplication, voidComplication } from '@/services/anesthesia/postoperativeWorkflow';
 
 const store = useAnesthesiaStore();
 const router = useRouter();
@@ -76,6 +89,7 @@ const visible = ref(false);
 const editingId = ref('');
 const saving = ref(false);
 const deletingId = ref('');
+const detail = ref<PostoperativeDetail | null>(null);
 const typeOptions = ['恶心呕吐', '呼吸抑制', '低体温', '低血压', '出血', '感染', '其他'];
 
 const form = reactive({
@@ -91,6 +105,9 @@ const form = reactive({
 const caseOptions = computed(() =>
   store.cases.map((item) => ({ label: `${item.patientName} · ${item.surgeryName}`, value: item.id })),
 );
+const operationCaseOf = (operationId: string) => { const row=store.cases.find((item)=>item.id===operationId); return row?{operationId:row.id,patientName:row.patientName,operationName:row.surgeryName}:{operationId}; };
+const refreshDetail = async () => { if(form.caseId) detail.value=await loadPostoperativeDetail(form.caseId,operationCaseOf(form.caseId)); };
+const voidCurrent = async (complicationId:string) => { if(form.caseId) detail.value=await voidComplication(form.caseId,complicationId,'页面作废'); };
 
 const resetForm = () => {
   form.caseId = store.cases[0]?.id ?? '';
@@ -142,8 +159,7 @@ const save = async () => {
   saving.value = true;
   try {
     if (useRealPostoperative()) {
-      await store.upsertComplicationRemote(payload);
-      await store.loadRemoteComplications();
+      detail.value = await saveComplication({ operationId: form.caseId, complicationId: /^\d+$/.test(editingId.value) ? editingId.value : undefined, complicationType: form.type, severity: ({轻度:'mild',中度:'moderate',重度:'severe',危及生命:'life_threatening'} as const)[form.severity], occurredAt: payload.reportTime, description: form.symptoms, treatment: form.treatment, outcome: form.outcome, reportStatus: 'reported' }, operationCaseOf(form.caseId));
     } else {
       store.saveComplication(payload);
     }
@@ -173,7 +189,7 @@ const onDelete = async (record: ComplicationRecord) => {
 };
 
 onMounted(() => {
-  if (useRealPostoperative()) void store.loadRemoteComplications();
+  if (useRealPostoperative()) { void store.loadRemoteComplications(); if(form.caseId) void refreshDetail(); }
 });
 
 const goCase = (caseId: string) => router.push(`/surgery/detail/${caseId}`);

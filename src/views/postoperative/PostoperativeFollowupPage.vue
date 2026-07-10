@@ -4,8 +4,21 @@
       <a-tag color="arcoblue">随访 {{ store.followUps.length }}</a-tag>
     </template>
     <template #toolbar>
+      <a-button :disabled="!form.caseId" @click="refreshDetail">刷新回读</a-button>
       <a-button type="primary" @click="openCreate">新增随访</a-button>
     </template>
+    <a-card v-if="detail" class="section-card" :bordered="false" title="OperationCase / 麻醉术后随访">
+      <a-descriptions :column="3" bordered size="small">
+        <a-descriptions-item label="operationId">{{ detail.operationCase.operationId }}</a-descriptions-item>
+        <a-descriptions-item label="患者">{{ detail.operationCase.patientName ?? '-' }}</a-descriptions-item>
+        <a-descriptions-item label="手术">{{ detail.operationCase.operationName ?? '-' }}</a-descriptions-item>
+        <a-descriptions-item label="随访状态">{{ detail.followup?.status ?? '未保存' }}</a-descriptions-item>
+      </a-descriptions>
+      <a-space style="margin-top: 12px">
+        <a-button type="primary" :disabled="detail.followup?.status !== 'draft'" @click="submitCurrent">提交随访</a-button>
+        <a-button :disabled="detail.followup?.status !== 'submitted'" @click="cancelCurrent">撤回/取消</a-button>
+      </a-space>
+    </a-card>
     <a-card class="section-card" :bordered="false" title="随访记录">
       <a-table :data="store.followUps" row-key="id" :pagination="{ pageSize: 8 }">
         <template #columns>
@@ -72,6 +85,8 @@ import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 import { useRealPostoperative } from '@/config/apiFlags';
 import type { PostoperativeFollowUp } from '@/types/anesthesia';
+import type { PostoperativeDetail } from '@/services/anesthesia/postoperativeWorkflow';
+import { cancelFollowup, loadPostoperativeDetail, saveFollowupDraft, submitFollowup } from '@/services/anesthesia/postoperativeWorkflow';
 
 const SAT_PREFIX = '[满意度]';
 
@@ -79,6 +94,7 @@ const store = useAnesthesiaStore();
 const visible = ref(false);
 const editingId = ref('');
 const saving = ref(false);
+const detail = ref<PostoperativeDetail | null>(null);
 
 const form = reactive({
   caseId: '',
@@ -94,6 +110,13 @@ const caseOptions = computed(() =>
   store.cases.map((item) => ({ label: `${item.patientName} · ${item.surgeryName}`, value: item.id })),
 );
 const patientName = (caseId: string) => store.cases.find((item) => item.id === caseId)?.patientName ?? caseId;
+const operationCaseOf = (operationId: string) => {
+  const row = store.cases.find((item) => item.id === operationId);
+  return row ? { operationId: row.id, patientName: row.patientName, operationName: row.surgeryName } : { operationId };
+};
+const refreshDetail = async () => { if (form.caseId) detail.value = await loadPostoperativeDetail(form.caseId, operationCaseOf(form.caseId)); };
+const submitCurrent = async () => { if (form.caseId) detail.value = await submitFollowup(form.caseId); };
+const cancelCurrent = async () => { if (form.caseId) detail.value = await cancelFollowup(form.caseId); };
 
 const parseSatisfaction = (advice: string) => {
   const match = advice.match(/\[满意度\]\s*麻醉([\d.]+)\/镇痛([\d.]+)\/整体([\d.]+)/);
@@ -164,8 +187,7 @@ const save = async () => {
   saving.value = true;
   try {
     if (useRealPostoperative()) {
-      await store.upsertFollowupRemote(payload);
-      await store.loadRemoteFollowups();
+      detail.value = await saveFollowupDraft({ operationId: form.caseId, followupAt: nowIso, followupMethod: form.type, painScore: form.vas, satisfaction: form.satisfactionOverall, notes: buildAdvice() });
     } else {
       store.upsertFollowUp(payload);
     }
@@ -201,7 +223,7 @@ const onDelete = async (record: PostoperativeFollowUp) => {
 };
 
 onMounted(() => {
-  if (useRealPostoperative()) void store.loadRemoteFollowups();
+  if (useRealPostoperative()) { void store.loadRemoteFollowups(); if (form.caseId) void refreshDetail(); }
 });
 </script>
 
