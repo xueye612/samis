@@ -1,9 +1,8 @@
 <template>
   <ModulePageShell title="术前访视/麻醉评估" description="统一展示患者基本情况、风险评估、病史与麻醉计划，形成术前质控入口。">
     <template #chips>
-      <a-tag color="arcoblue">访视完成率 {{ completionRate }}%</a-tag>
-      <a-tag :color="unfinishedElective.length ? 'orange' : 'green'">未完成 {{ unfinishedElective.length }}</a-tag>
-      <a-tag color="cyan">BMI 自动计算</a-tag>
+      <a-tag :color="assessment.status === 'submitted' ? 'green' : 'orange'">{{ statusText }}</a-tag>
+      <a-tag :color="persistenceAvailable ? 'arcoblue' : 'red'">{{ persistenceAvailable ? '评估存储可用' : '评估存储未配置' }}</a-tag>
     </template>
 
     <template #toolbar>
@@ -13,20 +12,15 @@
             {{ item.room }} · {{ item.patientName }} · {{ item.surgeryName }}
           </a-option>
         </a-select>
-        <a-button type="primary" :disabled="!current" @click="markCompleted">完成访视</a-button>
-        <a-button :disabled="!current" @click="current && (current.preVisit.completed = false)">退回补充</a-button>
+        <a-button :loading="saving" :disabled="!canEdit" @click="saveDraft">保存草稿</a-button>
+        <a-button type="primary" :loading="saving" :disabled="!canEdit" @click="submitAssessment">提交评估</a-button>
+        <a-button :loading="saving" :disabled="assessment.status !== 'submitted' || !persistenceAvailable" @click="cancelSubmit">取消提交</a-button>
       </a-space>
     </template>
 
-    <template #stats>
-      <MetricCard label="择期病例" :value="electiveCases.length" hint="需完成术前访视" icon="IconCalendar" />
-      <MetricCard label="已完成访视" :value="completedElective.length" :hint="`完成率 ${completionRate}%`" icon="IconFile" />
-      <MetricCard label="待补充" :value="unfinishedElective.length" hint="影响麻醉前访视率" :variant="unfinishedElective.length ? 'warn' : 'default'" icon="IconExclamationCircle" />
-      <MetricCard label="当前风险项" :value="riskItems.length" hint="过敏、气道、ASA 等" :variant="riskItems.length ? 'warn' : 'default'" icon="IconExperiment" />
-    </template>
-
-    <a-alert v-if="unfinishedElective.length" type="warning" show-icon>
-      择期手术未完成术前访视：{{ unfinishedElective.map((item) => item.patientName).join('、') }}，将影响“择期手术麻醉前访视率”。
+    <a-alert v-if="errorMessage" type="error" show-icon>{{ errorMessage }}</a-alert>
+    <a-alert v-else-if="!persistenceAvailable" type="warning" show-icon>
+      当前后端未配置术前麻醉评估存储；患者与手术信息仍来自手术通知单，真实保存已禁用。
     </a-alert>
 
     <section v-if="current" class="clinical-page-grid">
@@ -35,41 +29,39 @@
           <template #title>患者与手术信息</template>
           <div class="patient-overview">
             <div>
-              <div class="patient-name">{{ current.patientName }}</div>
-              <p>{{ current.gender }} / {{ current.age }}岁 · {{ current.department }} · ASA {{ current.preVisit.asa || current.asa }}</p>
+              <div class="patient-name">{{ operationCase.patientName || '-' }}</div>
+              <p>{{ operationCase.gender || '-' }} / {{ operationCase.age ?? '-' }}岁 · {{ operationCase.departmentName || '-' }}</p>
             </div>
             <a-space wrap>
-              <a-tag :color="current.urgency === '急诊' ? 'red' : 'arcoblue'">{{ current.urgency }}</a-tag>
-              <a-tag color="green">{{ current.status }}</a-tag>
-              <a-tag>{{ current.room }}</a-tag>
+              <a-tag color="green">{{ operationCase.status || current.status }}</a-tag>
+              <a-tag>{{ operationCase.roomName || current.room }}</a-tag>
             </a-space>
           </div>
           <a-descriptions :column="2" bordered size="medium">
-            <a-descriptions-item label="诊断">{{ current.diagnosis }}</a-descriptions-item>
-            <a-descriptions-item label="拟行手术">{{ current.surgeryName }}</a-descriptions-item>
-            <a-descriptions-item label="麻醉方式">{{ current.anesthesiaMethod }}</a-descriptions-item>
-            <a-descriptions-item label="麻醉医生">{{ current.anesthesiologist }}</a-descriptions-item>
+            <a-descriptions-item label="手术ID">{{ operationCase.operationId }}</a-descriptions-item>
+            <a-descriptions-item label="拟行手术">{{ operationCase.operationName || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="计划时间">{{ operationCase.plannedStartTime || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="麻醉医生">{{ operationCase.anesthesiologistName || '-' }}</a-descriptions-item>
           </a-descriptions>
         </a-card>
 
         <a-card class="section-card" :bordered="false" title="访视录入">
-          <a-form :model="current.preVisit" layout="vertical">
+          <a-spin :loading="loading" style="width: 100%">
+          <a-form :model="assessment" layout="vertical" :disabled="!canEdit">
             <a-row :gutter="16">
-              <a-col :xs="24" :sm="12" :md="6"><a-form-item label="身高(cm)"><a-input-number v-model="current.preVisit.height" /></a-form-item></a-col>
-              <a-col :xs="24" :sm="12" :md="6"><a-form-item label="体重(kg)"><a-input-number v-model="current.preVisit.weight" /></a-form-item></a-col>
-              <a-col :xs="24" :sm="12" :md="6"><a-form-item label="BMI"><a-input :model-value="bmi" readonly /></a-form-item></a-col>
-              <a-col :xs="24" :sm="12" :md="6"><a-form-item label="ASA分级"><a-select v-model="current.preVisit.asa" :options="['I', 'II', 'III', 'IV', 'V']" /></a-form-item></a-col>
-              <a-col :xs="24" :md="12"><a-form-item label="过敏史"><a-textarea v-model="current.preVisit.allergy" :auto-size="{ minRows: 2 }" /></a-form-item></a-col>
-              <a-col :xs="24" :md="12"><a-form-item label="既往麻醉史"><a-textarea v-model="current.preVisit.anesthesiaHistory" :auto-size="{ minRows: 2 }" /></a-form-item></a-col>
-              <a-col :xs="24" :md="12"><a-form-item label="困难气道评估"><a-textarea v-model="current.preVisit.difficultAirway" :auto-size="{ minRows: 2 }" /></a-form-item></a-col>
-              <a-col :xs="24" :md="12"><a-form-item label="术前禁食"><a-textarea v-model="current.preVisit.fasting" :auto-size="{ minRows: 2 }" /></a-form-item></a-col>
-              <a-col :xs="24" :md="12"><a-form-item label="术前用药"><a-textarea v-model="current.preVisit.preMedication" :auto-size="{ minRows: 2 }" /></a-form-item></a-col>
-              <a-col :xs="24" :md="12"><a-form-item label="术前特殊情况"><a-textarea v-model="current.preVisit.specialCondition" :auto-size="{ minRows: 2 }" /></a-form-item></a-col>
-              <a-col :xs="24" :md="18"><a-form-item label="麻醉计划"><a-textarea v-model="current.preVisit.plan" :auto-size="{ minRows: 3 }" /></a-form-item></a-col>
-              <a-col :xs="24" :md="6"><a-form-item label="访视医师签名"><a-input v-model="current.preVisit.doctorSignature" /></a-form-item></a-col>
-              <a-col :span="24"><a-checkbox v-model="current.preVisit.completed">访视完成并提交</a-checkbox></a-col>
+              <a-col :xs="24" :sm="8"><a-form-item label="ASA分级"><a-select :model-value="assessment.asaGrade ?? undefined" :options="['I', 'II', 'III', 'IV', 'V', 'VI']" allow-clear @update:model-value="setAsaGrade" /></a-form-item></a-col>
+              <a-col :xs="24" :md="12"><a-form-item label="过敏史"><a-textarea :model-value="assessment.allergyHistory ?? ''" :auto-size="{ minRows: 2 }" @update:model-value="assessment.allergyHistory = $event" /></a-form-item></a-col>
+              <a-col :xs="24" :md="12"><a-form-item label="既往麻醉史"><a-textarea :model-value="assessment.pastAnesthesiaHistory ?? ''" :auto-size="{ minRows: 2 }" @update:model-value="assessment.pastAnesthesiaHistory = $event" /></a-form-item></a-col>
+              <a-col :xs="24" :md="12"><a-form-item label="气道评估"><a-textarea :model-value="assessment.airwayAssessment ?? ''" :auto-size="{ minRows: 2 }" @update:model-value="assessment.airwayAssessment = $event" /></a-form-item></a-col>
+              <a-col :xs="24" :md="12"><a-form-item label="异常检查摘要"><a-textarea :model-value="assessment.abnormalExamSummary ?? ''" :auto-size="{ minRows: 2 }" @update:model-value="assessment.abnormalExamSummary = $event" /></a-form-item></a-col>
+              <a-col :xs="24" :md="12"><a-form-item label="风险摘要"><a-textarea :model-value="assessment.riskSummary ?? ''" :auto-size="{ minRows: 2 }" @update:model-value="assessment.riskSummary = $event" /></a-form-item></a-col>
+              <a-col :xs="24" :md="12"><a-form-item label="术前用药建议"><a-textarea :model-value="assessment.preMedicationAdvice ?? ''" :auto-size="{ minRows: 2 }" @update:model-value="assessment.preMedicationAdvice = $event" /></a-form-item></a-col>
+              <a-col :span="24"><a-form-item label="麻醉计划"><a-textarea :model-value="assessment.anesthesiaPlan ?? ''" :auto-size="{ minRows: 3 }" @update:model-value="assessment.anesthesiaPlan = $event" /></a-form-item></a-col>
+              <a-col :xs="24" :md="12"><a-form-item label="评估医师"><a-input :model-value="assessment.evaluatorName ?? ''" @update:model-value="assessment.evaluatorName = $event" /></a-form-item></a-col>
+              <a-col :xs="24" :md="12"><a-form-item label="评估时间"><a-input :model-value="assessment.evaluatedAt ?? ''" placeholder="YYYY-MM-DD HH:mm:ss" @update:model-value="assessment.evaluatedAt = $event" /></a-form-item></a-col>
             </a-row>
           </a-form>
+          </a-spin>
         </a-card>
       </div>
 
@@ -82,7 +74,7 @@
           <div class="clinical-mini-list">
             <div v-for="item in riskChecklist" :key="item.label" class="clinical-mini-item">
               <strong>{{ item.label }}</strong>
-              <span>{{ item.value }}</span>
+              <span>{{ item.value || '待补充' }}</span>
             </div>
           </div>
         </a-card>
@@ -99,48 +91,108 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import MetricCard from '@/components/MetricCard.vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { Message } from '@arco-design/web-vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
+import type { PreoperativeAssessmentApi } from '@/api/preoperative';
+import {
+  cancelPreoperativeAssessmentSubmit,
+  emptyPreoperativeAssessment,
+  loadPreoperativeAssessment,
+  savePreoperativeAssessmentDraft,
+  submitPreoperativeAssessment,
+} from '@/services/anesthesia/preoperativeAssessmentService';
 
 const store = useAnesthesiaStore();
-const selectedId = ref(store.cases[5]?.id ?? store.cases[0]?.id);
+const selectedId = ref(store.cases[0]?.id ?? '');
 const current = computed(() => store.cases.find((item) => item.id === selectedId.value));
-const bmi = computed(() => {
-  if (!current.value) return '';
-  const height = current.value.preVisit.height / 100;
-  return (current.value.preVisit.weight / (height * height)).toFixed(1);
-});
-const electiveCases = computed(() => store.cases.filter((item) => item.urgency === '择期'));
-const completedElective = computed(() => electiveCases.value.filter((item) => item.preVisit.completed));
-const unfinishedElective = computed(() => electiveCases.value.filter((item) => !item.preVisit.completed));
-const completionRate = computed(() => (electiveCases.value.length ? Math.round((completedElective.value.length / electiveCases.value.length) * 100) : 0));
+const operationCase = reactive<OperationCase>({});
+const assessment = reactive<PreoperativeAssessmentApi>(emptyPreoperativeAssessment(selectedId.value));
+const loading = ref(false);
+const saving = ref(false);
+const persistenceAvailable = ref(true);
+const errorMessage = ref('');
+const canEdit = computed(() => Boolean(current.value) && persistenceAvailable.value && assessment.status !== 'submitted' && !loading.value);
+const statusText = computed(() => ({ draft: '草稿', submitted: '已提交', cancelled: '已取消' }[assessment.status]));
 const riskItems = computed(() => {
-  if (!current.value) return [];
-  const visit = current.value.preVisit;
   return [
-    visit.asa && !['I', 'II'].includes(visit.asa) ? 'ASA 高风险' : '',
-    visit.allergy && visit.allergy !== '无' ? '过敏史' : '',
-    visit.difficultAirway && visit.difficultAirway !== '无' ? '困难气道' : '',
-    visit.specialCondition && visit.specialCondition !== '无' ? '特殊情况' : '',
+    assessment.asaGrade && !['I', 'II'].includes(assessment.asaGrade) ? 'ASA 高风险' : '',
+    assessment.allergyHistory && assessment.allergyHistory !== '无' ? '过敏史' : '',
+    assessment.airwayAssessment ? '气道风险' : '',
+    assessment.riskSummary ? '综合风险' : '',
   ].filter(Boolean);
 });
-const riskChecklist = computed(() => {
-  const visit = current.value?.preVisit;
-  if (!visit) return [];
-  return [
-    { label: 'ASA 分级', value: visit.asa || '待评估' },
-    { label: '过敏史', value: visit.allergy || '待补充' },
-    { label: '困难气道', value: visit.difficultAirway || '待评估' },
-    { label: '禁食情况', value: visit.fasting || '待确认' },
-  ];
+const riskChecklist = computed(() => [
+  { label: 'ASA 分级', value: assessment.asaGrade },
+  { label: '过敏史', value: assessment.allergyHistory },
+  { label: '气道评估', value: assessment.airwayAssessment },
+  { label: '风险摘要', value: assessment.riskSummary },
+]);
+
+function replaceReactive<T extends object>(target: T, value: T) {
+  Object.keys(target).forEach((key) => delete (target as Record<string, unknown>)[key]);
+  Object.assign(target, value);
+}
+
+function setAsaGrade(value: unknown) {
+  assessment.asaGrade = typeof value === 'string' ? value : null;
+}
+
+async function loadDetail(operationId: string) {
+  if (!operationId) return;
+  loading.value = true;
+  errorMessage.value = '';
+  try {
+    const detail = await loadPreoperativeAssessment(operationId);
+    replaceReactive(operationCase, detail.operationCase);
+    replaceReactive(assessment, detail.assessment ?? emptyPreoperativeAssessment(operationId));
+    persistenceAvailable.value = detail.persistence.available;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '术前麻醉评估加载失败';
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function saveDraft() {
+  saving.value = true;
+  try {
+    replaceReactive(assessment, await savePreoperativeAssessmentDraft(selectedId.value, assessment));
+    Message.success('草稿已保存');
+  } catch (error) {
+    Message.error(error instanceof Error ? error.message : '草稿保存失败');
+  } finally { saving.value = false; }
+}
+
+async function submitAssessment() {
+  saving.value = true;
+  try {
+    await savePreoperativeAssessmentDraft(selectedId.value, assessment);
+    replaceReactive(assessment, await submitPreoperativeAssessment(selectedId.value));
+    Message.success('评估已提交');
+  } catch (error) {
+    Message.error(error instanceof Error ? error.message : '评估提交失败');
+  } finally { saving.value = false; }
+}
+
+async function cancelSubmit() {
+  saving.value = true;
+  try {
+    replaceReactive(assessment, await cancelPreoperativeAssessmentSubmit(selectedId.value));
+    Message.success('评估已撤回为草稿');
+  } catch (error) {
+    Message.error(error instanceof Error ? error.message : '撤回失败');
+  } finally { saving.value = false; }
+}
+
+watch(selectedId, loadDetail);
+onMounted(async () => {
+  if (!store.cases.length) await store.loadRemoteOperationList();
+  if (!selectedId.value) selectedId.value = store.cases[0]?.id ?? '';
+  else await loadDetail(selectedId.value);
 });
-const markCompleted = () => {
-  if (!current.value) return;
-  current.value.preVisit.completed = true;
-  current.value.preVisit.doctorSignature = current.value.preVisit.doctorSignature || store.currentDoctorName;
-};
 </script>
 
 <style scoped>
