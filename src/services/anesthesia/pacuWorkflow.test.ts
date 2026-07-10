@@ -1,0 +1,5 @@
+import {beforeEach,describe,expect,it,vi} from 'vitest';
+describe('pacu workflow adapter',()=>{beforeEach(()=>{vi.resetModules();vi.stubEnv('VITE_USE_REAL_PACU','false');});
+ it('runs mock state flow',async()=>{const m=await import('./pacuWorkflow');m.resetPacuWorkflowMock();const id='OP-E2E-PACU-MOCK';expect((await m.pacuDetail(id)).pacuRecord).toBeNull();expect((await m.pacuAction('admit',{operationId:id})).pacuRecord?.status).toBe('admitted');expect((await m.pacuAction('saveRecovery',{operationId:id,aldreteScore:8})).pacuRecord?.status).toBe('recovering');expect((await m.pacuAction('markReady',{operationId:id,dischargeCriteriaMet:true})).pacuRecord?.status).toBe('ready_to_discharge');expect((await m.pacuAction('discharge',{operationId:id,dischargeDestination:'病房'})).pacuRecord?.status).toBe('discharged');});
+ it('filters patient and operation master data',async()=>{const {buildPacuWorkflowPayload}=await import('./pacuWorkflow');const p=buildPacuWorkflowPayload('saveRecovery',{operationId:'OP-1',aldreteScore:9,patientName:'x',operationName:'y',departmentName:'z',caseId:'legacy'});expect(p).toEqual({operationId:'OP-1',aldreteScore:9});});
+});

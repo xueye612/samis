@@ -54,6 +54,9 @@ function buildBookingListQuery(params: PacuBookingListQuery = {}): string {
 }
 
 export const pacuApi = {
+  detail(operationId: string) {
+    return samisRequest<unknown>(`/pacu/detail?operationId=${encodeURIComponent(operationId)}`, undefined, { module: 'pacu' });
+  },
   getList(params: PacuListQuery = {}) {
     return samisRequest<unknown>(`/pacu/list${buildListQuery(params)}`, undefined, {
       module: 'pacu',
@@ -67,6 +70,10 @@ export const pacuApi = {
   admit(data: Record<string, unknown>) {
     return pacuFormPost<{ id: number }>('/admit', data);
   },
+  saveRecovery(data: Record<string, unknown>) { return pacuFormPost<unknown>('/saveRecovery', data); },
+  markReady(data: Record<string, unknown>) { return pacuFormPost<unknown>('/markReady', data); },
+  discharge(data: Record<string, unknown>) { return pacuFormPost<unknown>('/discharge', data); },
+  void(data: Record<string, unknown>) { return pacuFormPost<unknown>('/void', data); },
   update(data: Record<string, unknown>) {
     return pacuFormPost<void>('/update', data);
   },
