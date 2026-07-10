@@ -50,8 +50,8 @@ function msgOf(error: unknown, fallback: string): string {
 export async function loadFluidDictCatalog(): Promise<{ items: FluidBloodDictItem[]; source: Source }> {
   try {
     const [fluidRaw, bloodRaw] = await Promise.all([
-      anesthesiaDictApi.getFluidDict({ page: 1, pageSize: 500 }),
-      anesthesiaDictApi.getBloodProductDict({ page: 1, pageSize: 500 }),
+      anesthesiaDictApi.getFluidDict({ enabled: true, page: 1, pageSize: 500 }),
+      anesthesiaDictApi.getBloodProductDict({ enabled: true, page: 1, pageSize: 500 }),
     ]);
     const items = [...mapFluidDictListResponse(fluidRaw), ...mapFluidDictListResponse(bloodRaw)];
     if (items.length) return { items, source: useRealAnesthesiaDict() ? 'remote' : 'mock' };

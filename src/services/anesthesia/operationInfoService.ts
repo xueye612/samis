@@ -7,6 +7,7 @@ import type { SurgeryCase } from '@/types/anesthesia';
 import {
   buildSnapshotFromOperation,
   mapOperationDetail,
+  mapOperationListItem,
   mapOperationListResponse,
   mapWorkbenchResponse,
   mergeOperationIntoCase,
@@ -68,6 +69,16 @@ export async function fetchOperationList(
 export async function fetchOperationDetail(params: OperationInfoQuery) {
   const raw = await operationInfoApi.getOperationInfo(params);
   return mapOperationDetail(raw);
+}
+
+export async function fetchOperationCaseById(operationId: string): Promise<SurgeryCase | null> {
+  if (!operationId) return null;
+  const raw = await operationInfoApi.getOperationInfo({
+    operationId,
+    OPERATIONID: operationId,
+  });
+  const item = mapOperationListItem(raw);
+  return item.id === operationId ? item : null;
 }
 
 export interface FetchTodayWorkbenchResult {
@@ -149,7 +160,6 @@ export async function hydrateCaseFromOperationInfo(
     const detail = await fetchOperationDetail({
       operationId: caseItem.id,
       OPERATIONID: caseItem.id,
-      patientNumber: caseItem.patientId,
     });
     const merged = applyDetail(detail);
     // Slice 3f：冷启动服务端回读 —— 若本地无该 operationId 的 case，
@@ -168,4 +178,3 @@ export async function hydrateCaseFromOperationInfo(
 export async function refreshOperationInfoIfAllowed(caseItem: SurgeryCase | undefined) {
   return hydrateCaseFromOperationInfo(caseItem);
 }
-

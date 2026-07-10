@@ -16,6 +16,7 @@ export interface DrugDictQuery {
 
 export interface PagedDictQuery {
   id?: number | string;
+  enabled?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -98,6 +99,7 @@ export const anesthesiaDictApi = {
   getTemplate(params?: PagedDictQuery) {
     return dictGet<unknown>('/getTemplate', {
       id: params?.id,
+      enabled: params?.enabled,
       page: params?.page,
       page_size: params?.pageSize,
     });
@@ -158,6 +160,7 @@ export const anesthesiaDictApi = {
   getFluidDict(params?: PagedDictQuery) {
     return dictGet<unknown>('/getFluidDict', {
       id: params?.id,
+      enabled: params?.enabled,
       page: params?.page,
       page_size: params?.pageSize,
     });
@@ -171,6 +174,7 @@ export const anesthesiaDictApi = {
   getBloodProductDict(params?: PagedDictQuery) {
     return dictGet<unknown>('/getBloodProductDict', {
       id: params?.id,
+      enabled: params?.enabled,
       page: params?.page,
       page_size: params?.pageSize,
     });
@@ -186,6 +190,7 @@ export const anesthesiaDictApi = {
   getVitalDict(params?: PagedDictQuery) {
     return dictGet<unknown>('/getVitalDict', {
       id: params?.id,
+      enabled: params?.enabled,
       page: params?.page,
       page_size: params?.pageSize,
     });
@@ -201,6 +206,7 @@ export const anesthesiaDictApi = {
   getStaff(params?: PagedDictQuery) {
     return dictGet<unknown>('/getStaff', {
       id: params?.id,
+      enabled: params?.enabled,
       page: params?.page,
       page_size: params?.pageSize,
     });

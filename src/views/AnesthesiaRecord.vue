@@ -1,5 +1,5 @@
 <template>
-  <div v-if="store.isHydrating" class="record-empty-page record-empty-page--loading">
+  <div v-if="store.isHydrating || routeCaseLoading" class="record-empty-page record-empty-page--loading">
     <a-spin :size="36" tip="正在加载手术通知单与字典数据…" />
   </div>
   <div
@@ -1046,6 +1046,22 @@ const restoreWorkflowState = (caseId: string) => {
 };
 
 const casesReloading = ref(false);
+const routeCaseLoading = ref(false);
+
+const ensureRouteCaseLoaded = async () => {
+  const routeId = route.params.id ? String(route.params.id) : '';
+  if (!routeId || !useRealOperationInfo()) return null;
+  const existing = store.cases.find((item) => item.id === routeId);
+  if (existing) return existing;
+  routeCaseLoading.value = true;
+  try {
+    const loaded = await store.loadOperationCaseById(routeId);
+    if (!loaded) Message.warning('手术通知单不存在');
+    return loaded;
+  } finally {
+    routeCaseLoading.value = false;
+  }
+};
 
 const resolveActiveCaseId = () => {
   const routeId = route.params.id ? String(route.params.id) : '';
@@ -1075,6 +1091,7 @@ let syncingCaseSelection = false;
 const syncActiveCaseSelection = async () => {
   if (syncingCaseSelection) return;
   if (!store.localPersistenceReady || store.isHydrating) return;
+  await ensureRouteCaseLoaded();
   const nextId = resolveActiveCaseId();
   if (!nextId) return;
   syncingCaseSelection = true;
@@ -1095,6 +1112,7 @@ const reloadCases = async () => {
   casesReloading.value = true;
   try {
     await store.loadRemoteOperationList({ operationDate: dayjs().format('YYYY-MM-DD') });
+    await ensureRouteCaseLoaded();
     await syncActiveCaseSelection();
     if (!store.cases.length) Message.info('仍未获取到手术病例');
   } finally {
@@ -1138,6 +1156,7 @@ const confirmReloadFromServer = () => {
 
 watch(() => route.params.id, (id) => {
   if (id) selectedId.value = String(id);
+  void syncActiveCaseSelection();
 });
 watch(
   () => [store.localPersistenceReady, store.isHydrating, store.cases.map((item) => item.id).join('|')],

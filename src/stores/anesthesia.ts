@@ -165,6 +165,7 @@ import {
   buildWorkloadStats,
 } from '@/mock/clinicalModulesSeed';
 import {
+  fetchOperationCaseById,
   fetchOperationList,
   fetchTodayWorkbench,
   hydrateCaseFromOperationInfo as hydrateCaseFromOperationInfoService,
@@ -1127,6 +1128,15 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       bumpDatasetVersion();
       this.datasetVersion += 1;
       return merged;
+    },
+    async loadOperationCaseById(caseId: string) {
+      if (!caseId) return null;
+      const existing = this.cases.find((item) => item.id === caseId);
+      if (existing) return existing;
+      const fetched = await fetchOperationCaseById(caseId);
+      if (!fetched) return null;
+      this.upsertCase(fetched);
+      return this.hydrateCaseFromOperationInfo(caseId);
     },
     async refreshOperationInfoIfAllowed(caseId: string) {
       return this.hydrateCaseFromOperationInfo(caseId);
