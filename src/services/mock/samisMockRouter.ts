@@ -23,6 +23,28 @@ interface MockServerEntity {
 
 const serverEntityRegistry = new Map<string, MockServerEntity>();
 
+interface MockPreoperativeAssessment {
+  operationId: string;
+  assessmentId: string;
+  asaGrade: string | null;
+  anesthesiaPlan: string | null;
+  airwayAssessment: string | null;
+  allergyHistory: string | null;
+  pastAnesthesiaHistory: string | null;
+  abnormalExamSummary: string | null;
+  riskSummary: string | null;
+  preMedicationAdvice: string | null;
+  status: 'draft' | 'submitted' | 'cancelled';
+  evaluatorId: string | null;
+  evaluatorName: string | null;
+  evaluatedAt: string | null;
+  submittedAt: string | null;
+  updatedAt: string | null;
+}
+
+const mockPreoperativeAssessmentState = new Map<string, MockPreoperativeAssessment>();
+let mockPreoperativeAssessmentSequence = 1;
+
 /** Mock PACU 内存态（从 mock 种子克隆，避免污染源数据）。 */
 const mockPacuState = mockPacuPatients.map((p) => ({ ...p }));
 
@@ -687,6 +709,74 @@ const MOCK_ROOMS = [
  */
 export async function routeSamisMock<T>(path: string, init?: RequestInit): Promise<T> {
   await new Promise((resolve) => setTimeout(resolve, 120));
+
+  if (path.includes('/preoperative/assessmentDetail')) {
+    const operationId = getSearchParams(path).get('operationId') ?? '';
+    const item = anesthesiaCases.find((row) => row.id === operationId);
+    const operationCase = item ? {
+      operationId: item.id,
+      patientId: item.patientId,
+      patientName: item.patientName,
+      gender: item.gender,
+      age: item.age,
+      departmentName: item.department,
+      roomName: item.room,
+      operationName: item.surgeryName,
+      status: item.status,
+      surgeonName: item.surgeon,
+      anesthesiologistName: item.anesthesiologist,
+      plannedStartTime: item.plannedStart,
+    } : { operationId };
+    return buildSamisSuccess({
+      operationCase,
+      assessment: mockPreoperativeAssessmentState.get(operationId) ?? null,
+      persistence: { available: true, reason: null },
+    }) as T;
+  }
+  if (path.endsWith('/preoperative/assessmentSaveDraft') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const operationId = String(body.operationId ?? '');
+    const previous = mockPreoperativeAssessmentState.get(operationId);
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const assessment: MockPreoperativeAssessment = {
+      operationId,
+      assessmentId: previous?.assessmentId ?? `PA-MOCK-${mockPreoperativeAssessmentSequence++}`,
+      asaGrade: String(body.asaGrade ?? '') || null,
+      anesthesiaPlan: String(body.anesthesiaPlan ?? '') || null,
+      airwayAssessment: String(body.airwayAssessment ?? '') || null,
+      allergyHistory: String(body.allergyHistory ?? '') || null,
+      pastAnesthesiaHistory: String(body.pastAnesthesiaHistory ?? '') || null,
+      abnormalExamSummary: String(body.abnormalExamSummary ?? '') || null,
+      riskSummary: String(body.riskSummary ?? '') || null,
+      preMedicationAdvice: String(body.preMedicationAdvice ?? '') || null,
+      status: 'draft',
+      evaluatorId: String(body.evaluatorId ?? '') || null,
+      evaluatorName: String(body.evaluatorName ?? '') || null,
+      evaluatedAt: String(body.evaluatedAt ?? '') || null,
+      submittedAt: null,
+      updatedAt: now,
+    };
+    mockPreoperativeAssessmentState.set(operationId, assessment);
+    return buildSamisSuccess(assessment) as T;
+  }
+  if (path.endsWith('/preoperative/assessmentSubmit') && init?.method === 'POST') {
+    const operationId = String(parseBody<Record<string, unknown>>(init).operationId ?? '');
+    const assessment = mockPreoperativeAssessmentState.get(operationId);
+    if (!assessment) return buildSamisError('评估不存在', 404) as T;
+    assessment.status = 'submitted';
+    assessment.submittedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    assessment.updatedAt = assessment.submittedAt;
+    return buildSamisSuccess(assessment) as T;
+  }
+  if (path.endsWith('/preoperative/assessmentCancelSubmit') && init?.method === 'POST') {
+    const operationId = String(parseBody<Record<string, unknown>>(init).operationId ?? '');
+    const assessment = mockPreoperativeAssessmentState.get(operationId);
+    if (!assessment) return buildSamisError('评估不存在', 404) as T;
+    assessment.status = 'draft';
+    assessment.submittedAt = null;
+    assessment.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    return buildSamisSuccess(assessment) as T;
+  }
 
   if (path.endsWith('/anesthesiaSync/pushBatch') && init?.method === 'POST') {
     return handleSamisSyncPushBatch(parseBody<PushBatchRequest>(init)) as T;

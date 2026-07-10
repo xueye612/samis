@@ -1,5 +1,51 @@
 import { samisRequest } from '@/api/samisClient';
 import { buildFormPost, flatFormFieldsFromRecord } from '@/api/samisFormBody';
+import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
+
+export type PreoperativeAssessmentStatus = 'draft' | 'submitted' | 'cancelled';
+
+export interface PreoperativeAssessmentApi {
+  operationId: string;
+  assessmentId: string | null;
+  asaGrade: string | null;
+  anesthesiaPlan: string | null;
+  airwayAssessment: string | null;
+  allergyHistory: string | null;
+  pastAnesthesiaHistory: string | null;
+  abnormalExamSummary: string | null;
+  riskSummary: string | null;
+  preMedicationAdvice: string | null;
+  status: PreoperativeAssessmentStatus;
+  evaluatorId: string | null;
+  evaluatorName: string | null;
+  evaluatedAt: string | null;
+  submittedAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface PreoperativeAssessmentDetailApi {
+  operationCase: OperationCase;
+  assessment: PreoperativeAssessmentApi | null;
+  persistence: {
+    available: boolean;
+    reason: string | null;
+  };
+}
+
+export type PreoperativeAssessmentDraftPayload = Pick<PreoperativeAssessmentApi,
+  | 'operationId'
+  | 'asaGrade'
+  | 'anesthesiaPlan'
+  | 'airwayAssessment'
+  | 'allergyHistory'
+  | 'pastAnesthesiaHistory'
+  | 'abnormalExamSummary'
+  | 'riskSummary'
+  | 'preMedicationAdvice'
+  | 'evaluatorId'
+  | 'evaluatorName'
+  | 'evaluatedAt'
+>;
 
 /** 后端 anes_preop_request 行（camelCase，由 PreoperativeService.formatRequestItem 输出） */
 export interface PreopRequestApi {
@@ -201,6 +247,23 @@ function postForm<T>(path: string, data: Record<string, unknown>) {
 }
 
 export const preoperativeApi = {
+  assessmentDetail(operationId: string) {
+    return samisRequest<PreoperativeAssessmentDetailApi>(
+      `/preoperative/assessmentDetail?operationId=${encodeURIComponent(operationId)}`,
+      undefined,
+      { module: 'preoperative' },
+    );
+  },
+  assessmentSaveDraft(data: PreoperativeAssessmentDraftPayload) {
+    return postForm<PreoperativeAssessmentApi>('/assessmentSaveDraft', data);
+  },
+  assessmentSubmit(operationId: string) {
+    return postForm<PreoperativeAssessmentApi>('/assessmentSubmit', { operationId });
+  },
+  assessmentCancelSubmit(operationId: string) {
+    return postForm<PreoperativeAssessmentApi>('/assessmentCancelSubmit', { operationId });
+  },
+
   // ---- 申请接收 ----
   requestList(params: RequestListQuery = {}) {
     return samisRequest<unknown>(
