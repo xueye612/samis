@@ -595,7 +595,7 @@ watch(monitorDisplayIntervalMinutes, (value) => {
 });
 const sheetReady = computed(() => store.localPersistenceReady && !store.isHydrating && caseSheetReady.value);
 const formatSyncTime = (value?: string) => (value ? dayjs(value).format('HH:mm:ss') : '');
-const UI_SMOKE_OPERATION_PREFIX = 'OP-E2E-UI-SMOKE-';
+const UI_SMOKE_OPERATION_PREFIX = /^OP-E2E-(?:SCHEDULE|NATURAL)-/;
 
 interface UiSmokeSyntheticResult {
   operationId: string;
@@ -619,28 +619,13 @@ const canExposeUiSmokeHarness = () => import.meta.env.DEV
   && useRealAnesthesiaRecord()
   && useRealAnesthesiaSync();
 
-const buildUiSmokeCase = (operationId: string, eventTime = '2026-07-09T15:30:00.000Z'): SurgeryCase => ({
-  id: operationId,
-  patientId: 'P-E2E-UI-SMOKE',
-  room: 'OR-E2E',
-  roomId: 'OR-E2E',
-  roomName: 'OR-E2E',
-  sequence: 1,
-  patientName: 'E2E麻醉记录UI冒烟',
-  gender: '男',
-  age: 38,
-  department: 'E2E测试科室',
-  diagnosis: 'E2E UI smoke diagnosis',
-  surgeryName: 'E2E UI smoke surgery',
-  surgeon: 'quality_admin',
-  anesthesiaMethod: 'E2E全麻',
-  asa: 'II',
-  urgency: '择期',
-  anesthesiologist: 'quality_admin',
-  anesthesiaNurse: 'quality_admin',
+const buildUiSmokeCase = (seed: SurgeryCase): SurgeryCase => {
+  const operationId = seed.id;
+  const eventTime = seed.plannedStart || new Date().toISOString();
+  return ({
+  ...seed,
   status: '麻醉中',
   locationType: '手术室内',
-  plannedStart: eventTime,
   scheduledStart: eventTime,
   actualStart: eventTime,
   anesthesiaStart: eventTime,
@@ -711,7 +696,8 @@ const buildUiSmokeCase = (operationId: string, eventTime = '2026-07-09T15:30:00.
   },
   outputRecords: [],
   labResults: [],
-});
+  });
+};
 
 const inspectUiSmokeLocalState = async (operationId: string) => {
   const db = getAnesthesiaLocalDb();
@@ -1211,17 +1197,17 @@ onMounted(async () => {
         await store.injectMockSyncConflict(caseId);
       },
       seedBoundaryVitals: (caseId = selectedId.value) => store.seedBoundaryVitalsForTest(caseId),
-      saveUiSmokeSynthetic: async (operationId: string): Promise<UiSmokeSyntheticResult> => {
+      saveUiSmokeCurrent: async (operationId: string): Promise<UiSmokeSyntheticResult> => {
         if (!canExposeUiSmokeHarness()) throw new Error('UI smoke harness requires explicit real integration opt-in');
-        if (!operationId.startsWith(UI_SMOKE_OPERATION_PREFIX)) {
-          throw new Error(`UI smoke operationId must start with ${UI_SMOKE_OPERATION_PREFIX}`);
+        if (!UI_SMOKE_OPERATION_PREFIX.test(operationId)) {
+          throw new Error('UI smoke operationId must start with OP-E2E-SCHEDULE- or OP-E2E-NATURAL-');
         }
-        const synthetic = buildUiSmokeCase(operationId);
         const index = store.cases.findIndex((item) => item.id === operationId);
-        if (index >= 0) store.cases[index] = synthetic;
-        else store.cases.push(synthetic);
-        selectedId.value = operationId;
-        await router.replace(buildRecordRoute(operationId, recordEntrySource.value));
+        if (index < 0 || selectedId.value !== operationId || String(route.params.id || '') !== operationId) {
+          throw new Error('UI smoke must save the schedule case selected through the real record route');
+        }
+        const synthetic = buildUiSmokeCase(store.cases[index]);
+        store.cases[index] = synthetic;
         await persistCaseNow(synthetic, 1);
         await flushAnesthesiaSyncNow(operationId);
         const local = await inspectUiSmokeLocalState(operationId);
@@ -1234,8 +1220,8 @@ onMounted(async () => {
       readUiSmokeLocalState: inspectUiSmokeLocalState,
       reloadUiSmokeFromServer: async (operationId: string): Promise<UiSmokeReloadResult> => {
         if (!canExposeUiSmokeHarness()) throw new Error('UI smoke harness requires explicit real integration opt-in');
-        if (!operationId.startsWith(UI_SMOKE_OPERATION_PREFIX)) {
-          throw new Error(`UI smoke operationId must start with ${UI_SMOKE_OPERATION_PREFIX}`);
+        if (!UI_SMOKE_OPERATION_PREFIX.test(operationId)) {
+          throw new Error('UI smoke operationId must start with OP-E2E-SCHEDULE- or OP-E2E-NATURAL-');
         }
         const reconstructed = await store.reloadCaseFromServer(operationId);
         return {
