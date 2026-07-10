@@ -1,5 +1,20 @@
 <template>
-  <div v-if="current" class="page-stack">
+  <div class="page-stack">
+    <a-card class="section-card" :bordered="false" title="PACU 真实化工作流">
+      <a-space wrap>
+        <a-input v-model="workflowOperationId" placeholder="operationId" style="width:260px" />
+        <a-button :loading="workflowLoading" @click="loadWorkflow">加载/刷新</a-button>
+        <a-button type="primary" :disabled="!!workflowDetail?.pacuRecord" @click="runWorkflow('admit')">入 PACU</a-button>
+        <a-button :disabled="!['admitted','recovering'].includes(workflowStatus)" @click="runWorkflow('saveRecovery')">保存恢复记录</a-button>
+        <a-button :disabled="workflowStatus !== 'recovering'" @click="runWorkflow('markReady')">标记达标</a-button>
+        <a-button :disabled="workflowStatus !== 'ready_to_discharge'" @click="runWorkflow('discharge')">转出</a-button>
+        <a-button status="danger" :disabled="!['admitted','recovering'].includes(workflowStatus)" @click="runWorkflow('void')">作废/取消</a-button>
+      </a-space>
+      <a-alert v-if="workflowDetail" class="record-alert" type="info">
+        {{ workflowDetail.operationCase.patientName ?? '—' }} · {{ workflowDetail.operationCase.operationName ?? '—' }} · {{ workflowStatus || 'pending' }}
+      </a-alert>
+    </a-card>
+    <template v-if="current">
     <section class="module-hero">
       <div>
         <h2 class="module-hero__title">PACU恢复记录</h2>
@@ -78,23 +93,32 @@
         </a-button>
       </div>
     </a-card>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
 import { computed, ref, watch } from 'vue';
+import { Message } from '@arco-design/web-vue';
 import { useRoute, useRouter } from 'vue-router';
 import LiveAnesthesiaSheet from '@/components/anesthesia/record/LiveAnesthesiaSheet.vue';
 import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog, ensureRecordDocument } from '@/services/anesthesiaRecordEngine';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 import type { PacuPatient, SurgeryCase, VitalSign } from '@/types/anesthesia';
+import { pacuAction, pacuDetail, type PacuDetailContract } from '@/services/anesthesia/pacuWorkflow';
 
 const route = useRoute();
 const router = useRouter();
 const store = useAnesthesiaStore();
 const selectedId = ref(String(route.params.id || store.pacuPatients[0]?.id));
 const viewMode = ref<'form' | 'sheet'>('form');
+const workflowOperationId = ref(String(route.query.operationId || route.params.id || ''));
+const workflowDetail = ref<PacuDetailContract | null>(null);
+const workflowLoading = ref(false);
+const workflowStatus = computed(() => workflowDetail.value?.pacuRecord?.status ?? '');
+const loadWorkflow = async () => { if (!workflowOperationId.value) return; workflowLoading.value=true; try { workflowDetail.value=await pacuDetail(workflowOperationId.value); } catch(e) { Message.error(e instanceof Error?e.message:'PACU加载失败'); } finally { workflowLoading.value=false; } };
+const runWorkflow = async (action:'admit'|'saveRecovery'|'markReady'|'discharge'|'void') => { if(!workflowOperationId.value)return; const record=workflowDetail.value?.pacuRecord; const payload:Record<string,unknown>={operationId:workflowOperationId.value}; if(action==='saveRecovery')Object.assign(payload,{aldreteScore:current.value?.aldrete,painScore:current.value?.vas,nauseaVomiting:current.value?.nausea,shivering:current.value?.shivering,vitalSummary:current.value?`HR ${current.value.HR}; BP ${current.value.BP}; SpO2 ${current.value.SpO2}; RR ${current.value.RR}`:undefined,notes:current.value?.handover}); if(action==='markReady')Object.assign(payload,{dischargeCriteriaMet:true,aldreteScore:record?.aldreteScore}); if(action==='discharge')Object.assign(payload,{dischargeDestination:current.value?.transferTo||'病房'}); if(action==='void')Object.assign(payload,{voidReason:'页面取消'}); workflowLoading.value=true; try{workflowDetail.value=await pacuAction(action,payload);Message.success('PACU状态已更新');}catch(e){Message.error(e instanceof Error?e.message:'PACU操作失败');}finally{workflowLoading.value=false;} };
 
 watch(() => route.params.id, (id) => {
   if (id) selectedId.value = String(id);
