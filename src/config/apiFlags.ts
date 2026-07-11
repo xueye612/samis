@@ -108,6 +108,7 @@ export type SamisApiModule =
   | 'postoperative'
   | 'quality'
   | 'preoperative'
+  | 'document'
   | 'admin'
   | 'legacy';
 

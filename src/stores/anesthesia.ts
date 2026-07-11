@@ -265,6 +265,10 @@ import {
   receiveRequestRemote,
   cancelRequestRemote,
   submitConsentRemote,
+  submitConsultationRemote,
+  cancelConsultationRemote,
+  withdrawConsentRemote,
+  markConsentPrintedRemote,
   fetchConsentByCaseId,
   fetchSafetyCheckByCaseId,
 } from '@/services/anesthesia/preoperativeService';
@@ -2091,6 +2095,20 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       else this.consultations.unshift(finalRecord);
       return finalRecord;
     },
+    async submitPreopConsultation(id: string) {
+      const remote = await submitConsultationRemote(id);
+      const index = this.consultations.findIndex((item) => item.id === id);
+      if (remote && index >= 0) this.consultations[index] = remote;
+      else if (index >= 0) this.consultations[index] = { ...this.consultations[index], status: '已完成' };
+      return remote ?? this.consultations[index] ?? null;
+    },
+    async cancelPreopConsultation(id: string, reason = '') {
+      const remote = await cancelConsultationRemote(id, reason);
+      const index = this.consultations.findIndex((item) => item.id === id);
+      if (remote && index >= 0) this.consultations[index] = remote;
+      else if (index >= 0) this.consultations[index] = { ...this.consultations[index], status: '已取消', cancelReason: reason };
+      return remote ?? this.consultations[index] ?? null;
+    },
     /** 加载检查审核列表（真实开关开→远程；关→mock 兜底）。 */
     async loadRemotePreopExamReviews(params?: { caseId?: string; reviewResult?: string }) {
       const result = await loadRemoteExamReviews(params);
@@ -2164,6 +2182,20 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         return this.consentRecords[index];
       }
       return null;
+    },
+    async withdrawPreopConsent(id: string): Promise<ConsentRecord | null> {
+      const remote = await withdrawConsentRemote(id);
+      const index = this.consentRecords.findIndex((item) => item.id === id);
+      if (remote && index >= 0) this.consentRecords[index] = remote;
+      else if (index >= 0) this.consentRecords[index] = { ...this.consentRecords[index], status: '草稿' };
+      return remote ?? this.consentRecords[index] ?? null;
+    },
+    async markPreopConsentPrinted(id: string): Promise<ConsentRecord | null> {
+      const remote = await markConsentPrintedRemote(id);
+      const index = this.consentRecords.findIndex((item) => item.id === id);
+      if (remote && index >= 0) this.consentRecords[index] = remote;
+      else if (index >= 0) this.consentRecords[index] = { ...this.consentRecords[index], printStatus: '已打印' };
+      return remote ?? this.consentRecords[index] ?? null;
     },
     /** 加载安全核查列表（真实开关开→远程；关→mock 兜底）。 */
     async loadRemotePreopSafetyChecks(params?: { caseId?: string; status?: string }) {

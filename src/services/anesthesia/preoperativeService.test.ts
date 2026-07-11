@@ -81,8 +81,8 @@ describe('preoperativeService adapters', () => {
 
   it('builds consultation payload', () => {
     const payload = buildConsultationPayload({ caseId: 'c1', status: '已完成', opinion: '意见' });
-    expect(payload.caseId).toBe('c1');
-    expect(payload.status).toBe('已完成');
+    expect(payload.operationId).toBe('c1');
+    expect(payload).not.toHaveProperty('status');
   });
 
   it('maps examReview api → ExamReviewRecord with normalized result', () => {
@@ -141,7 +141,7 @@ describe('preoperativeService adapters', () => {
 
   it('builds consent payload with bool flags', () => {
     const payload = buildConsentPayload({ caseId: 'k1', commonRisks: true, patientSigned: true });
-    expect(payload.caseId).toBe('k1');
+    expect(payload.operationId).toBe('k1');
     expect(payload.commonRisks).toBe(true);
     expect(payload.patientSigned).toBe(true);
   });

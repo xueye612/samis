@@ -59,6 +59,10 @@
               <p>{{ selected.opinion }}</p>
             </div>
             <a-button type="text" @click="router.push(`/surgery/detail/${selected.caseId}`)">查看患者详情</a-button>
+            <a-space>
+              <a-button v-if="selected.status === '待会诊'" type="primary" @click="submitSelected">提交会诊</a-button>
+              <a-button v-if="selected.status !== '已取消'" status="danger" @click="cancelSelected">取消会诊</a-button>
+            </a-space>
           </template>
           <EmptyState v-else title="选择会诊记录" description="点击左侧列表查看会诊意见" icon="IconList" />
         </a-card>
@@ -68,8 +72,7 @@
     <a-modal :visible="formVisible" :title="formMode === 'create' ? '新增会诊' : '编辑会诊'" :width="560" @cancel="closeForm" @ok="submitForm">
       <a-form :model="form" layout="vertical">
         <a-row :gutter="12">
-          <a-col :span="12"><a-form-item label="病例ID" required><a-input v-model="form.caseId" :disabled="formMode === 'edit'" placeholder="caseId" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="患者姓名"><a-input v-model="form.patientName" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="手术通知单ID" required><a-input v-model="form.caseId" :disabled="formMode === 'edit'" placeholder="operationId" /></a-form-item></a-col>
         </a-row>
         <a-row :gutter="12">
           <a-col :span="12"><a-form-item label="申请科室"><a-input v-model="form.requestDept" /></a-form-item></a-col>
@@ -77,10 +80,9 @@
         </a-row>
         <a-row :gutter="12">
           <a-col :span="12"><a-form-item label="会诊时间"><a-date-picker v-model="form.consultDate" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="状态">
-            <a-select v-model="form.status"><a-option value="待会诊">待会诊</a-option><a-option value="已完成">已完成</a-option></a-select>
-          </a-form-item></a-col>
+          <a-col :span="12" />
         </a-row>
+        <a-form-item label="会诊申请"><a-textarea v-model="form.requestContent" :auto-size="{ minRows: 2 }" /></a-form-item>
         <a-form-item label="评估意见"><a-textarea v-model="form.opinion" :auto-size="{ minRows: 3 }" /></a-form-item>
       </a-form>
     </a-modal>
@@ -133,6 +135,7 @@ const form = reactive({
   consultant: '',
   opinion: '',
   status: '待会诊' as ConsultationRecord['status'],
+  requestContent: '',
 });
 
 function resetForm() {
@@ -143,6 +146,7 @@ function resetForm() {
   form.consultant = '';
   form.opinion = '';
   form.status = '待会诊';
+  form.requestContent = '';
 }
 
 function openCreate() {
@@ -163,6 +167,7 @@ function openEdit(record: ConsultationRecord) {
     consultant: record.consultant,
     opinion: record.opinion,
     status: record.status,
+    requestContent: record.requestContent ?? '',
   });
   formVisible.value = true;
 }
@@ -187,6 +192,7 @@ async function submitForm() {
         consultant: form.consultant,
         opinion: form.opinion,
         status: form.status,
+        requestContent: form.requestContent,
       });
       if (created) selectedId.value = created.id;
       Message.success('会诊已创建');
@@ -200,6 +206,7 @@ async function submitForm() {
         consultant: form.consultant,
         opinion: form.opinion,
         status: form.status,
+        requestContent: form.requestContent,
       });
       Message.success('会诊已更新');
     }
@@ -207,6 +214,18 @@ async function submitForm() {
   } catch (error) {
     Message.error(error instanceof Error ? error.message : '保存失败');
   }
+}
+
+async function submitSelected() {
+  if (!selected.value) return;
+  await store.submitPreopConsultation(selected.value.id);
+  Message.success('会诊已提交');
+}
+
+async function cancelSelected() {
+  if (!selected.value) return;
+  await store.cancelPreopConsultation(selected.value.id, '页面取消');
+  Message.success('会诊已取消');
 }
 
 onMounted(reload);

@@ -78,6 +78,12 @@ export interface PreopConsultationApi {
   status: string;
   createdAt?: string | null;
   updatedAt?: string | null;
+  requestContent?: string | null;
+  consultantId?: string | null;
+  submittedAt?: string | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
+  operationCase?: OperationCase;
 }
 
 /** 后端 anes_preop_exam_review 行 */
@@ -116,6 +122,12 @@ export interface PreopConsentApi {
   status: string;
   createdAt?: string | null;
   updatedAt?: string | null;
+  templateCode?: string | null;
+  templateVersion?: string | null;
+  riskDisclosure?: string | null;
+  printStatus?: string;
+  archiveStatus?: string;
+  operationCase?: OperationCase;
 }
 
 /** 后端 anes_preop_safety_check 行 */
@@ -313,6 +325,8 @@ export const preoperativeApi = {
   consultationUpdate(data: Record<string, unknown>) {
     return postForm<PreopConsultationApi>('/consultationUpdate', data);
   },
+  consultationSubmit(id: number | string) { return postForm<PreopConsultationApi>('/consultationSubmit', { id }); },
+  consultationCancel(id: number | string, cancelReason = '') { return postForm<PreopConsultationApi>('/consultationCancel', { id, cancelReason }); },
 
   // ---- 检查审核 ----
   examReviewList(params: ExamReviewListQuery = {}) {
@@ -367,6 +381,28 @@ export const preoperativeApi = {
   consentSubmit(id: number | string) {
     return postForm<PreopConsentApi>('/consentSubmit', { id });
   },
+  consentWithdraw(id: number | string) { return postForm<PreopConsentApi>('/consentWithdraw', { id }); },
+  consentMarkPrinted(id: number | string) { return postForm<PreopConsentApi>('/consentMarkPrinted', { id }); },
+  consentArchive(id: number | string) { return postForm<PreopConsentApi>('/consentArchive', { id }); },
+
+  // ---- 同意书签署流程 ----
+  consentPrepareSigning(data: { id: number | string; signingMode?: string; representativeReason?: string }) {
+    return postForm<PreopConsentApi & { documentId?: string; contentHash?: string }>('/consentPrepareSigning', data);
+  },
+  consentAttachHandwrittenSignature(data: {
+    id: number | string;
+    documentId?: string;
+    signerRole: string;
+    attachmentId: string;
+    attachmentHash: string;
+    relationship?: string;
+    witnessId?: string;
+  }) {
+    return postForm<unknown>('/consentAttachHandwrittenSignature', data);
+  },
+  consentAttachDoctorSignature(data: { id: number | string; documentId?: string; signerGh: string }) {
+    return postForm<unknown>('/consentAttachDoctorSignature', data);
+  },
 
   // ---- 安全核查 ----
   safetyCheckList(params: SafetyCheckListQuery = {}) {
@@ -395,5 +431,27 @@ export const preoperativeApi = {
   },
   safetyCheckUpdate(data: Record<string, unknown>) {
     return postForm<PreopSafetyCheckApi>('/safetyCheckUpdate', data);
+  },
+  safetyCheckSummary(operationId: string) {
+    return samisRequest<unknown>(
+      `/preoperative/safetyCheckSummary?operationId=${encodeURIComponent(operationId)}`,
+      undefined,
+      { module: 'preoperative' },
+    );
+  },
+  safetyConfirmRole(data: { operationId: string; stage: string; confirmed: boolean; reason?: string }) {
+    return postForm<unknown>('/safetyConfirmRole', data);
+  },
+
+  // ---- 术前评估修订 ----
+  assessmentCreateRevision(data: { operationId: string; reason: string }) {
+    return postForm<PreoperativeAssessmentApi>('/assessmentCreateRevision', data);
+  },
+  assessmentHistory(operationId: string) {
+    return samisRequest<{ list: unknown[] }>(
+      `/preoperative/assessmentHistory?operationId=${encodeURIComponent(operationId)}`,
+      undefined,
+      { module: 'preoperative' },
+    );
   },
 };

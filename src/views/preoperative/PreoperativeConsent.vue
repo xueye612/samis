@@ -17,6 +17,12 @@
           <a-col :span="8"><a-form-item label="拟行麻醉"><a-input :model-value="record.anesthesiaMethod" disabled /></a-form-item></a-col>
         </a-row>
         <a-divider>风险告知确认</a-divider>
+        <a-row :gutter="16">
+          <a-col :span="8"><a-form-item label="模板编码"><a-input v-model="form.templateCode" :disabled="readonly" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="模板版本"><a-input v-model="form.templateVersion" :disabled="readonly" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="打印/归档"><a-input :model-value="`${record.printStatus ?? '未打印'} / ${record.archiveStatus ?? '未归档'}`" disabled /></a-form-item></a-col>
+        </a-row>
+        <a-form-item label="风险说明"><a-textarea v-model="form.riskDisclosure" :disabled="readonly" :auto-size="{ minRows: 3 }" /></a-form-item>
         <a-space wrap>
           <a-checkbox v-model="form.commonRisks" :disabled="readonly">已告知常见风险</a-checkbox>
           <a-checkbox v-model="form.severeRisks" :disabled="readonly">已告知严重风险</a-checkbox>
@@ -38,6 +44,7 @@
         <a-space>
           <a-button :disabled="readonly || saving" :loading="saving" @click="saveDraft">保存草稿</a-button>
           <a-button type="primary" :disabled="readonly" :loading="submitting" @click="submit">提交</a-button>
+          <a-button v-if="readonly" @click="withdraw">撤回</a-button>
           <a-button @click="printPreview">打印</a-button>
         </a-space>
       </div>
@@ -77,6 +84,9 @@ const form = reactive({
   patientSigned: false,
   familySigned: false,
   doctorSigned: false,
+  templateCode: '',
+  templateVersion: '',
+  riskDisclosure: '',
 });
 
 function syncForm(value?: ConsentRecord) {
@@ -90,6 +100,9 @@ function syncForm(value?: ConsentRecord) {
     patientSigned: value.patientSigned,
     familySigned: value.familySigned,
     doctorSigned: value.doctorSigned,
+    templateCode: value.templateCode ?? '',
+    templateVersion: value.templateVersion ?? '',
+    riskDisclosure: value.riskDisclosure ?? '',
   });
 }
 
@@ -172,7 +185,16 @@ async function submit() {
   }
 }
 
-const printPreview = () => Message.info('打印预览（Mock）');
+async function withdraw() {
+  if (!record.value) return;
+  await store.withdrawPreopConsent(record.value.id);
+  Message.success('知情同意已撤回');
+}
+
+const printPreview = async () => {
+  if (record.value) await store.markPreopConsentPrinted(record.value.id);
+  Message.success('打印状态已记录');
+};
 </script>
 
 <style scoped>

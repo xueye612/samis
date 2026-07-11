@@ -39,6 +39,11 @@ export interface ConsentRecord {
   signedAt?: string;
   status: '草稿' | '已提交';
   updatedAt: string;
+  templateCode?: string;
+  templateVersion?: string;
+  riskDisclosure?: string;
+  printStatus?: '未打印' | '已打印';
+  archiveStatus?: '未归档' | '已归档';
 }
 
 export interface HandoverRecord {
@@ -146,7 +151,12 @@ export interface ConsultationRecord {
   consultDate: string;
   consultant: string;
   opinion: string;
-  status: '待会诊' | '已完成';
+  status: '待会诊' | '已完成' | '已取消';
+  requestContent?: string;
+  consultantId?: string;
+  submittedAt?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
 }
 
 export interface ExamReviewRecord {

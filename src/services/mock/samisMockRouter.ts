@@ -1627,8 +1627,8 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
     const id = ++mockFollowupIdCounter.value;
     const row: MockFollowup = {
       id,
-      caseId: String(body.caseId ?? ''),
-      operationId: String(body.caseId ?? ''),
+      caseId: String(body.operationId ?? body.caseId ?? ''),
+      operationId: String(body.operationId ?? body.caseId ?? ''),
       patientName: String(body.patientName ?? '未知患者'),
       followupType: String(body.followupType ?? '术后镇痛随访'),
       followTime: String(body.followTime ?? now),
@@ -1928,7 +1928,7 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
   }
   if (path.endsWith('/preoperative/consentCreate') && init?.method === 'POST') {
     const body = parseBody<Record<string, unknown>>(init);
-    const caseId = body.caseId ? String(body.caseId) : '';
+    const caseId = String(body.operationId ?? body.caseId ?? '');
     if (caseId && mockPreopConsentState.some((r) => r.caseId === caseId)) {
       return buildSamisError('该病例已存在知情同意书，不可重复创建', 1401) as T;
     }

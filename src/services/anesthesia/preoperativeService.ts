@@ -31,7 +31,7 @@ function describeError(error: unknown, fallback: string): string {
 
 const VALID_URGENCY = ['急诊', '择期'] as const;
 const VALID_REQUEST_STATUS = ['待接收', '已排班', '已取消'] as const;
-const VALID_CONSULT_STATUS = ['待会诊', '已完成'] as const;
+const VALID_CONSULT_STATUS = ['待会诊', '已完成', '已取消'] as const;
 const VALID_REVIEW_RESULT = ['通过', '待补检', '异常'] as const;
 const VALID_CONSENT_STATUS = ['草稿', '已提交'] as const;
 const VALID_CHECK_STATUS = ['未完成', '已完成'] as const;
@@ -141,12 +141,17 @@ export function mapConsultationApiToRecord(row: PreopConsultationApi): Consultat
   return {
     id: String(row.id),
     caseId: row.caseId,
-    patientName: row.patientName ?? '',
-    requestDept: row.requestDept ?? '',
+    patientName: row.operationCase?.patientName ?? row.patientName ?? '',
+    requestDept: row.requestDept ?? row.operationCase?.departmentName ?? '',
     consultDate: row.consultDate ?? '',
     consultant: row.consultant ?? '',
     opinion: row.opinion ?? '',
     status: pickEnum(row.status, VALID_CONSULT_STATUS, '待会诊'),
+    requestContent: row.requestContent ?? '',
+    consultantId: row.consultantId ?? '',
+    submittedAt: row.submittedAt ?? undefined,
+    cancelledAt: row.cancelledAt ?? undefined,
+    cancelReason: row.cancelReason ?? '',
   };
 }
 
@@ -154,13 +159,13 @@ export function buildConsultationPayload(
   record: Partial<ConsultationRecord>,
 ): Record<string, string | number | boolean> {
   const payload: Record<string, string | number | boolean> = {};
-  if (record.caseId !== undefined) payload.caseId = record.caseId;
-  if (record.patientName !== undefined) payload.patientName = record.patientName;
+  if (record.caseId !== undefined) payload.operationId = record.caseId;
   if (record.requestDept !== undefined) payload.requestDept = record.requestDept;
   if (record.consultDate !== undefined) payload.consultDate = record.consultDate;
   if (record.consultant !== undefined) payload.consultant = record.consultant;
+  if (record.requestContent !== undefined) payload.requestContent = record.requestContent;
+  if (record.consultantId !== undefined) payload.consultantId = record.consultantId;
   if (record.opinion !== undefined) payload.opinion = record.opinion;
-  if (record.status !== undefined) payload.status = record.status;
   return payload;
 }
 
@@ -201,6 +206,16 @@ export async function upsertConsultationRemote(
     ? await preoperativeApi.consultationUpdate({ id: Number(record.id), ...payload })
     : await preoperativeApi.consultationCreate(payload);
   return mapConsultationApiToRecord(result as PreopConsultationApi);
+}
+
+export async function submitConsultationRemote(id: string | number): Promise<ConsultationRecord | null> {
+  if (!useRealPreoperative() || !isSamisLoggedIn()) return null;
+  return mapConsultationApiToRecord(await preoperativeApi.consultationSubmit(id));
+}
+
+export async function cancelConsultationRemote(id: string | number, reason = ''): Promise<ConsultationRecord | null> {
+  if (!useRealPreoperative() || !isSamisLoggedIn()) return null;
+  return mapConsultationApiToRecord(await preoperativeApi.consultationCancel(id, reason));
 }
 
 // ===================== examReview =====================
@@ -277,8 +292,8 @@ export function mapConsentApiToRecord(row: PreopConsentApi): ConsentRecord {
   return {
     id: String(row.id),
     caseId: row.caseId,
-    patientName: row.patientName ?? '',
-    surgeryName: row.surgeryName ?? '',
+    patientName: row.operationCase?.patientName ?? row.patientName ?? '',
+    surgeryName: row.operationCase?.operationName ?? row.surgeryName ?? '',
     anesthesiaMethod: row.anesthesiaMethod ?? '',
     surgeryDate: row.surgeryDate ?? '',
     commonRisks: Boolean(row.commonRisks),
@@ -292,6 +307,11 @@ export function mapConsentApiToRecord(row: PreopConsentApi): ConsentRecord {
     signedAt: row.signedAt ?? undefined,
     status: pickEnum(row.status, VALID_CONSENT_STATUS, '草稿'),
     updatedAt: row.updatedAt ?? '',
+    templateCode: row.templateCode ?? '',
+    templateVersion: row.templateVersion ?? '',
+    riskDisclosure: row.riskDisclosure ?? '',
+    printStatus: row.printStatus === '已打印' ? '已打印' : '未打印',
+    archiveStatus: row.archiveStatus === '已归档' ? '已归档' : '未归档',
   };
 }
 
@@ -299,11 +319,11 @@ export function buildConsentPayload(
   record: Partial<ConsentRecord>,
 ): Record<string, string | number | boolean> {
   const payload: Record<string, string | number | boolean> = {};
-  if (record.caseId !== undefined) payload.caseId = record.caseId;
-  if (record.patientName !== undefined) payload.patientName = record.patientName;
-  if (record.surgeryName !== undefined) payload.surgeryName = record.surgeryName;
+  if (record.caseId !== undefined) payload.operationId = record.caseId;
   if (record.anesthesiaMethod !== undefined) payload.anesthesiaMethod = record.anesthesiaMethod;
-  if (record.surgeryDate !== undefined) payload.surgeryDate = record.surgeryDate;
+  if (record.templateCode !== undefined) payload.templateCode = record.templateCode;
+  if (record.templateVersion !== undefined) payload.templateVersion = record.templateVersion;
+  if (record.riskDisclosure !== undefined) payload.riskDisclosure = record.riskDisclosure;
   const flagMap: Array<[keyof ConsentRecord, string]> = [
     ['commonRisks', 'commonRisks'],
     ['severeRisks', 'severeRisks'],
@@ -378,6 +398,16 @@ export async function submitConsentRemote(id: string | number): Promise<ConsentR
   if (!useRealPreoperative() || !isSamisLoggedIn()) return null;
   const result = await preoperativeApi.consentSubmit(id);
   return mapConsentApiToRecord(result as PreopConsentApi);
+}
+
+export async function withdrawConsentRemote(id: string | number): Promise<ConsentRecord | null> {
+  if (!useRealPreoperative() || !isSamisLoggedIn()) return null;
+  return mapConsentApiToRecord(await preoperativeApi.consentWithdraw(id));
+}
+
+export async function markConsentPrintedRemote(id: string | number): Promise<ConsentRecord | null> {
+  if (!useRealPreoperative() || !isSamisLoggedIn()) return null;
+  return mapConsentApiToRecord(await preoperativeApi.consentMarkPrinted(id));
 }
 
 // ===================== safetyCheck =====================
