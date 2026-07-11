@@ -216,29 +216,41 @@ export const postAnalgesiaApi = {
 };
 
 // ---- 非计划事件 ----
+export type UnplannedEventStatus = 'draft' | 'reported' | 'under_review' | 'confirmed' | 'excluded' | 'closed';
+
 export interface UnplannedEventApi {
   eventId: string;
   operationId: string;
   eventType: string;
-  occurredAt: string;
+  occurredAt: string | null;
   severity: string;
-  status: string;
+  status: UnplannedEventStatus;
+  version: number;
+  discoverySource: string | null;
+  cause: string | null;
+  treatment: string | null;
+  outcome: string | null;
   qualityDefectId: number | null;
+  reportedAt: string | null;
+  reviewedAt: string | null;
+  reviewerId: string | null;
+  exclusionReason: string | null;
+  closeReason: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
 }
 
 export const unplannedEventApi = {
-  saveDraft(data: Record<string, unknown>) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedSaveDraft', buildFormPost(workflowFormFields(data)), { module: 'postoperative' }); },
-  report(data: Record<string, unknown>) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedReport', buildFormPost(workflowFormFields(data)), { module: 'postoperative' }); },
-  startReview(eventId: string) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedStartReview', buildFormPost({ eventId }), { module: 'postoperative' }); },
-  confirm(eventId: string, reviewOpinion?: string) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedConfirm', buildFormPost({ eventId, reviewOpinion }), { module: 'postoperative' }); },
-  exclude(eventId: string, reason: string) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedExclude', buildFormPost({ eventId, reason }), { module: 'postoperative' }); },
-  close(eventId: string, reason: string) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedClose', buildFormPost({ eventId, reason }), { module: 'postoperative' }); },
-  detail(eventId: string) {
-    return samisRequest<UnplannedEventApi>(`/postoperative/unplannedDetail?eventId=${encodeURIComponent(eventId)}`, undefined, { module: 'postoperative' });
-  },
+  detail(eventId: string) { return samisRequest<UnplannedEventApi>(`/postoperative/unplannedDetail?eventId=${encodeURIComponent(eventId)}`, undefined, { module: 'postoperative' }); },
   list(params: Record<string, string | number | undefined> = {}) {
     const q = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') q.set(k, String(v)); });
     return samisRequest<{ list: UnplannedEventApi[]; total: number }>(`/postoperative/unplannedList${q.size ? `?${q}` : ''}`, undefined, { module: 'postoperative' });
   },
+  saveDraft(data: Record<string, unknown>) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedSaveDraft', buildFormPost(workflowFormFields(data)), { module: 'postoperative' }); },
+  report(data: Record<string, unknown>) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedReport', buildFormPost(workflowFormFields(data)), { module: 'postoperative' }); },
+  startReview(data: { eventId: string; expectedVersion: number }) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedStartReview', buildFormPost(workflowFormFields(data)), { module: 'postoperative' }); },
+  confirm(data: { eventId: string; expectedVersion: number; reviewOpinion?: string }) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedConfirm', buildFormPost(workflowFormFields(data)), { module: 'postoperative' }); },
+  exclude(data: { eventId: string; expectedVersion: number; reason: string }) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedExclude', buildFormPost(workflowFormFields(data)), { module: 'postoperative' }); },
+  close(data: { eventId: string; expectedVersion: number; reason: string }) { return samisRequest<UnplannedEventApi>('/postoperative/unplannedClose', buildFormPost(workflowFormFields(data)), { module: 'postoperative' }); },
 };
