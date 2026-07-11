@@ -8,6 +8,7 @@ import type {
   LocalMedicationRow,
   LocalRecordRow,
   LocalSnapshotRow,
+  LocalStructuredRecordRow,
   LocalSyncQueueRow,
   LocalTimelineEventRow,
   LocalTransfusionRow,
@@ -225,6 +226,15 @@ function mapLabPayload(queueItem: LocalSyncQueueRow, row: LocalLabResultRow | un
   }));
 }
 
+function mapStructuredPayload(queueItem: LocalSyncQueueRow, row: LocalStructuredRecordRow | undefined, queued: AnyRecord): AnyRecord {
+  return commonPayload(queueItem, cleanObject({
+    ...parseObject(row?.payload),
+    ...queued,
+    occurredAt: queued.occurredAt ?? row?.occurred_at,
+    voidReason: queued.voidReason ?? row?.void_reason,
+  }));
+}
+
 export async function mapSyncQueueRowToPushBatchItem(queueItem: LocalSyncQueueRow): Promise<PushBatchItem> {
   const db = getAnesthesiaLocalDb();
   const queued = parseObject(queueItem.payload);
@@ -257,6 +267,19 @@ export async function mapSyncQueueRowToPushBatchItem(queueItem: LocalSyncQueueRo
   } else if (queueItem.entity_type === 'lab_result') {
     const row = await db.lab_results.get(queueItem.local_id);
     payload = mapLabPayload(queueItem, row, { ...fallback, ...parseObject(row?.payload), ...queued });
+  } else {
+    const tableMap = {
+      airway_record: db.airway_records,
+      ventilation_segment: db.ventilation_segments,
+      infusion_segment: db.infusion_segments,
+      transfusion_verification: db.transfusion_verifications,
+      rescue_event: db.rescue_events,
+      rescue_action: db.rescue_actions,
+    } as const;
+    const table = tableMap[queueItem.entity_type as keyof typeof tableMap];
+    if (table) {
+      payload = mapStructuredPayload(queueItem, await table.get(queueItem.local_id), queued);
+    }
   }
 
   return {

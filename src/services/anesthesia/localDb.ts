@@ -9,6 +9,7 @@ import type {
   LocalRecordRow,
   LocalSettingsRow,
   LocalSnapshotRow,
+  LocalStructuredRecordRow,
   LocalSyncConflictRow,
   LocalSyncQueueRow,
   LocalTimelineEventRow,
@@ -31,6 +32,12 @@ export class AnesthesiaLocalDatabase extends Dexie {
   ventilator_raw!: Table<LocalVentilatorRawRow, string>;
   io_records!: Table<LocalIoRecordRow, string>;
   lab_results!: Table<LocalLabResultRow, string>;
+  airway_records!: Table<LocalStructuredRecordRow, string>;
+  ventilation_segments!: Table<LocalStructuredRecordRow, string>;
+  infusion_segments!: Table<LocalStructuredRecordRow, string>;
+  transfusion_verifications!: Table<LocalStructuredRecordRow, string>;
+  rescue_events!: Table<LocalStructuredRecordRow, string>;
+  rescue_actions!: Table<LocalStructuredRecordRow, string>;
   audit_logs!: Table<LocalAuditLogRow, string>;
   sync_queue!: Table<LocalSyncQueueRow, string>;
   sync_conflicts!: Table<LocalSyncConflictRow, string>;
@@ -50,6 +57,29 @@ export class AnesthesiaLocalDatabase extends Dexie {
       ventilator_raw: 'local_id, record_local_id, operation_id, collect_time',
       io_records: 'local_id, record_local_id, operation_id',
       lab_results: 'local_id, record_local_id, operation_id',
+      audit_logs: 'local_id, record_local_id, operation_id, created_at',
+      sync_queue: 'queue_id, record_local_id, operation_id, status, entity_type, next_retry_at, created_at, conflict_id',
+      sync_conflicts: 'conflict_id, record_local_id, operation_id, entity_type, resolve_status, created_at',
+      settings: 'key',
+    });
+    this.version(2).stores({
+      records: 'local_id, operation_id, server_id, updated_at',
+      snapshots: 'local_id, record_local_id, operation_id',
+      timeline_events: 'local_id, record_local_id, operation_id, event_time',
+      medications: 'local_id, record_local_id, operation_id, start_time',
+      fluids: 'local_id, record_local_id, operation_id, start_time',
+      transfusions: 'local_id, record_local_id, operation_id, start_time',
+      vital_signs: 'local_id, record_local_id, operation_id, measure_time, is_display_point',
+      monitor_raw: 'local_id, record_local_id, operation_id, collect_time',
+      ventilator_raw: 'local_id, record_local_id, operation_id, collect_time',
+      io_records: 'local_id, record_local_id, operation_id',
+      lab_results: 'local_id, record_local_id, operation_id',
+      airway_records: 'local_id, record_local_id, operation_id, occurred_at, deleted_at',
+      ventilation_segments: 'local_id, record_local_id, operation_id, occurred_at, deleted_at',
+      infusion_segments: 'local_id, record_local_id, operation_id, occurred_at, deleted_at',
+      transfusion_verifications: 'local_id, record_local_id, operation_id, occurred_at, deleted_at',
+      rescue_events: 'local_id, record_local_id, operation_id, occurred_at, deleted_at',
+      rescue_actions: 'local_id, record_local_id, operation_id, occurred_at, deleted_at',
       audit_logs: 'local_id, record_local_id, operation_id, created_at',
       sync_queue: 'queue_id, record_local_id, operation_id, status, entity_type, next_retry_at, created_at, conflict_id',
       sync_conflicts: 'conflict_id, record_local_id, operation_id, entity_type, resolve_status, created_at',

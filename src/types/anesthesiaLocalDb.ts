@@ -10,6 +10,12 @@ export type SyncEntityType =
   | 'ventilator_raw'
   | 'io_record'
   | 'lab_result'
+  | 'airway_record'
+  | 'ventilation_segment'
+  | 'infusion_segment'
+  | 'transfusion_verification'
+  | 'rescue_event'
+  | 'rescue_action'
   | 'audit_log';
 
 export type SyncOperationType = 'create' | 'update' | 'delete' | 'void' | 'lock' | 'print';
@@ -238,6 +244,15 @@ export interface LocalLabResultRow extends LocalEntitySyncMeta {
   payload: string;
 }
 
+export interface LocalStructuredRecordRow extends LocalEntitySyncMeta {
+  record_local_id: string;
+  record_server_id?: number | null;
+  operation_id: string;
+  occurred_at?: string;
+  created_at: string;
+  payload: string;
+}
+
 export interface LocalAuditLogRow {
   local_id: string;
   record_local_id: string;
@@ -333,6 +348,12 @@ export const CONFLICT_ENTITY_TYPES = new Set<SyncEntityType>([
   'fluid',
   'transfusion',
   'timeline_event',
+  'airway_record',
+  'ventilation_segment',
+  'infusion_segment',
+  'transfusion_verification',
+  'rescue_event',
+  'rescue_action',
 ]);
 
 export const DEVICE_RAW_ENTITY_TYPES = new Set<SyncEntityType>(['monitor_raw', 'ventilator_raw']);

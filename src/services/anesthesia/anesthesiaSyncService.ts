@@ -121,6 +121,12 @@ async function applyServerIds(results: Array<{ entityType: string; localId: stri
       transfusion: 'transfusions',
       io_record: 'io_records',
       lab_result: 'lab_results',
+      airway_record: 'airway_records',
+      ventilation_segment: 'ventilation_segments',
+      infusion_segment: 'infusion_segments',
+      transfusion_verification: 'transfusion_verifications',
+      rescue_event: 'rescue_events',
+      rescue_action: 'rescue_actions',
     };
     const tableName = tableMap[result.entityType];
     if (!tableName) continue;
