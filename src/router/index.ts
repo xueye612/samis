@@ -36,6 +36,7 @@ import PostoperativeAnalgesiaDetail from '@/views/postoperative/PostoperativeAna
 import PostoperativeFollowupPage from '@/views/postoperative/PostoperativeFollowupPage.vue';
 import PostoperativeComplications from '@/views/postoperative/PostoperativeComplications.vue';
 import PostoperativeUnplannedEvents from '@/views/postoperative/PostoperativeUnplannedEvents.vue';
+import PostoperativeUnplannedEventDetail from '@/views/postoperative/PostoperativeUnplannedEventDetail.vue';
 import SpecialObstetric from '@/views/special/SpecialObstetric.vue';
 import SpecialNonOr from '@/views/special/SpecialNonOr.vue';
 import QualityOverview from '@/views/quality/QualityOverview.vue';
@@ -111,6 +112,7 @@ const router = createRouter({
     { path: '/postoperative/followup', name: 'postoperativeFollowup', component: PostoperativeFollowupPage, meta: { menu: 'postoperative', title: '术后随访' } },
     { path: '/postoperative/complications', name: 'postoperativeComplications', component: PostoperativeComplications, meta: { menu: 'postoperative', title: '并发症追踪' } },
     { path: '/postoperative/unplanned-events', name: 'postoperativeUnplannedEvents', component: PostoperativeUnplannedEvents, meta: { menu: 'postoperative', title: '非计划事件追踪' } },
+    { path: '/postoperative/unplanned-event-detail', name: 'postoperativeUnplannedEventDetail', component: PostoperativeUnplannedEventDetail, meta: { menu: 'postoperative', title: '非计划事件管理' } },
     { path: '/special/obstetric', name: 'specialObstetric', component: SpecialObstetric, meta: { menu: 'surgery', title: '产科/分娩镇痛' } },
     { path: '/special/non-or', name: 'specialNonOr', component: SpecialNonOr, meta: { menu: 'surgery', title: '非手术室麻醉' } },
     { path: '/quality', redirect: '/quality/overview' },
