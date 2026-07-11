@@ -23,6 +23,10 @@ interface MockServerEntity {
 
 const serverEntityRegistry = new Map<string, MockServerEntity>();
 
+const mockAnesthesiaPlans = new Map<string, Record<string, unknown>>();
+const mockAnesthesiaHandovers = new Map<string, Record<string, unknown>>();
+const mockAnesthesiaSummaries = new Map<string, Record<string, unknown>>();
+
 interface MockPreoperativeAssessment {
   operationId: string;
   assessmentId: string;
@@ -422,6 +426,14 @@ function parseBody<T>(init?: RequestInit): T {
     const params = new URLSearchParams(raw);
     const obj: Record<string, unknown> = {};
     params.forEach((value, key) => {
+      if (/^[\[{]/.test(value.trim())) {
+        try {
+          obj[key] = JSON.parse(value);
+          return;
+        } catch {
+          // keep the original form value
+        }
+      }
       obj[key] = value;
     });
     if (typeof obj.data === 'string') {
@@ -709,6 +721,150 @@ const MOCK_ROOMS = [
  */
 export async function routeSamisMock<T>(path: string, init?: RequestInit): Promise<T> {
   await new Promise((resolve) => setTimeout(resolve, 120));
+
+  if (path.includes('/anesthesiaPlan/detail')) {
+    const operationId = getSearchParams(path).get('operationId') ?? '';
+    const currentPlan = mockAnesthesiaPlans.get(operationId) ?? null;
+    return buildSamisSuccess({
+      operationId,
+      currentPlan,
+      historyMeta: { total: currentPlan ? 1 : 0, versions: currentPlan ? [currentPlan] : [] },
+    }) as T;
+  }
+  if (path.endsWith('/anesthesiaPlan/saveDraft') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const operationId = String(body.operationId ?? '');
+    const current = mockAnesthesiaPlans.get(operationId);
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const saved = {
+      planId: current?.planId ?? `PLAN-MOCK-${operationId}`,
+      planVersionId: current?.planVersionId ?? `PLANV-MOCK-${operationId}`,
+      operationId,
+      version: Number(current?.version ?? 1),
+      status: 'draft',
+      primaryMethodCode: null,
+      primaryMethodName: null,
+      alternativeMethods: [],
+      airwayPlan: null,
+      monitoringPlan: null,
+      inductionPlan: null,
+      maintenancePlan: null,
+      analgesiaPlan: null,
+      fluidPlan: null,
+      bloodPreparation: null,
+      postoperativeDestination: null,
+      specialRisks: [],
+      notes: null,
+      revisionReason: null,
+      submittedAt: null,
+      cancelledAt: null,
+      createdAt: current?.createdAt ?? now,
+      updatedAt: now,
+      ...current,
+      ...body,
+    };
+    mockAnesthesiaPlans.set(operationId, saved);
+    return buildSamisSuccess(saved) as T;
+  }
+  if (path.endsWith('/anesthesiaPlan/submit') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const current = [...mockAnesthesiaPlans.values()].find((item) => item.planVersionId === body.planVersionId);
+    if (!current) return buildSamisError('计划版本不存在', 3003) as T;
+    if (!current.primaryMethodCode || !current.airwayPlan || !current.monitoringPlan || !current.postoperativeDestination) {
+      return buildSamisError('麻醉计划必填项不完整', 2001) as T;
+    }
+    Object.assign(current, { status: 'submitted', submittedAt: dayjs().format('YYYY-MM-DD HH:mm:ss') });
+    return buildSamisSuccess(current) as T;
+  }
+
+  if (path.includes('/anesthesiaHandover/detail')) {
+    const operationId = getSearchParams(path).get('operationId') ?? '';
+    const activeHandover = mockAnesthesiaHandovers.get(operationId) ?? null;
+    return buildSamisSuccess({ operationId, activeHandover, currentResponsibleDoctor: null, history: activeHandover ? [activeHandover] : [] }) as T;
+  }
+  if (path.endsWith('/anesthesiaHandover/saveDraft') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const operationId = String(body.operationId ?? '');
+    const current = mockAnesthesiaHandovers.get(operationId);
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const saved = {
+      handoverId: current?.handoverId ?? `HO-MOCK-${operationId}`,
+      handoverVersionId: current?.handoverVersionId ?? `HOV-MOCK-${operationId}`,
+      operationId,
+      version: Number(current?.version ?? 1),
+      status: 'draft',
+      handoverType: 'shift_change',
+      outgoingDoctorId: 'mock-doctor',
+      outgoingDoctorName: '模拟麻醉医生',
+      incomingDoctorId: null,
+      incomingDoctorName: null,
+      handoverAt: null,
+      acceptedAt: null,
+      priorityNotes: null,
+      specialNotes: null,
+      emergencyReason: null,
+      pendingTasks: [],
+      checks: [],
+      createdAt: current?.createdAt ?? now,
+      updatedAt: now,
+      ...current,
+      ...body,
+    };
+    mockAnesthesiaHandovers.set(operationId, saved);
+    return buildSamisSuccess(saved) as T;
+  }
+  if (path.endsWith('/anesthesiaHandover/submit') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const current = [...mockAnesthesiaHandovers.values()].find((item) => item.handoverVersionId === body.handoverVersionId);
+    if (!current) return buildSamisError('交班版本不存在', 3003) as T;
+    Object.assign(current, { status: 'submitted', handoverAt: dayjs().format('YYYY-MM-DD HH:mm:ss') });
+    return buildSamisSuccess(current) as T;
+  }
+  if (path.endsWith('/anesthesiaHandover/accept') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const current = [...mockAnesthesiaHandovers.values()].find((item) => item.handoverVersionId === body.handoverVersionId);
+    if (!current) return buildSamisError('交班版本不存在', 3003) as T;
+    Object.assign(current, { status: 'accepted', acceptedAt: dayjs().format('YYYY-MM-DD HH:mm:ss') });
+    return buildSamisSuccess(current) as T;
+  }
+
+  if (path.endsWith('/anesthesiaSummary/generate') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const operationId = String(body.operationId ?? '');
+    const current = mockAnesthesiaSummaries.get(operationId);
+    const saved = current ?? {
+      summaryId: `SUM-MOCK-${operationId}`,
+      summaryVersionId: `SUMV-MOCK-${operationId}`,
+      operationId,
+      version: 1,
+      status: 'draft',
+      generatedPayload: { generatedAt: dayjs().format('YYYY-MM-DD HH:mm:ss'), statistics: { medicationCount: 0, vitalSignCount: 0, fluidCount: 0, eventCount: 0 } },
+      effectRating: null,
+      intraoperativeNotes: null,
+      recoveryNotes: null,
+      complicationSummary: null,
+      postoperativeDestination: null,
+      submittedAt: null,
+      revisionReason: null,
+      createdAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+    };
+    mockAnesthesiaSummaries.set(operationId, saved);
+    return buildSamisSuccess(saved) as T;
+  }
+  if (path.endsWith('/anesthesiaSummary/saveDraft') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const current = [...mockAnesthesiaSummaries.values()].find((item) => item.summaryVersionId === body.summaryVersionId);
+    if (!current) return buildSamisError('小结版本不存在', 3003) as T;
+    Object.assign(current, body);
+    return buildSamisSuccess(current) as T;
+  }
+  if (path.endsWith('/anesthesiaSummary/submit') && init?.method === 'POST') {
+    const body = parseBody<Record<string, unknown>>(init);
+    const current = [...mockAnesthesiaSummaries.values()].find((item) => item.summaryVersionId === body.summaryVersionId);
+    if (!current) return buildSamisError('小结版本不存在', 3003) as T;
+    Object.assign(current, { status: 'submitted', submittedAt: dayjs().format('YYYY-MM-DD HH:mm:ss') });
+    return buildSamisSuccess(current) as T;
+  }
 
   if (path.includes('/preoperative/assessmentDetail')) {
     const operationId = getSearchParams(path).get('operationId') ?? '';

@@ -12,6 +12,10 @@
       </div>
     </template>
 
+    <a-alert v-if="workflow.error" type="error" :title="workflow.error">
+      <template #action><a-button size="mini" @click="loadSummary">重试</a-button></template>
+    </a-alert>
+
     <template v-if="stats" #stats>
       <MetricCard label="麻醉时长" :value="durationText(stats.anesthesiaDurationMinutes)" icon="IconClockCircle" :hint="`手术时长 ${durationText(stats.surgeryDurationMinutes)}`" />
       <MetricCard label="入量合计" :value="`${stats.balance.intake} ml`" icon="IconSwap" :hint="`晶体 ${stats.fluid.crystalloidVolume} / 胶体 ${stats.fluid.colloidVolume} / 血制品 ${stats.fluid.bloodVolume} ml`" />
@@ -117,7 +121,7 @@
       </div>
 
       <a-card class="section-card" :bordered="false" title="麻醉效果与小结">
-        <a-form :model="form" layout="vertical">
+        <a-form :model="form" layout="vertical" :disabled="readOnly">
           <a-row :gutter="16">
             <a-col :span="8"><a-form-item label="患者"><a-input :model-value="caseItem.patientName" disabled /></a-form-item></a-col>
             <a-col :span="8"><a-form-item label="麻醉方式"><a-input :model-value="caseItem.anesthesiaMethod" disabled /></a-form-item></a-col>
@@ -135,13 +139,13 @@
           <a-form-item label="术中记录"><a-textarea v-model="form.intraopNotes" :auto-size="{ minRows: 3 }" /></a-form-item>
           <a-form-item label="恢复情况"><a-textarea v-model="form.recoveryNotes" :auto-size="{ minRows: 3 }" /></a-form-item>
           <a-form-item label="并发症/特殊情况"><a-textarea v-model="form.complications" :auto-size="{ minRows: 2 }" /></a-form-item>
-          <a-divider>签名</a-divider>
-          <a-checkbox v-model="form.doctorSigned">麻醉医师签名</a-checkbox>
+          <a-divider>版本状态</a-divider>
+          <a-space><a-tag>版本 {{ workflow.detail?.version ?? 1 }}</a-tag><a-tag :color="readOnly ? 'green' : 'orange'">{{ readOnly ? '已提交' : '草稿' }}</a-tag></a-space>
         </a-form>
         <div class="form-actions">
           <a-space>
-            <a-button @click="save('草稿')">保存草稿</a-button>
-            <a-button type="primary" @click="save('已提交')">提交小结</a-button>
+            <a-button :loading="workflow.saving" :disabled="readOnly" @click="save(false)">保存草稿</a-button>
+            <a-button type="primary" :loading="workflow.saving" :disabled="readOnly" @click="save(true)">提交小结</a-button>
           </a-space>
         </div>
       </a-card>
@@ -151,7 +155,6 @@
 </template>
 
 <script setup lang="ts">
-import dayjs from 'dayjs';
 import { computed, reactive, ref, watch } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import AppIcon from '@/components/AppIcon.vue';
@@ -161,34 +164,33 @@ import EmptyState from '@/components/shared/EmptyState.vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { buildCaseSummaryStats, type VitalExtreme } from '@/services/caseSummaryStats';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
+import { useAnesthesiaSummaryStore } from '@/stores/anesthesiaWorkflow';
 import type { Severity } from '@/types/anesthesia';
-import type { SummaryRecord } from '@/types/clinicalModules';
 
 const store = useAnesthesiaStore();
+const workflow = useAnesthesiaSummaryStore();
 const caseOptions = computed(() => store.cases.filter((item) => ['已离室', 'PACU', '苏醒中'].includes(item.status)));
-const selectedCaseId = ref(store.summaryRecords[0]?.caseId ?? caseOptions.value[0]?.id ?? '');
+const selectedCaseId = ref(caseOptions.value[0]?.id ?? '');
 
-const record = computed(() => store.summaryRecords.find((item) => item.caseId === selectedCaseId.value));
 const caseItem = computed(() => store.cases.find((item) => item.id === selectedCaseId.value));
-const stats = computed(() => (caseItem.value ? buildCaseSummaryStats(caseItem.value, { summarySigned: form.doctorSigned }) : undefined));
+const readOnly = computed(() => ['submitted', 'signed', 'cancelled'].includes(workflow.detail?.status ?? ''));
+const stats = computed(() => (caseItem.value ? buildCaseSummaryStats(caseItem.value, { summarySigned: readOnly.value }) : undefined));
 
 const form = reactive({
   intraopNotes: '',
   recoveryNotes: '',
   complications: '',
-  effectRating: '优' as SummaryRecord['effectRating'],
-  doctorSigned: false,
+  effectRating: '优',
 });
 
-watch([record, selectedCaseId], () => {
-  const target = record.value;
+function hydrateForm() {
+  const target = workflow.detail;
   if (target) {
     Object.assign(form, {
-      intraopNotes: target.intraopNotes,
-      recoveryNotes: target.recoveryNotes,
-      complications: target.complications,
-      effectRating: target.effectRating,
-      doctorSigned: target.doctorSigned,
+      intraopNotes: target.intraoperativeNotes ?? '',
+      recoveryNotes: target.recoveryNotes ?? '',
+      complications: target.complicationSummary ?? '',
+      effectRating: target.effectRating ?? '优',
     });
     return;
   }
@@ -198,10 +200,16 @@ watch([record, selectedCaseId], () => {
       recoveryNotes: '苏醒良好',
       complications: '无',
       effectRating: '优',
-      doctorSigned: false,
     });
   }
-}, { immediate: true });
+}
+
+async function loadSummary() {
+  if (!selectedCaseId.value) return;
+  try { await workflow.generate(selectedCaseId.value); hydrateForm(); } catch { /* store exposes the error */ }
+}
+
+watch(selectedCaseId, loadSummary, { immediate: true });
 
 const durationText = (minutes?: number) => {
   if (minutes === undefined) return '—';
@@ -228,20 +236,20 @@ const severityTagColor = (severity: Severity) => {
   return 'gray';
 };
 
-const save = (status: SummaryRecord['status']) => {
-  const target = caseItem.value;
-  if (!target) return;
-  const payload: SummaryRecord = {
-    id: record.value?.id ?? `summary-${target.id}`,
-    caseId: target.id,
-    patientName: target.patientName,
-    anesthesiaMethod: target.anesthesiaMethod,
-    ...form,
-    status,
-    signedAt: status === '已提交' ? dayjs().toISOString() : record.value?.signedAt,
-  };
-  store.saveSummaryRecord(payload);
-  Message.success(status === '已提交' ? '麻醉小结已提交' : '草稿已保存');
+const save = async (submit: boolean) => {
+  if (!workflow.detail) await loadSummary();
+  try {
+    await workflow.saveDraft({
+      effectRating: form.effectRating,
+      intraoperativeNotes: form.intraopNotes,
+      recoveryNotes: form.recoveryNotes,
+      complicationSummary: form.complications,
+      postoperativeDestination: caseItem.value?.transferTo ?? 'PACU',
+    });
+    if (submit) await workflow.submit();
+    hydrateForm();
+    Message.success(submit ? '麻醉小结已提交并锁定当前版本' : '麻醉小结草稿已保存');
+  } catch { /* store exposes the error */ }
 };
 </script>
 

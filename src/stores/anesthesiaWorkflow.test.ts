@@ -1,0 +1,134 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+
+const api = vi.hoisted(() => ({
+  planDetail: vi.fn(),
+  planSaveDraft: vi.fn(),
+  planSubmit: vi.fn(),
+  handoverDetail: vi.fn(),
+  handoverSaveDraft: vi.fn(),
+  handoverSubmit: vi.fn(),
+  handoverAccept: vi.fn(),
+  summaryGenerate: vi.fn(),
+  summarySaveDraft: vi.fn(),
+  summarySubmit: vi.fn(),
+}));
+
+vi.mock('@/api/anesthesiaWorkflow', () => ({
+  anesthesiaPlanApi: {
+    detail: api.planDetail,
+    saveDraft: api.planSaveDraft,
+    submit: api.planSubmit,
+  },
+  anesthesiaHandoverApi: {
+    detail: api.handoverDetail,
+    saveDraft: api.handoverSaveDraft,
+    submit: api.handoverSubmit,
+    accept: api.handoverAccept,
+  },
+  anesthesiaSummaryApi: {
+    generate: api.summaryGenerate,
+    saveDraft: api.summarySaveDraft,
+    submit: api.summarySubmit,
+  },
+}));
+
+import {
+  useAnesthesiaHandoverStore,
+  useAnesthesiaPlanStore,
+  useAnesthesiaSummaryStore,
+} from '@/stores/anesthesiaWorkflow';
+
+const plan = {
+  planId: 'PLAN-1', planVersionId: 'PLANV-1', operationId: 'OP-1', version: 1,
+  status: 'draft' as const, primaryMethodCode: 'general', primaryMethodName: '全身麻醉',
+  alternativeMethods: [], airwayPlan: { strategy: 'endotracheal' }, monitoringPlan: { ecg: true },
+  inductionPlan: '静脉诱导', maintenancePlan: '静吸复合', analgesiaPlan: '多模式镇痛', fluidPlan: '',
+  bloodPreparation: '', postoperativeDestination: 'PACU', specialRisks: [], notes: '', revisionReason: null,
+  submittedAt: null, cancelledAt: null, createdAt: '2026-07-11 09:00:00', updatedAt: '2026-07-11 09:00:00',
+};
+
+const handover = {
+  handoverId: 'HO-1', handoverVersionId: 'HOV-1', operationId: 'OP-1', version: 1,
+  handoverType: 'shift_change', status: 'draft' as const, outgoingDoctorId: 'D1', outgoingDoctorName: '甲医生',
+  incomingDoctorId: 'D2', incomingDoctorName: '乙医生', handoverAt: null, acceptedAt: null,
+  priorityNotes: '关注血压', specialNotes: '', emergencyReason: null, pendingTasks: ['复查血气'],
+  checks: [{ itemCode: 'equipment', result: 'normal' as const, remark: '' }],
+  createdAt: '2026-07-11 09:00:00', updatedAt: '2026-07-11 09:00:00',
+};
+
+const summary = {
+  summaryId: 'SUM-1', summaryVersionId: 'SUMV-1', operationId: 'OP-1', version: 1,
+  status: 'draft' as const, generatedPayload: { statistics: { medicationCount: 2 } }, effectRating: 'good',
+  intraoperativeNotes: '过程平稳', recoveryNotes: '苏醒良好', complicationSummary: '无',
+  postoperativeDestination: 'PACU', submittedAt: null, revisionReason: null, createdAt: '2026-07-11 10:00:00',
+};
+
+describe('anesthesia workflow stores', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+  });
+
+  it('loads and saves an anesthesia plan using the server version contract', async () => {
+    api.planDetail.mockResolvedValue({ operationId: 'OP-1', currentPlan: plan, historyMeta: { total: 1, versions: [] } });
+    api.planSaveDraft.mockResolvedValue({ ...plan, notes: '高风险病例' });
+    api.planSubmit.mockResolvedValue({ ...plan, notes: '高风险病例', status: 'submitted' });
+    const store = useAnesthesiaPlanStore();
+
+    await store.load('OP-1');
+    await store.saveDraft({ notes: '高风险病例' });
+    await store.submit();
+
+    expect(store.loadedOperationId).toBe('OP-1');
+    expect(store.detail?.currentPlan?.planVersionId).toBe('PLANV-1');
+    expect(api.planSaveDraft).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'OP-1', planVersionId: 'PLANV-1', expectedVersion: 1, notes: '高风险病例',
+    }));
+    expect(store.detail?.currentPlan).toMatchObject({ notes: '高风险病例', status: 'submitted' });
+  });
+
+  it('keeps a real request failure visible instead of replacing it with mock success', async () => {
+    api.planDetail.mockRejectedValue(new Error('network_unavailable'));
+    const store = useAnesthesiaPlanStore();
+
+    await expect(store.load('OP-1')).rejects.toThrow('network_unavailable');
+
+    expect(store.detail).toBeNull();
+    expect(store.error).toBe('network_unavailable');
+    expect(store.loading).toBe(false);
+  });
+
+  it('validates exception handover checks before calling submit and supports recipient acceptance', async () => {
+    api.handoverDetail.mockResolvedValue({ operationId: 'OP-1', activeHandover: handover, history: [], currentResponsibleDoctor: null });
+    api.handoverSubmit.mockResolvedValue({ ...handover, status: 'submitted' });
+    api.handoverAccept.mockResolvedValue({ ...handover, status: 'accepted' });
+    const store = useAnesthesiaHandoverStore();
+    await store.load('OP-1');
+
+    store.detail!.activeHandover!.checks = [{ itemCode: 'equipment', result: 'exception', remark: '' }];
+    await expect(store.submit()).rejects.toThrow('异常核查项必须填写备注');
+    expect(api.handoverSubmit).not.toHaveBeenCalled();
+
+    store.detail!.activeHandover!.checks[0].remark = '备用机已切换';
+    await store.submit();
+    await store.accept();
+    expect(store.detail?.activeHandover?.status).toBe('accepted');
+  });
+
+  it('generates, saves and submits a server summary without writing the legacy local summary', async () => {
+    api.summaryGenerate.mockResolvedValue(summary);
+    api.summarySaveDraft.mockResolvedValue({ ...summary, effectRating: 'excellent' });
+    api.summarySubmit.mockResolvedValue({ ...summary, effectRating: 'excellent', status: 'submitted' });
+    const store = useAnesthesiaSummaryStore();
+
+    await store.generate('OP-1');
+    await store.saveDraft({ effectRating: 'excellent' });
+    await store.submit();
+
+    expect(api.summarySaveDraft).toHaveBeenCalledWith(expect.objectContaining({
+      summaryVersionId: 'SUMV-1', expectedVersion: 1, effectRating: 'excellent',
+    }));
+    expect(store.detail?.status).toBe('submitted');
+  });
+});
