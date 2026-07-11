@@ -22,7 +22,7 @@ const samples: Array<{
   { entityType: 'airway_record', localId: 'airway-1', payload: { airwayType: 'endotracheal', insertedAt: '2026-07-11 09:00:00' }, expectedKey: 'airwayType' },
   { entityType: 'ventilation_segment', localId: 'ventilation-1', payload: { mode: 'VCV', startTime: '2026-07-11 09:05:00' }, expectedKey: 'mode' },
   { entityType: 'infusion_segment', localId: 'infusion-1', payload: { medicationLocalId: 'medication-1', startTime: '2026-07-11 09:10:00' }, expectedKey: 'medicationLocalId' },
-  { entityType: 'transfusion_verification', localId: 'verification-1', payload: { bloodBagNo: 'TEST-BAG-001', verificationStatus: 'verified' }, expectedKey: 'bloodBagNo' },
+  { entityType: 'transfusion_verification', localId: 'verification-1', payload: { bloodBagNo: 'TEST-BAG-001', verificationStatus: 'verified', verifierOneId: 'u1', verifierTwoId: 'u2' }, expectedKey: 'bloodBagNo' },
   { entityType: 'rescue_event', localId: 'rescue-1', payload: { eventType: 'cardiac_arrest', occurredAt: '2026-07-11 09:15:00' }, expectedKey: 'eventType' },
   { entityType: 'rescue_action', localId: 'action-1', payload: { rescueEventLocalId: 'rescue-1', actionType: 'cpr' }, expectedKey: 'actionType' },
 ];

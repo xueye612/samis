@@ -284,6 +284,10 @@ export async function mapSyncQueueRowToPushBatchItem(queueItem: LocalSyncQueueRo
 
   return {
     entityType: queueItem.entity_type,
+    operationId: queueItem.operation_id,
+    action: queueItem.operation_type,
+    clientVersion: queueItem.base_sync_version,
+    occurredAt: String(payload.occurredAt || payload.triggeredAt || payload.effectiveAt || queueItem.created_at),
     operationType: queueItem.operation_type,
     localId: queueItem.local_id,
     serverId: queueItem.server_id,

@@ -2,6 +2,10 @@ import { ANESTHESIA_USE_MOCK, samisRequest } from '@/api/samisClient';
 
 export interface PushBatchItem {
   entityType: string;
+  operationId?: string;
+  action?: string;
+  clientVersion?: number;
+  occurredAt?: string;
   operationType: string;
   localId: string;
   serverId?: number | null;
