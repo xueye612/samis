@@ -31,6 +31,7 @@ import PacuTransfer from '@/views/PacuTransfer.vue';
 import PacuAlerts from '@/views/pacu/PacuAlerts.vue';
 import PacuBooking from '@/views/pacu/PacuBooking.vue';
 import PacuReceive from '@/views/pacu/PacuReceive.vue';
+import PacuScoreOrder from '@/views/pacu/PacuScoreOrder.vue';
 import PostoperativeAnalgesia from '@/views/postoperative/PostoperativeAnalgesia.vue';
 import PostoperativeAnalgesiaDetail from '@/views/postoperative/PostoperativeAnalgesiaDetail.vue';
 import PostoperativeFollowupPage from '@/views/postoperative/PostoperativeFollowupPage.vue';
@@ -106,6 +107,7 @@ const router = createRouter({
     { path: '/pacu/alerts', name: 'pacuAlerts', component: PacuAlerts, meta: { menu: 'pacu', title: 'PACU质控预警' } },
     { path: '/pacu/booking', name: 'pacuBooking', component: PacuBooking, meta: { menu: 'pacu', title: 'PACU预约' } },
     { path: '/pacu/receive', name: 'pacuReceive', component: PacuReceive, meta: { menu: 'pacu', title: 'PACU接收' } },
+    { path: '/pacu/score-order', name: 'pacuScoreOrder', component: PacuScoreOrder, meta: { menu: 'pacu', title: 'PACU评分医嘱' } },
     { path: '/postoperative', redirect: '/postoperative/analgesia' },
     { path: '/postoperative/analgesia', name: 'postoperativeAnalgesia', component: PostoperativeAnalgesia, meta: { menu: 'postoperative', title: '术后镇痛' } },
     { path: '/postoperative/analgesia-detail', name: 'postoperativeAnalgesiaDetail', component: PostoperativeAnalgesiaDetail, meta: { menu: 'postoperative', title: '镇痛方案管理' } },
