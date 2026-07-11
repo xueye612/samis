@@ -26,6 +26,7 @@ export function validateStructuredPushItem(entityType:string,input:unknown,ctx:V
   if (!x.payload || typeof x.payload !== 'object' || Array.isArray(x.payload)) return fail('2002','payload不是对象');
   const p=x.payload as Record<string,unknown>;
   if (forbidden.some(k=>k in p)) return fail('4001','MASTER_DATA_WRITE_FORBIDDEN');
+  if (x.action === 'delete' && Object.keys(p).some(k => ![...common,'voidReason'].includes(k))) return fail('2003','delete包含非法字段');
   if (Object.keys(p).some(k=>!fields[entityType].includes(k) && !(x.action==='delete' && k==='voidReason'))) return fail('2003','未知字段');
   if (entityType==='rescue_event' && 'status' in p && !['active','closed','cancelled'].includes(String(p.status))) return fail('4002','非法status');
   for (const k of ['tidalVolumeMl','ratePerMin','peepCmh2o','fio2Percent','concentrationValue','rateValue','volume','attemptNo']) if (k in p && typeof p[k] !== 'number') return fail('2005','非法数值类型');

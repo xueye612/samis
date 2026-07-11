@@ -12,4 +12,7 @@ describe('structured payload shared contract', () => {
       expect(result.code).toBe(fixture.expectedCode);
     });
   }
+  it('rejects entity fields on delete', () => {
+    expect(validateStructuredPushItem('airway_record', { localId:'a',operationId:'op1',action:'delete',clientVersion:1,occurredAt:'2026-07-11T09:00:00+08:00',payload:{deviceCode:'ETT'} }).code).toBe('2003');
+  });
 });
