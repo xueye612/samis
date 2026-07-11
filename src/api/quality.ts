@@ -160,7 +160,7 @@ export type IndicatorCaseStatus = 'pass' | 'warn' | 'fail' | 'not_applicable';
 export interface IndicatorResultApi { indicatorCode: string; indicatorName: string; status: IndicatorCaseStatus; severity: string; sourceModule: string; sourceRecordId: string | null; message: string; occurredAt: string | null; }
 export interface QualityOperationCaseApi { operationId: string; patientName?: string | null; departmentName?: string | null; operationName?: string | null; anesthesiologistName?: string | null; [key: string]: unknown; }
 export interface QualityDrilldownCaseApi { operationId: string; operationCase: QualityOperationCaseApi; riskLevel: string; indicatorResults: IndicatorResultApi[]; defectCount: number; latestDefectStatus: string | null; moduleSummaries?: Record<string, unknown>; }
-export interface QualityCaseListApi { list: QualityDrilldownCaseApi[]; total: number; }
+export interface QualityCaseListApi { list: QualityDrilldownCaseApi[]; items?: QualityDrilldownCaseApi[]; total: number; page?: number; pageSize?: number; }
 export interface DefectRecordApi { defectId: string; operationId: string; indicatorCode: string; severity: string; description: string; owner: string | null; status: 'open'|'rectifying'|'resolved'|'closed'; rectification: string | null; reviewedBy: string | null; reviewedAt: string | null; }
 export interface DefectListApi { list: DefectRecordApi[]; total: number; page: number; pageSize: number; }
 
