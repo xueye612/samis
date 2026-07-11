@@ -129,4 +129,30 @@ export const pacuApi = {
   bedDelete(id: number | string) {
     return pacuFormPost<void>('/bedDelete', { id });
   },
+
+  // ---- P3-04 扩展：分项评分、医嘱、强制出室 ----
+  scoreList(operationId: string) {
+    return samisRequest<{ list: unknown[] }>(`/pacu/scoreList?operationId=${encodeURIComponent(operationId)}`, undefined, { module: 'pacu' });
+  },
+  scoreCreate(data: Record<string, unknown>) {
+    return pacuFormPost<unknown>('/scoreCreate', data);
+  },
+  orderList(operationId: string) {
+    return samisRequest<{ list: unknown[] }>(`/pacu/orderList?operationId=${encodeURIComponent(operationId)}`, undefined, { module: 'pacu' });
+  },
+  orderCreate(data: Record<string, unknown>) {
+    return pacuFormPost<unknown>('/orderCreate', data);
+  },
+  orderStop(orderId: string, reason = '') {
+    return pacuFormPost<unknown>('/orderStop', { orderId, reason });
+  },
+  orderExecute(data: Record<string, unknown>) {
+    return pacuFormPost<unknown>('/orderExecute', data);
+  },
+  orderExecutions(orderId: string) {
+    return samisRequest<{ list: unknown[] }>(`/pacu/orderExecutions?orderId=${encodeURIComponent(orderId)}`, undefined, { module: 'pacu' });
+  },
+  forceDischarge(operationId: string, reason: string, reasonCode: string, approverId?: string) {
+    return pacuFormPost<unknown>('/forceDischarge', { operationId, reason, reasonCode, approverId });
+  },
 };
