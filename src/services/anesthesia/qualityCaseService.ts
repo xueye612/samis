@@ -1,4 +1,4 @@
-import { qualityApi, type DefectRecordApi, type QualityCaseListApi, type QualityDrilldownCaseApi } from '@/api/quality';
+import { qualityApi, type DefectListApi, type DefectRecordApi, type QualityCaseListApi, type QualityDrilldownCaseApi } from '@/api/quality';
 import { useRealQuality } from '@/config/apiFlags';
 
 const forbidden = new Set(['patientId','patientName','departmentName','operationName','operationDate','caseId','operationCase']);
@@ -16,3 +16,4 @@ export async function loadQualityCase(operationId: string): Promise<QualityDrill
 export async function createQualityDefect(input: Record<string,unknown>): Promise<DefectRecordApi> { return qualityApi.defectCreate(defectWritePayload(input)); }
 export async function updateQualityDefect(input: Record<string,unknown>): Promise<DefectRecordApi> { return qualityApi.defectUpdate(defectWritePayload(input)); }
 export async function closeQualityDefect(input: Record<string,unknown>): Promise<DefectRecordApi> { return qualityApi.defectClose(defectWritePayload(input)); }
+export async function loadQualityDefects(params: Record<string,string|number|undefined> = {}): Promise<DefectListApi> { if (!useRealQuality()) return { list: [], total: 0, page: 1, pageSize: 20 }; return qualityApi.defectList(params); }

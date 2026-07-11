@@ -161,7 +161,8 @@ export interface IndicatorResultApi { indicatorCode: string; indicatorName: stri
 export interface QualityOperationCaseApi { operationId: string; patientName?: string | null; departmentName?: string | null; operationName?: string | null; anesthesiologistName?: string | null; [key: string]: unknown; }
 export interface QualityDrilldownCaseApi { operationId: string; operationCase: QualityOperationCaseApi; riskLevel: string; indicatorResults: IndicatorResultApi[]; defectCount: number; latestDefectStatus: string | null; moduleSummaries?: Record<string, unknown>; }
 export interface QualityCaseListApi { list: QualityDrilldownCaseApi[]; total: number; }
-export interface DefectRecordApi { defectId: string; operationId: string; indicatorCode: string; severity: string; description: string; ownerId: string | null; ownerName: string | null; status: 'open'|'rectifying'|'resolved'|'closed'; rectification: string | null; reviewedBy: string | null; reviewedAt: string | null; }
+export interface DefectRecordApi { defectId: string; operationId: string; indicatorCode: string; severity: string; description: string; owner: string | null; status: 'open'|'rectifying'|'resolved'|'closed'; rectification: string | null; reviewedBy: string | null; reviewedAt: string | null; }
+export interface DefectListApi { list: DefectRecordApi[]; total: number; page: number; pageSize: number; }
 
 function buildQuery(params: QualityFilterQuery = {}): string {
   const query = new URLSearchParams();
@@ -188,6 +189,9 @@ export const qualityApi = {
   defectCreate(data: Record<string, unknown>) { return samisRequest<DefectRecordApi>('/quality/defectCreate', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
   defectUpdate(data: Record<string, unknown>) { return samisRequest<DefectRecordApi>('/quality/defectUpdate', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
   defectClose(data: Record<string, unknown>) { return samisRequest<DefectRecordApi>('/quality/defectClose', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
+  defectList(params: Record<string, string | number | undefined> = {}) { const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!=='')q.set(k,String(v));});return samisRequest<DefectListApi>(`/quality/defectList${q.size?`?${q}`:''}`,{method:'GET'},{module:'quality'}); },
+  defectDetail(defectId: string) { return samisRequest<DefectRecordApi>(`/quality/defectDetail?defectId=${encodeURIComponent(defectId)}`,{method:'GET'},{module:'quality'}); },
+  defectsByOperationId(operationId: string) { return samisRequest<DefectRecordApi[]>(`/quality/defectsByOperationId?operationId=${encodeURIComponent(operationId)}`,{method:'GET'},{module:'quality'}); },
   /** 26 指标列表（rate/target/met/status）。 */
   getIndicators(params: QualityFilterQuery = {}) {
     return samisRequest<QualityIndicatorApi[]>(`/quality/indicators${buildQuery(params)}`, {

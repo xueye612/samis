@@ -5,7 +5,7 @@
         <h2>质控缺陷闭环管理</h2>
         <p>聚焦自动识别缺陷，统一追踪确认、整改与关闭状态。</p>
       </div>
-      <a-tag color="red">{{ store.qualityDefects.length }} 条自动触发</a-tag>
+      <a-tag color="red">{{ useRealQuality() ? realDefects.length : store.qualityDefects.length }} 条缺陷</a-tag>
     </header>
     <a-card v-if="realCases.length" class="section-card" title="真实质控病例穿透" :bordered="false">
       <a-table :data="realCases" row-key="operationId" :pagination="false">
@@ -30,7 +30,16 @@
           </a-button>
         </a-space>
       </template>
-      <QualityDefectTable
+      <a-table v-if="useRealQuality()" :data="realDefects" row-key="defectId" :pagination="false">
+        <a-table-column title="operationId" data-index="operationId" />
+        <a-table-column title="指标" data-index="indicatorCode" />
+        <a-table-column title="等级" data-index="severity" />
+        <a-table-column title="说明" data-index="description" />
+        <a-table-column title="责任人" data-index="owner" />
+        <a-table-column title="状态" data-index="status" />
+        <a-table-column title="操作"><template #cell="{ record }"><a-space><a-link @click="goCaseDetail(record.operationId)">穿透</a-link><a-link v-if="record.status==='open'" @click="transition(record,'rectifying')">整改</a-link><a-link v-if="record.status==='rectifying'" @click="transition(record,'resolved')">提交复核</a-link><a-link v-if="record.status==='resolved'" @click="close(record)">关闭</a-link></a-space></template></a-table-column>
+      </a-table>
+      <QualityDefectTable v-else
         :defects="store.qualityDefects"
         @locate="goCaseDetail"
         @update-status="(id, patch) => store.updateDefectStatus(id, patch)"
@@ -44,13 +53,18 @@ import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import QualityDefectTable from '@/components/quality/QualityDefectTable.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
-import { loadQualityCases } from '@/services/anesthesia/qualityCaseService';
-import type { QualityDrilldownCaseApi } from '@/api/quality';
+import { closeQualityDefect, loadQualityCases, loadQualityDefects, updateQualityDefect } from '@/services/anesthesia/qualityCaseService';
+import { useRealQuality } from '@/config/apiFlags';
+import type { DefectRecordApi, QualityDrilldownCaseApi } from '@/api/quality';
 
 const router = useRouter();
 const store = useAnesthesiaStore();
 const realCases = ref<QualityDrilldownCaseApi[]>([]);
-onMounted(async () => { realCases.value = (await loadQualityCases({ page: 1, pageSize: 50 })).list; });
+const realDefects = ref<DefectRecordApi[]>([]);
+const reload = async () => { realCases.value = (await loadQualityCases({ page: 1, pageSize: 50 })).list; realDefects.value = (await loadQualityDefects({ page: 1, pageSize: 100 })).list; };
+onMounted(reload);
+const transition = async (record: DefectRecordApi, status: 'rectifying'|'resolved') => { await updateQualityDefect({ defectId: record.defectId, status, rectification: record.rectification || '已处理，等待复核。' }); await reload(); };
+const close = async (record: DefectRecordApi) => { await closeQualityDefect({ defectId: record.defectId, rectification: record.rectification || '复核通过。', reviewedBy: 'quality-admin' }); await reload(); };
 const defectIndicatorCount = (record: QualityDrilldownCaseApi) => record.indicatorResults.filter((item) => item.status === 'fail' || item.status === 'warn').length;
 const goCaseDetail = (caseId: string) => router.push({ name: 'record', params: { id: caseId }, query: { from: 'plan' } });
 </script>
