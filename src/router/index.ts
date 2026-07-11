@@ -65,6 +65,7 @@ import SystemRoles from '@/views/system/SystemRoles.vue';
 import SystemAudit from '@/views/system/SystemAudit.vue';
 import SystemIntegration from '@/views/system/SystemIntegration.vue';
 import SystemMock from '@/views/system/SystemMock.vue';
+import DocumentManagement from '@/views/document/DocumentManagement.vue';
 
 import { checkSamisAuthRequired, ensureLoggedIn } from '@/services/auth/authService';
 
@@ -145,6 +146,7 @@ const router = createRouter({
     { path: '/system/audit', name: 'systemAudit', component: SystemAudit, meta: { menu: 'system', title: '审计日志/操作日志' } },
     { path: '/system/integration', name: 'systemIntegration', component: SystemIntegration, meta: { menu: 'system', title: '接口配置' } },
     { path: '/system/mock', name: 'systemMock', component: SystemMock, meta: { menu: 'system', title: '数据模拟配置' } },
+    { path: '/document/management', name: 'documentManagement', component: DocumentManagement, meta: { menu: 'system', title: '临床文书管理' } },
   ],
 });
 
