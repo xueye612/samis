@@ -5,6 +5,7 @@ import type {
   SyncOperationType,
 } from '@/types/anesthesiaLocalDb';
 import { getAnesthesiaLocalDb } from '@/services/anesthesia/localDb';
+import { validateStructuredPushItem } from './structuredPayloadValidator';
 
 const nowIso = () => dayjs().toISOString();
 export const ANESTHESIA_SYNC_QUEUE_API_PATH = '/api-samis/pc/v1/anesthesiaSync/pushBatch';
@@ -67,6 +68,10 @@ export async function enqueueSyncItem(input: EnqueueSyncInput): Promise<LocalSyn
     input.entityType,
     input.entityLocalId,
   );
+  if (['airway_record','ventilation_segment','infusion_segment','transfusion_verification','rescue_event','rescue_action'].includes(input.entityType)) {
+    const validation = validateStructuredPushItem(input.entityType, { localId: input.entityLocalId, operationId: input.operationId, action: input.operationType, clientVersion: baseSyncVersion, occurredAt: (input.payload as Record<string, unknown>)?.occurredAt || nowIso(), payload: input.payload });
+    if (!validation.valid) throw new Error(`${validation.code}:${validation.reason}`);
+  }
   const row: LocalSyncQueueRow = {
     queue_id: `${input.entityType}-${input.entityLocalId}-${Date.now()}`,
     batch_no: input.batchNo,
