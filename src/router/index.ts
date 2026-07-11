@@ -32,6 +32,7 @@ import PacuAlerts from '@/views/pacu/PacuAlerts.vue';
 import PacuBooking from '@/views/pacu/PacuBooking.vue';
 import PacuReceive from '@/views/pacu/PacuReceive.vue';
 import PostoperativeAnalgesia from '@/views/postoperative/PostoperativeAnalgesia.vue';
+import PostoperativeAnalgesiaDetail from '@/views/postoperative/PostoperativeAnalgesiaDetail.vue';
 import PostoperativeFollowupPage from '@/views/postoperative/PostoperativeFollowupPage.vue';
 import PostoperativeComplications from '@/views/postoperative/PostoperativeComplications.vue';
 import PostoperativeUnplannedEvents from '@/views/postoperative/PostoperativeUnplannedEvents.vue';
@@ -106,6 +107,7 @@ const router = createRouter({
     { path: '/pacu/receive', name: 'pacuReceive', component: PacuReceive, meta: { menu: 'pacu', title: 'PACU接收' } },
     { path: '/postoperative', redirect: '/postoperative/analgesia' },
     { path: '/postoperative/analgesia', name: 'postoperativeAnalgesia', component: PostoperativeAnalgesia, meta: { menu: 'postoperative', title: '术后镇痛' } },
+    { path: '/postoperative/analgesia-detail', name: 'postoperativeAnalgesiaDetail', component: PostoperativeAnalgesiaDetail, meta: { menu: 'postoperative', title: '镇痛方案管理' } },
     { path: '/postoperative/followup', name: 'postoperativeFollowup', component: PostoperativeFollowupPage, meta: { menu: 'postoperative', title: '术后随访' } },
     { path: '/postoperative/complications', name: 'postoperativeComplications', component: PostoperativeComplications, meta: { menu: 'postoperative', title: '并发症追踪' } },
     { path: '/postoperative/unplanned-events', name: 'postoperativeUnplannedEvents', component: PostoperativeUnplannedEvents, meta: { menu: 'postoperative', title: '非计划事件追踪' } },
