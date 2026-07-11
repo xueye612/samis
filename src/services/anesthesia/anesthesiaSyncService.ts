@@ -307,3 +307,57 @@ export function setAnesthesiaSyncRecordScope(recordLocalId?: string) {
 }
 
 export { getPendingConflictCount, listPendingConflicts, resolveSyncConflict } from '@/services/anesthesia/anesthesiaSyncConflict';
+
+/**
+ * 提交前刷新队列：将指定记录的所有 pending 同步项推送到服务端。
+ * 返回是否全部成功（无 pending 残留）。
+ */
+export async function flushQueueForRecord(recordLocalId: string, maxWaitMs = 10000): Promise<boolean> {
+  if (!isOnline()) return false;
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const pending = await getPendingSyncCount(recordLocalId);
+    if (pending === 0) return true;
+    // 触发一次推送
+    void triggerSyncNow();
+    // 等待 500ms
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  const remaining = await getPendingSyncCount(recordLocalId);
+  return remaining === 0;
+}
+
+/**
+ * 检查指定记录是否存在未解决冲突。
+ */
+export async function hasUnresolvedConflicts(recordLocalId: string): Promise<boolean> {
+  return (await getPendingConflictCount(recordLocalId)) > 0;
+}
+
+/**
+ * 提交前检查：队列必须刷新完毕且无未解决冲突。
+ * 返回 { canSubmit, reason }。
+ */
+export async function checkCanSubmitRecord(recordLocalId: string): Promise<{ canSubmit: boolean; reason: string | null }> {
+  const conflictCount = await getPendingConflictCount(recordLocalId);
+  if (conflictCount > 0) {
+    return { canSubmit: false, reason: `存在 ${conflictCount} 条未解决同步冲突，请先解决冲突再提交` };
+  }
+  const pendingCount = await getPendingSyncCount(recordLocalId);
+  if (pendingCount > 0) {
+    const flushed = await flushQueueForRecord(recordLocalId);
+    if (!flushed) {
+      return { canSubmit: false, reason: `${pendingCount} 条数据待同步，网络异常无法刷新` };
+    }
+  }
+  return { canSubmit: true, reason: null };
+}
+
+// Internal: trigger immediate sync cycle
+async function triggerSyncNow(): Promise<void> {
+  try {
+    await flushAnesthesiaSyncNow();
+  } catch {
+    // ignore — retry will happen on next cycle
+  }
+}
