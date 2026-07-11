@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
+process.env.TZ ??= 'Asia/Shanghai';
+
 export default defineConfig({
   resolve: {
     alias: {
