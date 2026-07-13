@@ -733,7 +733,6 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         this.localDbReady = true;
         this.localPersistenceReady = true;
         await this.ensureClinicalSeedData();
-        startAnesthesiaSyncService();
         subscribeAnesthesiaSyncState((state) => {
           if (syncStatesEqual(this.anesthesiaSyncState, state)) return;
           this.anesthesiaSyncState = state;
@@ -748,7 +747,10 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     async bootstrapSamisAuthenticatedData() {
       await runAuthenticatedBootstrap({
         isLoggedIn: () => isSamisLoggedIn(),
-        load: async () => { await this.loadSamisBaseCatalog(); },
+        load: async () => {
+          await this.loadSamisBaseCatalog();
+          startAnesthesiaSyncService();
+        },
       });
     },
     setCurrentUserFromSession(profile?: { displayName?: string; loginName?: string; defaultRoom?: string }) {
