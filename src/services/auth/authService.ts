@@ -11,6 +11,7 @@ import {
   setSamisSession,
   type SamisUserProfile,
 } from '@/services/session/samisSession';
+import { releaseAuthFailureLatch } from '@/services/auth/authFailureCoordinator';
 
 async function syncStoreCurrentUser(profile: SamisUserProfile | null | undefined) {
   if (!profile?.displayName) return;
@@ -37,6 +38,7 @@ export async function loginWithCredentials(
     roomGroup,
     user: { ...mapped.user, defaultRoom: room, defaultRoomGroup: roomGroup },
   });
+  releaseAuthFailureLatch();
   await syncStoreCurrentUser(mapped.user);
   // T21：fresh 登录后 token 已写入，等待登录后受保护目录加载完成再返回，
   // 避免在无会话阶段触发病例/手术间/字典等受保护请求（AUTH-001）。
@@ -81,6 +83,9 @@ export async function restoreSessionIfPresent(): Promise<void> {
 
 export function logoutSamis() {
   clearSamisSession();
+  void import('@/services/anesthesia/anesthesiaSyncService')
+    .then(({ stopAnesthesiaSyncService }) => stopAnesthesiaSyncService())
+    .catch(() => {});
 }
 
 export function checkSamisAuthRequired(): boolean {

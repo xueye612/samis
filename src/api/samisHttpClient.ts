@@ -9,6 +9,7 @@ import {
   unwrapSamisResponse,
 } from '@/api/samisResponse';
 import { buildSamisRequestHeaders, clearSamisSession } from '@/services/session/samisSession';
+import { coordinateAuthFailure } from '@/services/auth/authFailureCoordinator';
 
 const SAMIS_PREFIX = '/api-samis/pc/v1';
 
@@ -46,27 +47,25 @@ export function joinSamisUrl(base: string, path: string): string {
   return `${normalizedBase}${normalizedPath}`;
 }
 
-let authRedirectPending = false;
-
 async function handleAuthFailure(message: string) {
-  clearSamisSession();
-  if (authRedirectPending || typeof window === 'undefined') return;
-  authRedirectPending = true;
-  try {
-    const { Message } = await import('@arco-design/web-vue');
-    Message.warning(message || '登录已失效，请重新登录');
-  } catch {
-    // ignore
-  }
-  const { default: router } = await import('@/router');
-  const current = router.currentRoute.value;
-  if (current.path !== '/login') {
-    await router.replace({
-      path: '/login',
-      query: { redirect: current.fullPath },
-    });
-  }
-  authRedirectPending = false;
+  await coordinateAuthFailure(message, {
+    clearSession: clearSamisSession,
+    stopRuntime: async () => {
+      const { stopAnesthesiaSyncService } = await import('@/services/anesthesia/anesthesiaSyncService');
+      stopAnesthesiaSyncService();
+    },
+    notify: async (text) => {
+      const { Message } = await import('@arco-design/web-vue');
+      Message.warning(text);
+    },
+    redirect: async () => {
+      const { default: router } = await import('@/router');
+      const current = router.currentRoute.value;
+      if (current.path !== '/login') {
+        await router.replace({ path: '/login', query: { redirect: current.fullPath } });
+      }
+    },
+  });
 }
 
 export async function samisHttpFetch<T>(

@@ -7,10 +7,10 @@ export interface SamisApiResponse<T = unknown> {
   request_id?: string;
 }
 
-/** 业务层 token/鉴权失败（HTTP 可能仍为 200） */
+/** 业务层 token/鉴权失败（HTTP 可能仍为 200 或 400 包装） */
 export function isSamisAuthBusinessCode(code: number | undefined): boolean {
   if (code === undefined || !Number.isFinite(code)) return false;
-  return code === 401 || code === 403 || code === 9003;
+  return code === 401 || code === 403 || code === 9001 || code === 9003;
 }
 
 export function readSamisResponseMessage(

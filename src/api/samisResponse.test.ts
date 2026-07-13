@@ -5,8 +5,10 @@ import {
 } from '@/api/samisResponse';
 
 describe('samisResponse auth codes', () => {
-  it('treats 9003 as auth failure', () => {
-    expect(isSamisAuthBusinessCode(9003)).toBe(true);
+  it('treats missing, invalid and standard auth codes as auth failures', () => {
+    for (const code of [401, 403, 9001, 9003]) {
+      expect(isSamisAuthBusinessCode(code)).toBe(true);
+    }
     expect(isSamisAuthBusinessCode(0)).toBe(false);
   });
 

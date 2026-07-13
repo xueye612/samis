@@ -271,14 +271,20 @@ export async function flushAnesthesiaSyncNow(recordLocalId?: string) {
   if (pending.length) await pushBatchForItems(pending);
 }
 
+function handleOnline() {
+  notify();
+  void flushAnesthesiaSyncNow();
+}
+
+function handleOffline() {
+  notify();
+}
+
 export function startAnesthesiaSyncService() {
   if (started || typeof window === 'undefined') return;
   started = true;
-  window.addEventListener('online', () => {
-    notify();
-    void flushAnesthesiaSyncNow();
-  });
-  window.addEventListener('offline', () => notify());
+  window.addEventListener('online', handleOnline);
+  window.addEventListener('offline', handleOffline);
   scanTimer = setInterval(() => {
     if (!isOnline() || uploading) return;
     void listPendingSyncItems(20).then((items) => {
@@ -289,10 +295,18 @@ export function startAnesthesiaSyncService() {
 }
 
 export function stopAnesthesiaSyncService() {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('online', handleOnline);
+    window.removeEventListener('offline', handleOffline);
+  }
   if (manualTimer) clearTimeout(manualTimer);
   if (vitalTimer) clearTimeout(vitalTimer);
   if (deviceTimer) clearTimeout(deviceTimer);
   if (scanTimer) clearInterval(scanTimer);
+  manualTimer = undefined;
+  vitalTimer = undefined;
+  deviceTimer = undefined;
+  scanTimer = undefined;
   started = false;
 }
 
