@@ -287,4 +287,90 @@ describe('operationInfoAdapter', () => {
     expect(merged.vitals).toEqual([{ time: '2026-07-13T08:00:00.000Z', HR: 90 }]);
     expect(merged.medications).toEqual([{ id: 'm1', mode: '单次用药', drug: '丙泊酚', executor: '陈' }]);
   });
+
+  it('preserves rich operationCase fields including explicit nulls without fabrication', () => {
+    const detail = mapOperationDetail({
+      operationId: 'op-rich-all',
+      operationCase: {
+        operationId: 'op-rich-all',
+        patientName: null,
+        gender: null,
+        preceptorCode: 'PRE-1',
+        preceptorName: '指导医生',
+        assistantCode: 'AS-1',
+        assistantName: '助手',
+        instrumentNurseName: '器械护士',
+        scrubNurseName: '洗手护士',
+        circulatingNurseName: '巡回护士',
+        operationLevelCode: 'L3',
+        operationLevelName: '三级',
+        surgeryCategoryCode: 'CAT-1',
+        canceledReason: null,
+        isLocked: false,
+        isArchived: false,
+        isPrinted: false,
+        hisIsDelete: false,
+        createTime: '2026-07-13 08:00:00',
+        updateTime: '2026-07-13 09:00:00',
+        version: 7,
+        sourceSystem: 'HULI',
+        sourceTable: 'operatenotice',
+      },
+    });
+    const canonical = buildCanonicalOperationCase(detail);
+    expect(canonical.operationId).toBe('op-rich-all');
+    // 显式 null 必须保持 null，不得回退旧值或补造“未命名/男/空字符串”
+    expect(canonical.patientName).toBeNull();
+    expect(canonical.gender).toBeNull();
+    expect(canonical.canceledReason).toBeNull();
+    expect(canonical.preceptorCode).toBe('PRE-1');
+    expect(canonical.preceptorName).toBe('指导医生');
+    expect(canonical.assistantCode).toBe('AS-1');
+    expect(canonical.assistantName).toBe('助手');
+    expect(canonical.instrumentNurseName).toBe('器械护士');
+    expect(canonical.scrubNurseName).toBe('洗手护士');
+    expect(canonical.circulatingNurseName).toBe('巡回护士');
+    expect(canonical.operationLevelCode).toBe('L3');
+    expect(canonical.operationLevelName).toBe('三级');
+    expect(canonical.surgeryCategoryCode).toBe('CAT-1');
+    expect(canonical.isLocked).toBe(false);
+    expect(canonical.isArchived).toBe(false);
+    expect(canonical.isPrinted).toBe(false);
+    expect(canonical.hisIsDelete).toBe(false);
+    expect(canonical.createTime).toBe('2026-07-13 08:00:00');
+    expect(canonical.updateTime).toBe('2026-07-13 09:00:00');
+    expect(canonical.version).toBe(7);
+    expect(canonical.sourceSystem).toBe('HULI');
+    expect(canonical.sourceTable).toBe('operatenotice');
+  });
+
+  it('authoritative remote operationCase null overrides stale local master data', () => {
+    const remote: SurgeryCase = {
+      ...mapOperationListItem({ OPERATIONID: 'op-null-master' }),
+      id: 'op-null-master',
+      operationCase: {
+        operationId: 'op-null-master',
+        patientName: null,
+        version: 3,
+        sourceSystem: 'HULI',
+        sourceTable: 'operatenotice',
+      },
+    };
+    const local: SurgeryCase = {
+      ...remote,
+      patientName: '旧姓名',
+      operationCase: { operationId: 'op-null-master', patientName: '旧姓名', version: 2 },
+      vitals: [{ time: '2026-07-13T08:00:00.000Z', HR: 90 }],
+      medications: [{ id: 'm1', mode: '单次用药', drug: '丙泊酚', executor: '陈' }],
+    };
+    const merged = mergeRemoteMasterWithLocalClinical(remote, local);
+    // 远端权威清空（null）覆盖本地旧值
+    expect(merged.operationCase?.patientName).toBeNull();
+    expect(merged.operationCase?.version).toBe(3);
+    // 平铺投影不得保留本地旧姓名
+    expect(merged.patientName).toBe('');
+    // 本地临床记录保留
+    expect(merged.vitals).toEqual([{ time: '2026-07-13T08:00:00.000Z', HR: 90 }]);
+    expect(merged.medications).toEqual([{ id: 'm1', mode: '单次用药', drug: '丙泊酚', executor: '陈' }]);
+  });
 });

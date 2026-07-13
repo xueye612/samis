@@ -153,4 +153,30 @@ describe('anesthesia local persistence', () => {
     expect(merged[0].vitals).toHaveLength(1);
     expect(merged[0].medications).toHaveLength(1);
   });
+
+  it('hydrate clears stale local flat fields when remote authoritative master is null', async () => {
+    const local = baseCase();
+    local.operationCase = { operationId: 'case-persist-test', patientName: '本地旧姓名', version: 1 };
+    await saveCaseToLocalDb(local, 1);
+
+    const remote: SurgeryCase = {
+      ...local,
+      patientName: '远端清空',
+      operationCase: {
+        operationId: 'case-persist-test',
+        patientName: null,
+        version: 2,
+        sourceSystem: 'HULI',
+        sourceTable: 'operatenotice',
+      },
+    };
+    const merged = await hydrateAnesthesiaCasesFromLocalDb([remote], { appendOrphans: false });
+    expect(merged).toHaveLength(1);
+    // 远端权威 null 覆盖本地旧值，刷新后不再恢复旧姓名
+    expect(merged[0].operationCase?.patientName).toBeNull();
+    expect(merged[0].operationCase?.version).toBe(2);
+    expect(merged[0].patientName).toBe('');
+    // 本地临床记录保留
+    expect(merged[0].vitals).toHaveLength(1);
+  });
 });
