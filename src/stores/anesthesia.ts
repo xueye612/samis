@@ -310,6 +310,8 @@ import {
   type DeviceSimulationMode,
 } from '@/services/anesthesia/deviceSimulationMode';
 import { runStartupLocalCleanupIfDue } from '@/services/anesthesia/anesthesiaLocalCleanupService';
+import { runAuthenticatedBootstrap } from '@/services/bootstrap/authenticatedBootstrap';
+import { isSamisLoggedIn } from '@/services/session/samisSession';
 import {
   buildMonitoringSessionFromCase,
   clearAwayMockTimeout,
@@ -730,7 +732,6 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         }
         this.localDbReady = true;
         this.localPersistenceReady = true;
-        await this.loadSamisBaseCatalog();
         await this.ensureClinicalSeedData();
         startAnesthesiaSyncService();
         subscribeAnesthesiaSyncState((state) => {
@@ -743,6 +744,12 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       } finally {
         this.isHydrating = false;
       }
+    },
+    async bootstrapSamisAuthenticatedData() {
+      await runAuthenticatedBootstrap({
+        isLoggedIn: () => isSamisLoggedIn(),
+        load: async () => { await this.loadSamisBaseCatalog(); },
+      });
     },
     setCurrentUserFromSession(profile?: { displayName?: string; loginName?: string; defaultRoom?: string }) {
       if (profile?.displayName) {

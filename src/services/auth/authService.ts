@@ -38,11 +38,10 @@ export async function loginWithCredentials(
     user: { ...mapped.user, defaultRoom: room, defaultRoomGroup: roomGroup },
   });
   await syncStoreCurrentUser(mapped.user);
-  // T21：fresh 登录后 token 已写入，重载远程基础目录（dict/room/operationInfo）。
-  // fire-and-forget：不阻塞登录跳转，失败静默（reactive UI 后续更新）。
-  import('@/stores/anesthesia')
-    .then(({ useAnesthesiaStore }) => useAnesthesiaStore().loadSamisBaseCatalog())
-    .catch(() => {});
+  // T21：fresh 登录后 token 已写入，等待登录后受保护目录加载完成再返回，
+  // 避免在无会话阶段触发病例/手术间/字典等受保护请求（AUTH-001）。
+  const { useAnesthesiaStore } = await import('@/stores/anesthesia');
+  await useAnesthesiaStore().bootstrapSamisAuthenticatedData();
   return mapped.user;
 }
 
