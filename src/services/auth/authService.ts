@@ -11,7 +11,7 @@ import {
   setSamisSession,
   type SamisUserProfile,
 } from '@/services/session/samisSession';
-import { releaseAuthFailureLatch } from '@/services/auth/authFailureCoordinator';
+import { latchAuthFailuresUntilLogin, releaseAuthFailureLatch } from '@/services/auth/authFailureCoordinator';
 
 async function syncStoreCurrentUser(profile: SamisUserProfile | null | undefined) {
   if (!profile?.displayName) return;
@@ -82,6 +82,8 @@ export async function restoreSessionIfPresent(): Promise<void> {
 }
 
 export function logoutSamis() {
+  // 主动退出：先静默锁存，丢弃仍在途的迟到 9001/9003，避免登录页弹出“登录已失效”。
+  latchAuthFailuresUntilLogin();
   clearSamisSession();
   void import('@/services/anesthesia/anesthesiaSyncService')
     .then(({ stopAnesthesiaSyncService }) => stopAnesthesiaSyncService())

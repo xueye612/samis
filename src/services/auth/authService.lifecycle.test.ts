@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   login: vi.fn(async () => ({})),
   setSession: vi.fn(),
   releaseLatch: vi.fn(),
+  latch: vi.fn(),
+  clearSession: vi.fn(),
   setCurrentUser: vi.fn(),
   bootstrap: vi.fn(async () => undefined),
   stopSync: vi.fn(),
@@ -26,7 +28,7 @@ vi.mock('@/services/auth/authAdapter', () => ({
   mapCurrentUser: vi.fn(),
 }));
 vi.mock('@/services/session/samisSession', () => ({
-  clearSamisSession: vi.fn(),
+  clearSamisSession: mocks.clearSession,
   getSamisRoom: () => '01',
   getSamisRoomGroup: () => 'ANES',
   getSamisUserProfile: () => null,
@@ -35,6 +37,7 @@ vi.mock('@/services/session/samisSession', () => ({
 }));
 vi.mock('@/services/auth/authFailureCoordinator', () => ({
   releaseAuthFailureLatch: mocks.releaseLatch,
+  latchAuthFailuresUntilLogin: mocks.latch,
 }));
 vi.mock('@/stores/anesthesia', () => ({
   useAnesthesiaStore: () => ({
@@ -60,8 +63,12 @@ describe('authService authenticated runtime lifecycle', () => {
     expect(mocks.bootstrap).toHaveBeenCalledTimes(1);
   });
 
-  it('stops the authenticated runtime on explicit logout', async () => {
+  it('latches failures before clearing the session, then stops the authenticated runtime on explicit logout', async () => {
     logoutSamis();
     await vi.waitFor(() => expect(mocks.stopSync).toHaveBeenCalledTimes(1));
+    expect(mocks.latch).toHaveBeenCalledTimes(1);
+    expect(mocks.clearSession).toHaveBeenCalledTimes(1);
+    expect(mocks.latch.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.clearSession.mock.invocationCallOrder[0]);
   });
 });

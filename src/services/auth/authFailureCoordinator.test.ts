@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { coordinateAuthFailure, releaseAuthFailureLatch } from '@/services/auth/authFailureCoordinator';
+import {
+  coordinateAuthFailure,
+  latchAuthFailuresUntilLogin,
+  releaseAuthFailureLatch,
+} from '@/services/auth/authFailureCoordinator';
 
 describe('authFailureCoordinator', () => {
   beforeEach(releaseAuthFailureLatch);
@@ -36,5 +40,18 @@ describe('authFailureCoordinator', () => {
     await coordinateAuthFailure('Token缺失', actionSet);
     expect(actionSet.notify).toHaveBeenCalledTimes(1);
     expect(actionSet.redirect).toHaveBeenCalledTimes(1);
+  });
+
+  it('silently latches on explicit logout so a late failure clears, notifies and redirects nothing', async () => {
+    const actionSet = actions();
+    latchAuthFailuresUntilLogin();
+    await coordinateAuthFailure('迟到响应', actionSet);
+    expect(actionSet.clearSession).not.toHaveBeenCalled();
+    expect(actionSet.stopRuntime).not.toHaveBeenCalled();
+    expect(actionSet.notify).not.toHaveBeenCalled();
+    expect(actionSet.redirect).not.toHaveBeenCalled();
+    releaseAuthFailureLatch();
+    await coordinateAuthFailure('新会话失效', actionSet);
+    expect(actionSet.notify).toHaveBeenCalledTimes(1);
   });
 });

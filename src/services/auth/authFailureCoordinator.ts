@@ -22,6 +22,16 @@ export function coordinateAuthFailure(message: string, actions: AuthFailureActio
   return pending;
 }
 
+/**
+ * Silently latch before a voluntary logout so in-flight 9001/9003 responses
+ * arriving after the session is cleared do not trigger clear/stop/notify/redirect.
+ * Stays latched until a successful login calls releaseAuthFailureLatch().
+ */
+export function latchAuthFailuresUntilLogin(): void {
+  pending = null;
+  latched = true;
+}
+
 export function releaseAuthFailureLatch(): void {
   pending = null;
   latched = false;
