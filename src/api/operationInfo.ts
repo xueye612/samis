@@ -2,6 +2,7 @@ import { samisRequest } from '@/api/samisClient';
 import {
   buildFormPost,
   flatFormFieldsFromRecord,
+  formPostInit,
   stringifyFormJsonField,
 } from '@/api/samisFormBody';
 import type {
@@ -36,6 +37,39 @@ export const operationInfoApi = {
     return samisRequest<unknown>(
       '/operationInfo/updateOperationInfo',
       buildFormPost(flatFormFieldsFromRecord(record)),
+      { module: 'operationInfo' },
+    );
+  },
+  /**
+   * 受控主数据修改信封传输：保留 changes 数组（PHP 数组表单记法 changes[i][field]），
+   * 供后端 OperationMasterDataPolicy 读取；标量兼容字段照常透传。
+   */
+  updateMasterData(envelope: Record<string, unknown>) {
+    const params = new URLSearchParams();
+    const appendScalar = (key: string, value: unknown) => {
+      if (value === undefined || value === null) return;
+      params.set(key, typeof value === 'boolean' || typeof value === 'number' ? String(value) : String(value));
+    };
+    Object.entries(envelope).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      if (Array.isArray(value)) {
+        value.forEach((item, i) => {
+          if (item && typeof item === 'object') {
+            Object.entries(item as Record<string, unknown>).forEach(([sub, subVal]) => {
+              if (subVal === undefined || subVal === null) return;
+              params.append(`${key}[${i}][${sub}]`, String(subVal));
+            });
+          } else {
+            params.append(`${key}[${i}]`, String(item));
+          }
+        });
+      } else if (typeof value !== 'object') {
+        appendScalar(key, value);
+      }
+    });
+    return samisRequest<unknown>(
+      '/operationInfo/updateOperationInfo',
+      formPostInit(params.toString()),
       { module: 'operationInfo' },
     );
   },

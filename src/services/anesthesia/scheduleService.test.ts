@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildMasterDataChangesFromDiff,
   buildMasterDataUpdateEnvelope,
   buildSaveNursePbPayload,
   mapNursePbRow,
@@ -112,5 +113,19 @@ describe('scheduleService', () => {
   it('buildMasterDataUpdateEnvelope reports null expectedVersion when operationCase version absent', () => {
     const envelope = buildMasterDataUpdateEnvelope(minimalCase(), '原因', []);
     expect(envelope.expectedVersion).toBeNull();
+  });
+
+  it('buildMasterDataChangesFromDiff only emits actually changed controlled fields', () => {
+    const original = minimalCase();
+    const current = minimalCase();
+    current.patientName = '新姓名';
+    current.surgeon = '新主刀';
+    // 未变化字段不出现在 diff
+    const changes = buildMasterDataChangesFromDiff(original, current);
+    const fields = changes.map((c) => c.field);
+    expect(fields).toEqual(expect.arrayContaining(['patientName', 'operatorName']));
+    expect(fields).not.toContain('gender');
+    expect(changes.find((c) => c.field === 'patientName')?.value).toBe('新姓名');
+    expect(changes.find((c) => c.field === 'operatorName')?.value).toBe('新主刀');
   });
 });

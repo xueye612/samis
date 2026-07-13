@@ -174,9 +174,15 @@
 
         <a-drawer v-model:visible="drawerVisible" width="640px" :title="editing?.id?.startsWith('case-new') ? '新增手术排班' : '编辑手术排班'" @ok="saveCase">
           <a-form v-if="editing" :model="editing" layout="vertical">
-            <a-alert type="normal" show-icon class="drawer-tip">
-              通知单字段走 updateOperationInfo；麻醉/护士人员走 saveNursePb。不保存用药与生命体征。
+            <a-alert v-if="useRealOperationInfo() && !canEditMaster" type="warning" show-icon class="drawer-tip">
+              无手术主数据修改权限（operation.master_data.update）；仅可查看，不可保存主数据。
             </a-alert>
+            <a-alert v-else type="normal" show-icon class="drawer-tip">
+              主数据走受控修改（权限+白名单+版本+字段审计）；护理排班/台次单独保存。不保存用药与生命体征。
+            </a-alert>
+            <a-form-item v-if="useRealOperationInfo() && canEditMaster && !editing.id.startsWith('case-new')" label="修改原因（必填）">
+              <a-input v-model="masterDataReason" placeholder="请填写本次主数据修改原因" :max-length="200" />
+            </a-form-item>
             <a-row :gutter="12">
               <a-col :span="8"><a-form-item label="手术间"><a-select v-model="editing.room" :options="drawerRoomOptions" /></a-form-item></a-col>
               <a-col :span="8"><a-form-item label="台次"><a-input-number v-model="editing.sequence" :min="1" /></a-form-item></a-col>
@@ -232,6 +238,7 @@ import StatusTag from '@/components/StatusTag.vue';
 import { useRealOperationInfo } from '@/config/apiFlags';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 import {
+  buildMasterDataChangesFromDiff,
   buildSaveNursePbPayload,
   loadNurseScheduleList,
   matchCaseRoom,
@@ -240,6 +247,12 @@ import {
   saveNurseSchedule,
   updateOperationStations,
 } from '@/services/anesthesia/scheduleService';
+import {
+  canEditMasterData,
+  MasterDataConflictError,
+  saveMasterDataWithReadback,
+} from '@/services/anesthesia/operationMasterDataService';
+import { authApi } from '@/api/auth';
 import type { SurgeryCase } from '@/types/anesthesia';
 
 const router = useRouter();
@@ -262,6 +275,10 @@ const stationDirty = reactive<Record<string, boolean>>({});
 const drawerVisible = ref(false);
 const editing = ref<SurgeryCase>();
 const originalSequence = ref<number>();
+const editingSnapshot = ref<SurgeryCase>();
+const permissions = ref<string[]>([]);
+const masterDataReason = ref('');
+const canEditMaster = computed(() => canEditMasterData(permissions.value));
 
 const statusOptions = ['待入室', '已入室', '麻醉诱导', '麻醉中', '手术中', '苏醒中', 'PACU', '已离室', '已取消'];
 
@@ -416,7 +433,9 @@ const goRecord = (id: string) => router.push(`/surgery/record/${id}`);
 
 const openEdit = (item: SurgeryCase) => {
   editing.value = clone(item);
+  editingSnapshot.value = clone(item);
   originalSequence.value = item.sequence;
+  masterDataReason.value = '';
   drawerVisible.value = true;
 };
 
@@ -499,40 +518,62 @@ const openCreate = (emergency: boolean) => {
 const saveCase = async () => {
   if (!editing.value) return;
   const item = editing.value;
+  const isNew = item.id.startsWith('case-new');
+  // 真实模式下新增/急诊插单需独立创建接口，暂未开放
+  if (useRealOperationInfo() && (isNew || item.emergencyInserted)) {
+    Message.warning('真实模式下新增/急诊插单需独立创建接口，暂未开放');
+    return;
+  }
   item.roomId = item.room;
   item.roomName = item.room;
   item.plannedStart = item.scheduledStart ?? item.plannedStart;
   item.assignedAnesthesiologistIds = [item.anesthesiologist];
 
-  if (item.emergencyInserted) store.createEmergencyCase(item);
-  else store.upsertCase(item);
-
-  const errors: string[] = [];
-  const tasks: Promise<unknown>[] = [
-    persistOperationInfoFields(item).catch((e) => {
-      errors.push(e instanceof Error ? e.message : '通知单保存失败');
-    }),
-    saveNurseSchedule(buildSaveNursePbPayload(item, filterDate.value)).catch((e) => {
-      errors.push(e instanceof Error ? e.message : '护理排班保存失败');
-    }),
-  ];
-
-  if (originalSequence.value !== undefined && item.sequence !== originalSequence.value) {
-    tasks.push(
-      updateOperationStations([{
-        operationId: item.id,
-        numberOfStations: item.sequence,
-        room: item.room,
-      }]).catch((e) => {
-        errors.push(e instanceof Error ? e.message : '台次更新失败');
-      }),
-    );
+  // 受控主数据保存（需权限 + 修改原因）：校验 → POST → GET 回读 → 更新 store
+  if (canEditMaster.value && !isNew) {
+    const reason = masterDataReason.value.trim();
+    if (!reason) {
+      Message.warning('请填写修改原因');
+      return;
+    }
+    const changes = buildMasterDataChangesFromDiff(editingSnapshot.value ?? item, item);
+    try {
+      const { case: readback } = await saveMasterDataWithReadback({ item, reason, changes });
+      store.upsertCase(readback);
+      masterDataReason.value = '';
+    } catch (error) {
+      if (error instanceof MasterDataConflictError) {
+        Message.warning('数据已被其他人修改，请刷新后重试');
+      } else {
+        Message.warning(error instanceof Error ? error.message : '主数据保存失败');
+      }
+      // 失败不保留本地主数据，保留抽屉与错误信息供重试
+      return;
+    }
+  } else if (item.emergencyInserted) {
+    store.createEmergencyCase(item);
+  } else {
+    store.upsertCase(item);
   }
 
-  await Promise.all(tasks);
+  // 护理排班与台次职责分离：主数据成功后单独保存，部分失败不影响主数据真值
+  const errors: string[] = [];
+  await saveNurseSchedule(buildSaveNursePbPayload(item, filterDate.value)).catch((e) => {
+    errors.push(e instanceof Error ? e.message : '护理排班保存失败');
+  });
+
+  if (originalSequence.value !== undefined && item.sequence !== originalSequence.value) {
+    await updateOperationStations([{
+      operationId: item.id,
+      numberOfStations: item.sequence,
+      room: item.room,
+    }]).catch((e) => {
+      errors.push(e instanceof Error ? e.message : '台次更新失败');
+    });
+  }
 
   if (errors.length) {
-    Message.warning(`本地已保存；远程：${errors.join('；')}`);
+    Message.warning(`主数据已保存；护理排班/台次：${errors.join('；')}`);
   } else {
     Message.success('排班已保存');
   }
@@ -545,6 +586,14 @@ onMounted(async () => {
   await store.bootstrapAnesthesiaLocalPersistence();
   if (!store.roomGroups.length) {
     await store.loadRoomCatalog();
+  }
+  if (useRealOperationInfo()) {
+    try {
+      const result = await authApi.myPermissions();
+      permissions.value = Array.isArray(result) ? result.map(String) : [];
+    } catch {
+      permissions.value = [];
+    }
   }
   await reloadSchedule();
 });

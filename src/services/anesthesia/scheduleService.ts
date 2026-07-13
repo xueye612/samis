@@ -84,6 +84,35 @@ export interface MasterDataUpdateEnvelope {
   [legacy: string]: unknown;
 }
 
+/** SurgeryCase 展示字段 → 受控规范字段（用于编辑差异计算）。 */
+const DISPLAY_TO_CONTROLLED: Array<{ canonical: string; get: (c: SurgeryCase) => unknown }> = [
+  { canonical: 'patientName', get: (c) => c.patientName },
+  { canonical: 'gender', get: (c) => c.gender },
+  { canonical: 'operatorName', get: (c) => c.surgeon },
+  { canonical: 'anesthesiaMethodName', get: (c) => c.anesthesiaMethod },
+  { canonical: 'anesthesiologistName', get: (c) => c.anesthesiologist },
+  { canonical: 'preoperativeDiagnosisName', get: (c) => c.diagnosis },
+  { canonical: 'plannedOperationName', get: (c) => c.surgeryName },
+  { canonical: 'departmentName', get: (c) => c.department },
+  { canonical: 'roomCode', get: (c) => c.roomId ?? c.room },
+  { canonical: 'roomName', get: (c) => c.roomName ?? c.room },
+  { canonical: 'sequence', get: (c) => c.sequence },
+];
+
+/** 比较编辑前后 SurgeryCase 展示字段，生成受控 changes（仅实际变化字段）。 */
+export function buildMasterDataChangesFromDiff(original: SurgeryCase, current: SurgeryCase): MasterDataChange[] {
+  const changes: MasterDataChange[] = [];
+  for (const { canonical, get } of DISPLAY_TO_CONTROLLED) {
+    const before = get(original);
+    const after = get(current);
+    const norm = (v: unknown) => (v === undefined || v === null || v === '') ? '' : String(v);
+    if (norm(before) !== norm(after)) {
+      changes.push({ field: canonical, value: after });
+    }
+  }
+  return changes;
+}
+
 /**
  * 构建受控主数据修改信封 { operationId, expectedVersion, reason, changes }；
  * changes 只使用规范字段名，同时保留旧后端需要的平铺兼容字段。
