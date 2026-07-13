@@ -1,4 +1,5 @@
 import { Message } from '@arco-design/web-vue';
+import { notifyIfUnhandledSamisError } from '@/services/auth/authErrorPresentation';
 import { qualityApi, type QualityFilterQuery, type QualityHypothermiaResultApi, type QualityAdverseEventResultApi, type QualityCheckApi, type QualityCheckListApi, type QualityCheckListQuery, type QualityCheckResultApi, type QualityRectifyStatusApi, type QualityIndicatorApi, type QualityIndicatorDetailApi } from '@/api/quality';
 import { useRealQuality } from '@/config/apiFlags';
 import { SamisHttpError } from '@/api/samisHttpClient';
@@ -25,7 +26,7 @@ export async function loadHypothermiaCases(params: QualityFilterQuery = {}): Pro
     const result = await qualityApi.getHypothermiaCases(params);
     return { result, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载低体温病例失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载低体温病例失败')}，已使用本地数据`));
     return { result: { total: 0, list: [] }, source: 'mock' };
   }
 }
@@ -42,7 +43,7 @@ export async function loadAdverseEvents(params: QualityFilterQuery = {}): Promis
     const result = await qualityApi.getAdverseEvents(params);
     return { result, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载不良事件失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载不良事件失败')}，已使用本地数据`));
     return { result: { total: 0, list: [] }, source: 'mock' };
   }
 }
@@ -59,7 +60,7 @@ export async function loadIndicators(params: QualityFilterQuery = {}): Promise<{
     const result = await qualityApi.getIndicators(params);
     return { result: result ?? [], source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载质控指标失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载质控指标失败')}，已使用本地数据`));
     return { result: [], source: 'mock' };
   }
 }
@@ -76,7 +77,7 @@ export async function loadIndicatorDetail(code: string, params: QualityFilterQue
     const result = await qualityApi.getIndicatorDetail(code, params);
     return { result, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载指标穿透明细失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载指标穿透明细失败')}，已使用本地数据`));
     return { result: null, source: 'mock' };
   }
 }
@@ -99,7 +100,7 @@ export async function loadQualityChecks(params: QualityCheckListQuery = {}): Pro
     const list = Array.isArray(body.list) ? body.list : [];
     return { list, total: typeof body.total === 'number' ? body.total : list.length, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载质控抽查记录失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载质控抽查记录失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }

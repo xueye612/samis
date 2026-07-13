@@ -1,5 +1,6 @@
 import { Message } from '@arco-design/web-vue';
 import { pacuApi } from '@/api/pacu';
+import { notifyIfUnhandledSamisError } from '@/services/auth/authErrorPresentation';
 import { useRealPacu } from '@/config/apiFlags';
 import { SamisHttpError } from '@/api/samisHttpClient';
 import { isSamisLoggedIn } from '@/services/session/samisSession';
@@ -63,7 +64,7 @@ export async function loadRemotePacuList(params?: {
     const { list, total } = mapPacuListResponse(raw);
     return { list, total, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载 PACU 恢复单失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载 PACU 恢复单失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }
@@ -173,7 +174,7 @@ export async function loadRemotePacuBookings(params?: {
     const { list, total } = mapPacuBookingListResponse(raw);
     return { list, total, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载 PACU 预约失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载 PACU 预约失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }
@@ -253,7 +254,7 @@ export async function loadRemotePacuBeds(): Promise<PacuBedState> {
     const stats = mapBedStats(statsRaw);
     return { rooms, stats, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载 PACU 床位失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载 PACU 床位失败')}，已使用本地数据`));
     return { rooms: [], stats: null, source: 'mock' };
   }
 }

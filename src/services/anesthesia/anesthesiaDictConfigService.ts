@@ -1,4 +1,5 @@
 import { Message } from '@arco-design/web-vue';
+import { notifyIfUnhandledSamisError } from '@/services/auth/authErrorPresentation';
 import { anesthesiaDictApi } from '@/api/anesthesiaDict';
 import { roomApi } from '@/api/room';
 import { useRealAnesthesiaDict, useRealRoom } from '@/config/apiFlags';
@@ -57,7 +58,7 @@ export async function loadFluidDictCatalog(): Promise<{ items: FluidBloodDictIte
     if (items.length) return { items, source: useRealAnesthesiaDict() ? 'remote' : 'mock' };
     return { items: [...seedFluidBloodDict], source: 'seed' };
   } catch (error) {
-    Message.warning(msgOf(error, '加载液体字典失败'));
+    notifyIfUnhandledSamisError(error, () => Message.warning(msgOf(error, '加载液体字典失败')));
     return { items: [...seedFluidBloodDict], source: 'seed' };
   }
 }
@@ -75,7 +76,7 @@ export async function persistFluidDictItem(item: FluidBloodDictItem): Promise<Fl
     const saved = await api(payload);
     return { ...item, id: String((saved as Record<string, unknown>)?.id ?? item.id) };
   } catch (error) {
-    Message.error(msgOf(error, '保存液体字典失败'));
+    notifyIfUnhandledSamisError(error, () => Message.error(msgOf(error, '保存液体字典失败')));
     return null;
   }
 }
@@ -87,7 +88,7 @@ export async function disableFluidDictItem(item: FluidBloodDictItem): Promise<bo
     await api({ id: item.id });
     return true;
   } catch (error) {
-    Message.error(msgOf(error, '停用液体失败'));
+    notifyIfUnhandledSamisError(error, () => Message.error(msgOf(error, '停用液体失败')));
     return false;
   }
 }
@@ -100,7 +101,7 @@ export async function loadTemplateCatalog(): Promise<{ items: PrintTemplateItem[
     if (items.length) return { items, names: templateNamesFromItems(items), source: useRealAnesthesiaDict() ? 'remote' : 'mock' };
     return { items: [], names: ['麻醉记录单', '术前访视单', 'PACU恢复记录', '术后随访表'], source: 'seed' };
   } catch (error) {
-    Message.warning(msgOf(error, '加载打印模板失败'));
+    notifyIfUnhandledSamisError(error, () => Message.warning(msgOf(error, '加载打印模板失败')));
     return { items: [], names: ['麻醉记录单', '术前访视单', 'PACU恢复记录', '术后随访表'], source: 'seed' };
   }
 }
@@ -120,7 +121,7 @@ export async function persistTemplateItem(item: PrintTemplateItem): Promise<Prin
     const saved = await anesthesiaDictApi.saveTemplate(payload);
     return { ...item, id: String((saved as Record<string, unknown>)?.id ?? item.id) };
   } catch (error) {
-    Message.error(msgOf(error, '保存打印模板失败'));
+    notifyIfUnhandledSamisError(error, () => Message.error(msgOf(error, '保存打印模板失败')));
     return null;
   }
 }
@@ -131,7 +132,7 @@ export async function disableTemplateItem(id: string | number): Promise<boolean>
     await anesthesiaDictApi.disableTemplate({ id });
     return true;
   } catch (error) {
-    Message.error(msgOf(error, '停用打印模板失败'));
+    notifyIfUnhandledSamisError(error, () => Message.error(msgOf(error, '停用打印模板失败')));
     return false;
   }
 }
@@ -144,7 +145,7 @@ export async function loadVitalDictCatalog(): Promise<{ items: VitalSignDictItem
     if (items.length) return { items, source: useRealAnesthesiaDict() ? 'remote' : 'mock' };
     return { items: [...seedVitalSignDict], source: 'seed' };
   } catch (error) {
-    Message.warning(msgOf(error, '加载生命体征字典失败'));
+    notifyIfUnhandledSamisError(error, () => Message.warning(msgOf(error, '加载生命体征字典失败')));
     return { items: [...seedVitalSignDict], source: 'seed' };
   }
 }
@@ -164,7 +165,7 @@ export async function persistVitalDictItem(item: VitalSignDictItem): Promise<Vit
     const saved = await anesthesiaDictApi.saveVitalDict(payload);
     return { ...item, id: String((saved as Record<string, unknown>)?.id ?? item.id) };
   } catch (error) {
-    Message.error(msgOf(error, '保存生命体征字典失败'));
+    notifyIfUnhandledSamisError(error, () => Message.error(msgOf(error, '保存生命体征字典失败')));
     return null;
   }
 }
@@ -175,7 +176,7 @@ export async function disableVitalDictItem(id: string | number): Promise<boolean
     await anesthesiaDictApi.disableVitalDict(id);
     return true;
   } catch (error) {
-    Message.error(msgOf(error, '停用生命体征失败'));
+    notifyIfUnhandledSamisError(error, () => Message.error(msgOf(error, '停用生命体征失败')));
     return false;
   }
 }
@@ -188,7 +189,7 @@ export async function loadStaffCatalog(): Promise<{ items: StaffDictItem[]; name
     if (items.length) return { items, names: staffNamesFromItems(items), source: useRealAnesthesiaDict() ? 'remote' : 'mock' };
     return { items: [], names: [], source: 'seed' };
   } catch (error) {
-    Message.warning(msgOf(error, '加载人员字典失败'));
+    notifyIfUnhandledSamisError(error, () => Message.warning(msgOf(error, '加载人员字典失败')));
     return { items: [], names: [], source: 'seed' };
   }
 }
@@ -209,7 +210,7 @@ export async function persistStaffItem(item: StaffDictItem): Promise<StaffDictIt
     const saved = await anesthesiaDictApi.saveStaff(payload);
     return { ...item, gh, id: String((saved as Record<string, unknown>)?.id ?? item.id) };
   } catch (error) {
-    Message.error(msgOf(error, '保存人员字典失败'));
+    notifyIfUnhandledSamisError(error, () => Message.error(msgOf(error, '保存人员字典失败')));
     return null;
   }
 }
@@ -220,7 +221,7 @@ export async function disableStaffItem(id: string | number): Promise<boolean> {
     await anesthesiaDictApi.disableStaff(id);
     return true;
   } catch (error) {
-    Message.error(msgOf(error, '停用人员失败'));
+    notifyIfUnhandledSamisError(error, () => Message.error(msgOf(error, '停用人员失败')));
     return false;
   }
 }
@@ -232,7 +233,7 @@ export async function loadDictListByCategory(categoryCode: string): Promise<{ na
     const names = mapDictListItems(raw);
     return { names, source: useRealAnesthesiaDict() ? 'remote' : 'mock' };
   } catch (error) {
-    Message.warning(msgOf(error, `加载字典(${categoryCode})失败`));
+    notifyIfUnhandledSamisError(error, () => Message.warning(msgOf(error, `加载字典(${categoryCode})失败`)));
     return { names: [], source: 'seed' };
   }
 }
@@ -248,7 +249,7 @@ export async function persistDictListItem(categoryCode: string, name: string, co
     });
     return true;
   } catch (error) {
-    Message.error(msgOf(error, '保存字典项失败'));
+    notifyIfUnhandledSamisError(error, () => Message.error(msgOf(error, '保存字典项失败')));
     return false;
   }
 }
@@ -259,7 +260,7 @@ export async function disableDictListItem(id: string | number): Promise<boolean>
     await anesthesiaDictApi.disableDictItem({ id });
     return true;
   } catch (error) {
-    Message.error(msgOf(error, '停用字典项失败'));
+    notifyIfUnhandledSamisError(error, () => Message.error(msgOf(error, '停用字典项失败')));
     return false;
   }
 }
@@ -277,7 +278,7 @@ export async function loadMethodTree(): Promise<{ tree: AnesthesiaMethodCategory
     if (tree.length) return { tree, source: useRealAnesthesiaDict() ? 'remote' : 'mock' };
     return { tree: [...seedMethodCategories], source: 'seed' };
   } catch (error) {
-    Message.warning(msgOf(error, '加载麻醉方式失败'));
+    notifyIfUnhandledSamisError(error, () => Message.warning(msgOf(error, '加载麻醉方式失败')));
     return { tree: [...seedMethodCategories], source: 'seed' };
   }
 }
@@ -290,7 +291,7 @@ export async function loadRoomNameCatalog(): Promise<{ names: string[]; source: 
     if (names.length) return { names, source: useRealRoom() ? 'remote' : 'mock' };
     return { names: [], source: 'seed' };
   } catch (error) {
-    Message.warning(msgOf(error, '加载手术间失败'));
+    notifyIfUnhandledSamisError(error, () => Message.warning(msgOf(error, '加载手术间失败')));
     return { names: [], source: 'seed' };
   }
 }

@@ -1,6 +1,7 @@
 import dayjs from 'dayjs';
 import { Message } from '@arco-design/web-vue';
 import { operationInfoApi } from '@/api/operationInfo';
+import { notifyIfUnhandledSamisError } from '@/services/auth/authErrorPresentation';
 import { useRealOperationInfo } from '@/config/apiFlags';
 import { SamisHttpError } from '@/api/samisHttpClient';
 import type { SurgeryCase } from '@/types/anesthesia';
@@ -61,7 +62,7 @@ export async function fetchOperationList(
       : error instanceof Error
         ? error.message
         : '加载手术列表失败';
-    Message.warning(msg);
+    notifyIfUnhandledSamisError(error, () => Message.warning(msg));
     return { cases: [], source: 'remote', message: msg };
   }
 }
@@ -119,7 +120,7 @@ export async function fetchTodayWorkbench(): Promise<FetchTodayWorkbenchResult> 
       : error instanceof Error
         ? error.message
         : '加载今日工作台失败';
-    Message.warning(msg);
+    notifyIfUnhandledSamisError(error, () => Message.warning(msg));
     return { cases: [], roomStatus: [], summary: { surgeries: 0, busyRooms: 0, roomCount: 0, canceled: 0 }, source: 'remote', message: msg };
   }
 }
@@ -170,7 +171,7 @@ export async function hydrateCaseFromOperationInfo(
     return merged;
   } catch (error) {
     const msg = error instanceof Error ? error.message : '加载手术通知单失败';
-    Message.warning(msg);
+    notifyIfUnhandledSamisError(error, () => Message.warning(msg));
     return caseItem;
   }
 }

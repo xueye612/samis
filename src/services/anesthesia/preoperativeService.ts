@@ -1,5 +1,6 @@
 import { Message } from '@arco-design/web-vue';
 import { preoperativeApi } from '@/api/preoperative';
+import { notifyIfUnhandledSamisError } from '@/services/auth/authErrorPresentation';
 import { useRealPreoperative } from '@/config/apiFlags';
 import { SamisHttpError } from '@/api/samisHttpClient';
 import { isSamisLoggedIn } from '@/services/session/samisSession';
@@ -99,7 +100,7 @@ export async function loadRemoteRequests(params?: {
     const { list, total } = extractList(await preoperativeApi.requestList(query));
     return { list: (list as PreopRequestApi[]).map(mapRequestApiToRequest), total, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载手术申请失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载手术申请失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }
@@ -186,7 +187,7 @@ export async function loadRemoteConsultations(params?: {
     const { list, total } = extractList(await preoperativeApi.consultationList(query));
     return { list: (list as PreopConsultationApi[]).map(mapConsultationApiToRecord), total, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载会诊列表失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载会诊列表失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }
@@ -264,7 +265,7 @@ export async function loadRemoteExamReviews(params?: {
     const { list, total } = extractList(await preoperativeApi.examReviewList(query));
     return { list: (list as PreopExamReviewApi[]).map(mapExamReviewApiToRecord), total, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载检查审核失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载检查审核失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }
@@ -357,7 +358,7 @@ export async function loadRemoteConsentRecords(params?: {
     const { list, total } = extractList(await preoperativeApi.consentList(query));
     return { list: (list as PreopConsentApi[]).map(mapConsentApiToRecord), total, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载知情同意失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载知情同意失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }
@@ -373,7 +374,7 @@ export async function fetchConsentByCaseId(caseId: string): Promise<ConsentRecor
     const row = (await preoperativeApi.consentGetByCaseId(caseId)) as PreopConsentApi | null;
     return row ? mapConsentApiToRecord(row) : null;
   } catch (error) {
-    Message.warning(`${describeError(error, '加载知情同意失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载知情同意失败')}，已使用本地数据`));
     return null;
   }
 }
@@ -457,7 +458,7 @@ export async function loadRemoteSafetyChecks(params?: {
     const { list, total } = extractList(await preoperativeApi.safetyCheckList(query));
     return { list: (list as PreopSafetyCheckApi[]).map(mapSafetyCheckApiToRecord), total, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载安全核查失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载安全核查失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }
@@ -472,7 +473,7 @@ export async function fetchSafetyCheckByCaseId(caseId: string): Promise<SafetyCh
     const row = (await preoperativeApi.safetyCheckGetByCaseId(caseId)) as PreopSafetyCheckApi | null;
     return row ? mapSafetyCheckApiToRecord(row) : null;
   } catch (error) {
-    Message.warning(`${describeError(error, '加载安全核查失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载安全核查失败')}，已使用本地数据`));
     return null;
   }
 }

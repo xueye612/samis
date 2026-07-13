@@ -1,5 +1,6 @@
 import { Message } from '@arco-design/web-vue';
 import { postoperativeApi } from '@/api/postoperative';
+import { notifyIfUnhandledSamisError } from '@/services/auth/authErrorPresentation';
 import { useRealPostoperative } from '@/config/apiFlags';
 import { SamisHttpError } from '@/api/samisHttpClient';
 import { isSamisLoggedIn } from '@/services/session/samisSession';
@@ -182,7 +183,7 @@ export async function loadRemoteFollowups(params?: {
     const { list, total } = extractList(await postoperativeApi.followupList(query));
     return { list: (list as PostFollowupApi[]).map(mapFollowupApiToFollowUp), total, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载术后随访失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载术后随访失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }
@@ -241,7 +242,7 @@ export async function loadRemoteComplications(params?: {
     const { list, total } = extractList(await postoperativeApi.complicationList(query));
     return { list: (list as PostComplicationApi[]).map(mapComplicationApiToRecord), total, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载并发症列表失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载并发症列表失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }
@@ -289,7 +290,7 @@ export async function loadRemoteAnalgesiaCases(params?: {
     const { list, total } = extractList(await postoperativeApi.analgesiaCases(query));
     return { list: (list as PostCaseSummaryApi[]).map(mapCaseSummaryApiToSummary), total, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载镇痛病例失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载镇痛病例失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }
@@ -310,7 +311,7 @@ export async function loadRemoteUnplannedCases(params?: {
     const { list, total } = extractList(await postoperativeApi.unplannedCases(query));
     return { list: (list as PostCaseSummaryApi[]).map(mapCaseSummaryApiToSummary), total, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载非计划事件失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载非计划事件失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }

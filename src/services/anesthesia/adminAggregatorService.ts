@@ -1,4 +1,5 @@
 import { Message } from '@arco-design/web-vue';
+import { notifyIfUnhandledSamisError } from '@/services/auth/authErrorPresentation';
 import {
   adminUserApi,
   type AdminUserApi,
@@ -84,7 +85,7 @@ export async function loadAdminUsers(params: AdminUserListQuery = {}): Promise<{
     const list = Array.isArray(body?.list) ? body.list.map(apiUserToSystemUser) : [];
     return { list, total: typeof body?.total === 'number' ? body.total : list.length, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载用户列表失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载用户列表失败')}，已使用本地数据`));
     return { list: [], total: 0, source: 'mock' };
   }
 }
@@ -102,7 +103,7 @@ export async function loadAdminUserGroups(): Promise<{
     const list = Array.isArray(body?.list) ? body.list : [];
     return { list, source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载角色列表失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载角色列表失败')}，已使用本地数据`));
     return { list: [], source: 'mock' };
   }
 }
@@ -119,7 +120,7 @@ export async function loadMenuTree(): Promise<{
     const tree = await adminUserApi.getMenu();
     return { tree: Array.isArray(tree) ? tree : [], source: 'remote' };
   } catch (error) {
-    Message.warning(`${describeError(error, '加载菜单树失败')}，已使用本地数据`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${describeError(error, '加载菜单树失败')}，已使用本地数据`));
     return { tree: [], source: 'mock' };
   }
 }

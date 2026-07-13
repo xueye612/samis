@@ -1,5 +1,6 @@
 import { Message } from '@arco-design/web-vue';
 import { anesthesiaDictApi } from '@/api/anesthesiaDict';
+import { notifyIfUnhandledSamisError } from '@/services/auth/authErrorPresentation';
 import { useRealAnesthesiaDict } from '@/config/apiFlags';
 import { SamisHttpError } from '@/api/samisHttpClient';
 import { mapDrugDictListResponse } from '@/services/anesthesia/adapters/anesthesiaDictAdapter';
@@ -42,7 +43,7 @@ export async function loadDrugDictCatalog(params?: {
       : error instanceof Error
         ? error.message
         : '加载药品字典失败';
-    Message.warning(msg);
+    notifyIfUnhandledSamisError(error, () => Message.warning(msg));
     return { items: [], source: 'remote' };
   }
 }
@@ -56,7 +57,7 @@ export async function persistDrugDictItem(item: DrugDictItem): Promise<DrugDictI
     return { ...item, id: drugId != null ? String(drugId) : item.id };
   } catch (error) {
     const msg = error instanceof SamisHttpError ? error.message : '保存药品字典失败';
-    Message.error(msg);
+    notifyIfUnhandledSamisError(error, () => Message.error(msg));
     return null;
   }
 }
@@ -68,7 +69,7 @@ export async function disableDrugDictItem(drugId: string | number): Promise<bool
     return true;
   } catch (error) {
     const msg = error instanceof SamisHttpError ? error.message : '停用药品失败';
-    Message.error(msg);
+    notifyIfUnhandledSamisError(error, () => Message.error(msg));
     return false;
   }
 }

@@ -1,5 +1,6 @@
 import { Message } from '@arco-design/web-vue';
 import { roomApi } from '@/api/room';
+import { notifyIfUnhandledSamisError } from '@/services/auth/authErrorPresentation';
 import { useRealRoom } from '@/config/apiFlags';
 import { SamisHttpError } from '@/api/samisHttpClient';
 import { isSamisLoggedIn } from '@/services/session/samisSession';
@@ -79,7 +80,7 @@ export async function loadRoomCatalog(): Promise<RoomCatalogState> {
       : error instanceof Error
         ? error.message
         : '加载手术间失败';
-    Message.warning(`${msg}，已使用默认手术间`);
+    notifyIfUnhandledSamisError(error, () => Message.warning(`${msg}，已使用默认手术间`));
     return {
       roomNames: DEFAULT_ROOMS,
       rooms: DEFAULT_ROOMS.map((name) => ({ roomId: name, roomName: name })),
