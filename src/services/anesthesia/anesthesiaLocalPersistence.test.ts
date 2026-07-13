@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto';
 import type { SurgeryCase } from '@/types/anesthesia';
 import { resetAnesthesiaLocalDbForTests } from '@/services/anesthesia/localDb';
 import { saveCaseToLocalDb, loadCaseFromLocalDb, loadCurrentPageFromLocalDb } from '@/services/anesthesia/anesthesiaRecordRepository';
+import { hydrateAnesthesiaCasesFromLocalDb } from '@/services/anesthesia/anesthesiaPersistenceBridge';
 import { ANESTHESIA_SYNC_QUEUE_API_PATH, getPendingSyncCount, listPendingSyncItems } from '@/services/anesthesia/anesthesiaSyncQueue';
 import { mapSyncQueueRowsToPushBatchItems } from '@/services/anesthesia/syncPayloadMapper';
 
@@ -129,5 +130,27 @@ describe('anesthesia local persistence', () => {
     expect(medItem).toBeTruthy();
     const payload = JSON.parse(medItem!.payload || '{}');
     expect(payload.casePayload).toBeUndefined();
+  });
+
+  it('hydrate keeps remote master data and preserves local clinical records', async () => {
+    const local = baseCase();
+    local.patientName = '本地旧姓名';
+    await saveCaseToLocalDb(local, 1);
+
+    const remote: SurgeryCase = {
+      ...local,
+      patientName: '远端新姓名',
+      gender: '女',
+      operationCase: { operationId: 'case-persist-test', patientName: '远端新姓名', version: 5 },
+    };
+    const merged = await hydrateAnesthesiaCasesFromLocalDb([remote], { appendOrphans: false });
+    expect(merged).toHaveLength(1);
+    // 远端主数据胜出（不再因时间戳整对象覆盖）
+    expect(merged[0].patientName).toBe('远端新姓名');
+    expect(merged[0].gender).toBe('女');
+    expect(merged[0].operationCase?.version).toBe(5);
+    // 本地临床记录保留
+    expect(merged[0].vitals).toHaveLength(1);
+    expect(merged[0].medications).toHaveLength(1);
   });
 });

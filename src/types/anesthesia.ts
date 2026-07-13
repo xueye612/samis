@@ -253,6 +253,8 @@ export interface SurgeryCase {
   recordSummary?: import('@/types/anesthesiaRecord').RecordSummaryFields;
   layoutWarnings?: import('@/types/anesthesiaRecord').LayoutWarning[];
   printedAt?: string;
+  /** 规范共享病例主数据（权威值，来自后端 operationCase；缺失字段为 undefined，禁止补造默认值）。 */
+  operationCase?: import('@/services/anesthesia/adapters/operationInfoAdapter').OperationCase;
 }
 
 export interface AnesthesiaRecordDeviceState {

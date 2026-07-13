@@ -51,26 +51,84 @@ export interface OperationCase extends Record<string, unknown> {
   patientName?: string;
   patientNo?: string;
   visitNo?: string;
+  medicalRecordNo?: string;
   gender?: string;
+  birthday?: string;
   age?: number | string;
+  ageUnit?: string;
+  patientType?: string;
+  patientTypeName?: string;
+  height?: number | string;
+  weight?: number | string;
+  departmentCode?: string;
   departmentName?: string;
+  wardCode?: string;
   wardName?: string;
+  bedCode?: string;
+  bedName?: string;
+  floor?: string;
+  roomCode?: string;
   roomName?: string;
   roomGroup?: string;
+  roomGroupCode?: string;
+  roomGroupName?: string;
+  preoperativeDiagnosisCode?: string;
+  preoperativeDiagnosisName?: string;
+  plannedOperationCode?: string;
+  plannedOperationName?: string;
+  operationCode?: string;
   operationName?: string;
   operationDate?: string;
+  plannedStartTime?: string;
+  plannedEndTime?: string;
   sequence?: number | string;
   status?: string;
+  doctorCode?: string;
+  doctorName?: string;
+  operatorCode?: string;
+  operatorName?: string;
   surgeonName?: string;
+  preceptorCode?: string;
+  preceptorName?: string;
+  assistantCode?: string;
+  assistantName?: string;
+  anesthesiologistCode?: string;
   anesthesiologistName?: string;
+  anesthesiologistAssistantCode?: string;
+  anesthesiologistAssistantName?: string;
+  anesthesiologistPbCode?: string;
+  anesthesiologistPbName?: string;
+  instrumentNurseCode?: string;
+  instrumentNurseName?: string;
+  scrubNurseCode?: string;
   scrubNurseName?: string;
+  circulatingNurseCode?: string;
   circulatingNurseName?: string;
-  plannedStartTime?: string;
-  actualInRoomTime?: string;
-  actualAnesthesiaStartTime?: string;
-  actualOperationStartTime?: string;
-  actualOperationEndTime?: string;
-  actualOutRoomTime?: string;
+  anesthesiaMethodCode?: string;
+  anesthesiaMethodName?: string;
+  patientBlood?: string;
+  patientBloodRh?: string;
+  specialInfect?: string;
+  infectFlag?: string;
+  /** 未确认字段：无真实列时必须为 undefined/null，禁止补造 II/无 等。 */
+  asaClass?: string;
+  allergyHistory?: string;
+  transfusionPreparation?: string;
+  onComments?: string;
+  isEmergency?: boolean;
+  isTwoStageOperation?: boolean;
+  isLocked?: boolean;
+  isArchived?: boolean;
+  isPrinted?: boolean;
+  hisIsDelete?: boolean;
+  canceledReason?: string;
+  canceledReasonType?: string;
+  operationEndThereCode?: string;
+  operationEndThereName?: string;
+  version?: number | null;
+  sourceSystem?: string;
+  sourceTable?: string;
+  lastUpdatedAt?: string;
 }
 
 export interface OperationTimeline extends Record<string, unknown> {
@@ -206,6 +264,118 @@ function normalizeOperationContractFields(raw: unknown): Record<string, unknown>
   };
 }
 
+/**
+ * 构建规范 operationCase（权威主数据）。优先嵌套 operationCase，回退 legacy 平铺字段；
+ * 缺失字段为 undefined，禁止补造性别/ASA/过敏史等默认值。来源元数据固定 HULI/operatenotice。
+ */
+export function buildCanonicalOperationCase(detail: OperationDetailDto): OperationCase {
+  const nested = asRecord<OperationCase>(detail.operationCase);
+  const from = (keys: string[]): unknown => {
+    for (const key of keys) {
+      const nestedValue = nested[key as keyof OperationCase];
+      if (nestedValue !== undefined && nestedValue !== null && nestedValue !== '') return nestedValue;
+    }
+    for (const key of keys) {
+      const legacyValue = (detail as Record<string, unknown>)[key];
+      if (legacyValue !== undefined && legacyValue !== null && legacyValue !== '') return legacyValue;
+    }
+    return undefined;
+  };
+  const versionRaw = from(['version', 'UPDATE_NUM']);
+  return {
+    operationId: from(['operationId', 'OPERATIONID', 'id']) as string | undefined,
+    patientId: from(['patientId', 'PATIENT_ID']) as string | undefined,
+    patientName: from(['patientName', 'PATIENT_NAME', 'PATIENTNAME']) as string | undefined,
+    patientNo: from(['patientNo', 'PATIENT_NUMBER', 'patientNumber', 'INPATIENTNO']) as string | undefined,
+    visitNo: from(['visitNo', 'PATIENT_VISIT_NO']) as string | undefined,
+    medicalRecordNo: from(['medicalRecordNo', 'PATIENT_MRN']) as string | undefined,
+    gender: from(['gender', 'sex', 'PATIENT_SEX']) as string | undefined,
+    birthday: from(['birthday', 'PATIENT_BIRTHDAY']) as string | undefined,
+    age: from(['age', 'AGE', 'PATIENT_AGE']) as OperationCase['age'],
+    ageUnit: from(['ageUnit', 'PATIENT_AGEUNIT']) as string | undefined,
+    patientType: from(['patientType', 'PATIENT_TYPE']) as string | undefined,
+    patientTypeName: from(['patientTypeName', 'PATIENT_TYPE_NAME']) as string | undefined,
+    height: from(['height', 'PATIENT_HEIGHT']) as OperationCase['height'],
+    weight: from(['weight', 'PATIENT_WEIGHT']) as OperationCase['weight'],
+    departmentCode: from(['departmentCode', 'PATIENT_DEPARTMENT_CODE']) as string | undefined,
+    departmentName: from(['departmentName', 'department', 'PATIENT_DEPARTMENT_NAME', 'OPERATINGDEPT_NAME']) as string | undefined,
+    wardCode: from(['wardCode', 'PATIENT_WARD_CODE']) as string | undefined,
+    wardName: from(['wardName', 'PATIENT_WARD_NAME']) as string | undefined,
+    bedCode: from(['bedCode', 'PATIENT_BED_CODE']) as string | undefined,
+    bedName: from(['bedName', 'PATIENT_BED_NAME']) as string | undefined,
+    floor: from(['floor', 'PATIENT_FLOOR']) as string | undefined,
+    roomCode: from(['roomCode', 'OPERATINGROOM_CODE']) as string | undefined,
+    roomName: from(['roomName', 'room', 'ROOMNAME', 'OPERATINGROOM_NAME']) as string | undefined,
+    roomGroupCode: from(['roomGroupCode', 'ROOM_GROUP']) as string | undefined,
+    roomGroupName: from(['roomGroupName', 'ROOM_GROUP_NAME', 'roomGroup']) as string | undefined,
+    preoperativeDiagnosisCode: from(['preoperativeDiagnosisCode', 'PREOPERATIVE_DIAGNOSIS_CODE']) as string | undefined,
+    preoperativeDiagnosisName: from(['preoperativeDiagnosisName', 'diagnosis', 'PREOPERATIVE_DIAGNOSIS_NAME']) as string | undefined,
+    plannedOperationCode: from(['plannedOperationCode', 'PLAN_OPERATION_CODE']) as string | undefined,
+    plannedOperationName: from(['plannedOperationName', 'PLAN_OPERATION_NAME']) as string | undefined,
+    operationCode: from(['operationCode', 'OPERATION_CODE']) as string | undefined,
+    operationName: from(['operationName', 'surgeryName', 'OPERATION_NAME', 'OPERATIONNAME']) as string | undefined,
+    operationDate: from(['operationDate', 'OPERATIONDATE']) as string | undefined,
+    plannedStartTime: from(['plannedStartTime', 'PLANNING_BEGINTIME']) as string | undefined,
+    plannedEndTime: from(['plannedEndTime', 'PLANNING_ENDTIME']) as string | undefined,
+    sequence: from(['sequence', 'NUMBER_OF_STATIONS', 'numberOfStations']) as OperationCase['sequence'],
+    status: from(['status', 'OPERATION_STATUS']) as string | undefined,
+    doctorCode: from(['doctorCode', 'DOCTOR_CODE']) as string | undefined,
+    doctorName: from(['doctorName', 'DOCTOR_NAME']) as string | undefined,
+    operatorCode: from(['operatorCode', 'OPERATOR_CODE']) as string | undefined,
+    operatorName: from(['operatorName', 'OPERATOR_NAME']) as string | undefined,
+    surgeonName: from(['surgeonName', 'surgeon', 'SURGEON', 'OPERATOR_NAME', 'DOCTOR_NAME']) as string | undefined,
+    anesthesiologistCode: from(['anesthesiologistCode', 'ANESTHETIST_CODE']) as string | undefined,
+    anesthesiologistName: from(['anesthesiologistName', 'anesthesiologist', 'ANESTHETIST_NAME', 'ANESTHETIST_PB_NAME']) as string | undefined,
+    anesthesiaMethodCode: from(['anesthesiaMethodCode', 'ANESTHESIA_METHOD_CODE']) as string | undefined,
+    anesthesiaMethodName: from(['anesthesiaMethodName', 'anesthesiaMethod', 'ANESTHESIA_METHOD_NAME']) as string | undefined,
+    patientBlood: from(['patientBlood', 'PATIENT_BLOOD']) as string | undefined,
+    patientBloodRh: from(['patientBloodRh', 'PATIENT_BLOODRH']) as string | undefined,
+    specialInfect: from(['specialInfect', 'SPECIAL_INFECT']) as string | undefined,
+    infectFlag: from(['infectFlag', 'INFECT_FLAG']) as string | undefined,
+    asaClass: from(['asaClass', 'asa']) as string | undefined,
+    allergyHistory: from(['allergyHistory', 'allergy']) as string | undefined,
+    onComments: from(['onComments', 'ON_COMMENTS']) as string | undefined,
+    version: versionRaw === undefined || versionRaw === null || versionRaw === '' ? null : Number(versionRaw),
+    sourceSystem: 'HULI',
+    sourceTable: (from(['sourceTable']) as string | undefined) ?? 'operatenotice',
+    lastUpdatedAt: from(['lastUpdatedAt', 'updateTime', 'UPDATE_TIME']) as string | undefined,
+  };
+}
+
+/** 远端（operatenotice）主数据键：合并时远端非空值胜出。 */
+export const REMOTE_MASTER_KEYS = [
+  'id', 'patientId', 'patientName', 'gender', 'age', 'department', 'diagnosis',
+  'surgeryName', 'surgeon', 'anesthesiaMethod', 'urgency', 'anesthesiologist',
+  'anesthesiaNurse', 'circulatingNurses', 'scrubNurses', 'room', 'roomId', 'roomName',
+  'sequence', 'operationCase',
+] as const;
+
+/** 本地（IndexedDB）临床记录键：合并时本地值胜出。 */
+export const LOCAL_CLINICAL_KEYS = [
+  'vitals', 'events', 'medications', 'fluids', 'outputs', 'outputRecords', 'recordDocument',
+  'recordSnapshot', 'labResults', 'transfusionEvents', 'ioRecords', 'recordSummary',
+  'layoutWarnings', 'preVisit', 'rescue', 'airwayRecord', 'recoveryRecord', 'anesthesiaPlanes',
+  'device', 'signatures', 'modificationLogs', 'recordDraft', 'professionalFieldValues',
+  'printedAt', 'locked', 'status', 'recordStatus',
+] as const;
+
+/**
+ * 分层合并：远端主数据（患者/手术/排班/人员/版本 + 规范 operationCase）胜出，
+ * 本地临床记录（vitals/events/medications/fluids/recordDocument 等）胜出。
+ * 禁止用整对象日期比较决定覆盖方向。
+ */
+export function mergeRemoteMasterWithLocalClinical(remote: SurgeryCase, local: SurgeryCase): SurgeryCase {
+  const result: SurgeryCase = { ...local };
+  for (const key of REMOTE_MASTER_KEYS) {
+    const value = remote[key as keyof SurgeryCase];
+    if (value !== undefined && value !== null && value !== '') {
+      (result as unknown as Record<string, unknown>)[key] = value;
+    }
+  }
+  result.operationCase = remote.operationCase ?? local.operationCase;
+  return result;
+}
+
 export function mapOperationDetail(raw: unknown): OperationDetailDto {
   const normalized = normalizeOperationContractFields(raw);
   const operationId = pickString(normalized, ['operationId', 'OPERATIONID', 'id'], '');
@@ -219,7 +389,9 @@ export function mapOperationListItem(raw: unknown, index = 0): SurgeryCase {
   const detail = mapOperationDetail(raw);
   const id = detail.operationId || `operation-${index}`;
   const base = emptyClinicalShell(id);
-  return mergeOperationIntoCase(base, detail);
+  const merged = mergeOperationIntoCase(base, detail);
+  merged.operationCase = buildCanonicalOperationCase(detail);
+  return merged;
 }
 
 export function mapOperationListResponse(data: unknown): SurgeryCase[] {
@@ -325,6 +497,7 @@ export function mergeOperationIntoCase(existing: SurgeryCase, detail: OperationD
     leaveRoomTime: leaveRoomTime ?? existing.leaveRoomTime,
     emergencyInserted: mapUrgency(pickField(detail, ['urgency', 'operationType', 'EMERGENCY_FLAG', 'IS_EMERGENCY']) ?? existing.urgency) === '急诊',
     locationType: existing.locationType,
+    operationCase: buildCanonicalOperationCase(detail),
     preVisit: {
       ...existing.preVisit,
       height: pickNumber(detail, ['height', 'PATIENT_HEIGHT'], existing.preVisit.height),

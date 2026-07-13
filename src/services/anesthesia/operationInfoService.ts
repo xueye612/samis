@@ -12,6 +12,7 @@ import {
   mapOperationListResponse,
   mapWorkbenchResponse,
   mergeOperationIntoCase,
+  mergeRemoteMasterWithLocalClinical,
   shouldSkipRemoteOperationRefresh,
   type OperationInfoQuery,
   type OperationListQuery,
@@ -80,6 +81,23 @@ export async function fetchOperationCaseById(operationId: string): Promise<Surge
   });
   const item = mapOperationListItem(raw);
   return item.id === operationId ? item : null;
+}
+
+/**
+ * 强制真实 GET 加载规范病例：即使已有本地病例也重新请求远端主数据，
+ * 不直接返回旧对象；远端主数据胜出，本地临床记录保留。
+ */
+export async function loadOperationCaseById(
+  operationId: string,
+  existingCase?: SurgeryCase | null,
+): Promise<SurgeryCase | null> {
+  if (!operationId) return null;
+  const fresh = await fetchOperationCaseById(operationId);
+  if (!fresh) return existingCase ?? null;
+  if (existingCase) {
+    return mergeRemoteMasterWithLocalClinical(fresh, existingCase);
+  }
+  return fresh;
 }
 
 export interface FetchTodayWorkbenchResult {

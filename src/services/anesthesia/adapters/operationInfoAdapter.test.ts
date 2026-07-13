@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   buildNursePbListQuery,
   buildOperationListQuery,
+  buildCanonicalOperationCase,
   mapOperationListResponse,
   mapWorkbenchResponse,
   mapOperationDetail,
   mapOperationListItem,
   mergeOperationIntoCase,
+  mergeRemoteMasterWithLocalClinical,
   shouldSkipRemoteOperationRefresh,
 } from '@/services/anesthesia/adapters/operationInfoAdapter';
 import type { SurgeryCase } from '@/types/anesthesia';
@@ -227,5 +229,62 @@ describe('operationInfoAdapter', () => {
     expect(shouldSkipRemoteOperationRefresh({ locked: true } as SurgeryCase)).toBe(true);
     expect(shouldSkipRemoteOperationRefresh({ printedAt: '2026-01-01' } as SurgeryCase)).toBe(true);
     expect(shouldSkipRemoteOperationRefresh({ locked: false } as SurgeryCase)).toBe(false);
+  });
+
+  it('builds a canonical operationCase without fabricating gender/ASA/allergy', () => {
+    const detail = mapOperationDetail({
+      operationId: 'op-rich',
+      operationCase: {
+        operationId: 'op-rich',
+        patientName: '李四',
+        version: 9,
+        sourceSystem: 'HULI',
+        sourceTable: 'operatenotice',
+        lastUpdatedAt: '2026-07-13 10:00:00',
+      },
+    });
+    const canonical = buildCanonicalOperationCase(detail);
+    expect(canonical.operationId).toBe('op-rich');
+    expect(canonical.patientName).toBe('李四');
+    expect(canonical.version).toBe(9);
+    expect(canonical.sourceSystem).toBe('HULI');
+    expect(canonical.sourceTable).toBe('operatenotice');
+    expect(canonical.lastUpdatedAt).toBe('2026-07-13 10:00:00');
+    // 缺失字段必须为 undefined，禁止补造默认值
+    expect(canonical.gender).toBeUndefined();
+    expect(canonical.asaClass).toBeUndefined();
+    expect(canonical.allergyHistory).toBeUndefined();
+  });
+
+  it('attaches the canonical operationCase to mapped list items', () => {
+    const item = mapOperationListItem({
+      OPERATIONID: 'op-case',
+      operationCase: { patientName: '王五', version: 3 },
+    });
+    expect(item.operationCase?.patientName).toBe('王五');
+    expect(item.operationCase?.version).toBe(3);
+    expect(item.operationCase?.sourceTable).toBe('operatenotice');
+  });
+
+  it('merges so remote master data wins and local clinical records win', () => {
+    const remote: SurgeryCase = {
+      ...(mapOperationListItem({ OPERATIONID: 'op-merge', operationCase: { patientName: '远端姓名', gender: '女', version: 4 } })),
+      id: 'op-merge',
+      patientName: '远端姓名',
+    };
+    const local: SurgeryCase = {
+      ...remote,
+      patientName: '本地旧姓名',
+      gender: '男',
+      vitals: [{ time: '2026-07-13T08:00:00.000Z', HR: 90 }],
+      medications: [{ id: 'm1', mode: '单次用药', drug: '丙泊酚', executor: '陈' }],
+    };
+    const merged = mergeRemoteMasterWithLocalClinical(remote, local);
+    // 远端主数据胜出
+    expect(merged.patientName).toBe('远端姓名');
+    expect(merged.gender).toBe('女');
+    // 本地临床记录保留
+    expect(merged.vitals).toEqual([{ time: '2026-07-13T08:00:00.000Z', HR: 90 }]);
+    expect(merged.medications).toEqual([{ id: 'm1', mode: '单次用药', drug: '丙泊酚', executor: '陈' }]);
   });
 });

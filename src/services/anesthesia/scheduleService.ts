@@ -69,6 +69,40 @@ export function surgeryCaseToOperationUpdatePayload(item: SurgeryCase): Record<s
   };
 }
 
+export interface MasterDataChange {
+  /** 规范字段名（受控白名单内）。 */
+  field: string;
+  value: unknown;
+}
+
+export interface MasterDataUpdateEnvelope {
+  operationId: string;
+  expectedVersion: number | null;
+  reason: string;
+  changes: MasterDataChange[];
+  /** 旧后端兼容平铺字段（保留，逐步迁移后移除）。 */
+  [legacy: string]: unknown;
+}
+
+/**
+ * 构建受控主数据修改信封 { operationId, expectedVersion, reason, changes }；
+ * changes 只使用规范字段名，同时保留旧后端需要的平铺兼容字段。
+ */
+export function buildMasterDataUpdateEnvelope(
+  item: SurgeryCase,
+  reason: string,
+  changes: MasterDataChange[],
+): MasterDataUpdateEnvelope {
+  const legacy = surgeryCaseToOperationUpdatePayload(item);
+  return {
+    ...legacy,
+    operationId: item.id,
+    expectedVersion: item.operationCase?.version ?? null,
+    reason: reason.trim(),
+    changes: changes.map((change) => ({ field: change.field, value: change.value })),
+  };
+}
+
 export function buildSaveNursePbPayload(item: SurgeryCase, operationDate?: string): Record<string, unknown> {
   return {
     operationId: item.id,

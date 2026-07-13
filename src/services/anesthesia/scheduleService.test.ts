@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildMasterDataUpdateEnvelope,
   buildSaveNursePbPayload,
   mapNursePbRow,
   nursePbDateRange,
@@ -87,5 +88,29 @@ describe('scheduleService', () => {
       startTime: '2026-06-02',
       endTime: '2026-06-02',
     });
+  });
+
+  it('buildMasterDataUpdateEnvelope produces controlled envelope with canonical changes and legacy compat', () => {
+    const item = minimalCase();
+    item.operationCase = { operationId: 'op-1', version: 6 };
+    const envelope = buildMasterDataUpdateEnvelope(item, '  修正患者姓名  ', [
+      { field: 'patientName', value: '新姓名' },
+      { field: 'gender', value: '女' },
+    ]);
+    expect(envelope.operationId).toBe('op-1');
+    expect(envelope.expectedVersion).toBe(6);
+    expect(envelope.reason).toBe('修正患者姓名');
+    expect(envelope.changes).toEqual([
+      { field: 'patientName', value: '新姓名' },
+      { field: 'gender', value: '女' },
+    ]);
+    // 兼容旧后端平铺字段保留
+    expect(envelope.OPERATINGROOM_CODE).toBe('OR-01');
+    expect(envelope.NUMBER_OF_STATIONS).toBe(2);
+  });
+
+  it('buildMasterDataUpdateEnvelope reports null expectedVersion when operationCase version absent', () => {
+    const envelope = buildMasterDataUpdateEnvelope(minimalCase(), '原因', []);
+    expect(envelope.expectedVersion).toBeNull();
   });
 });

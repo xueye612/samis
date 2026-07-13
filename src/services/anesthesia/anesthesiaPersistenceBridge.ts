@@ -10,6 +10,7 @@ import {
 } from '@/services/anesthesia/anesthesiaRecordRepository';
 import { triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthesiaSyncService';
 import { runStartupLocalCleanupIfDue } from '@/services/anesthesia/anesthesiaLocalCleanupService';
+import { mergeRemoteMasterWithLocalClinical } from '@/services/anesthesia/adapters/operationInfoAdapter';
 
 const persistTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const DEBOUNCE_MS = 1000;
@@ -26,13 +27,13 @@ export async function hydrateAnesthesiaCasesFromLocalDb(
 ): Promise<SurgeryCase[]> {
   const localCases = await loadAllCasesFromLocalDb();
   if (!localCases.length) return seedCases;
+  // 分层合并：远端主数据（患者/手术/排班/人员/版本）胜出，本地临床记录胜出。
+  // 禁止用整对象日期比较决定覆盖方向，避免“刷新恢复旧数据”。
   const merged = seedCases.map((seed) => {
     const local = localCases.find((item) => item.id === seed.id);
     if (!local) return seed;
     const normalizedLocal = { ...local, vitals: dedupeVitalsById(local.vitals) };
-    const seedUpdated = seed.printedAt ?? seed.actualStart ?? seed.plannedStart ?? '';
-    const localUpdated = normalizedLocal.printedAt ?? normalizedLocal.actualStart ?? normalizedLocal.plannedStart ?? '';
-    return localUpdated >= seedUpdated ? normalizedLocal : seed;
+    return mergeRemoteMasterWithLocalClinical(seed, normalizedLocal);
   });
   if (options?.appendOrphans !== false) {
     localCases.forEach((local) => {
