@@ -28,9 +28,21 @@ function phpSnippet(method: string, arg: string): string {
   return `require ${JSON.stringify(AUTOLOAD)}; require ${JSON.stringify(FIXTURE)}; (new think\\App())->initialize(); echo json_encode(tests\\support\\ProfessionalDictionaryFixture::${method}(${JSON.stringify(arg)}), JSON_UNESCAPED_UNICODE);`;
 }
 
+function phpSnippetInt(method: string, arg: number): string {
+  return `require ${JSON.stringify(AUTOLOAD)}; require ${JSON.stringify(FIXTURE)}; (new think\\App())->initialize(); echo json_encode(tests\\support\\ProfessionalDictionaryFixture::${method}(${arg}), JSON_UNESCAPED_UNICODE);`;
+}
+
 async function runFixture(method: string, arg: string): Promise<ProDictFixtureOutcome> {
   const { stdout } = await execFileAsync('docker', [
     'exec', DOCKER_CONTAINER, 'php', '-r', phpSnippet(method, arg),
+  ], { encoding: 'utf8' });
+  const line = stdout.trim().split(/\r?\n/).pop() ?? '';
+  return JSON.parse(line) as ProDictFixtureOutcome;
+}
+
+async function runFixtureInt(method: string, arg: number): Promise<ProDictFixtureOutcome> {
+  const { stdout } = await execFileAsync('docker', [
+    'exec', DOCKER_CONTAINER, 'php', '-r', phpSnippetInt(method, arg),
   ], { encoding: 'utf8' });
   const line = stdout.trim().split(/\r?\n/).pop() ?? '';
   return JSON.parse(line) as ProDictFixtureOutcome;
@@ -42,6 +54,9 @@ export function generateStaffGh(): string {
 export function generateDictCode(prefix: 'METHOD' | 'EVENT' | 'SCORE'): string {
   return `${prefix}-E2E-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 }
+export function generateCategoryCode(): string {
+  return `CAT-E2E-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+}
 
 export async function cleanupStaff(gh: string): Promise<ProDictFixtureOutcome> {
   return runFixture('cleanupStaffByGh', gh);
@@ -49,9 +64,15 @@ export async function cleanupStaff(gh: string): Promise<ProDictFixtureOutcome> {
 export async function cleanupDictItem(code: string): Promise<ProDictFixtureOutcome> {
   return runFixture('cleanupDictItemByCode', code);
 }
+export async function cleanupCategoryById(id: number): Promise<ProDictFixtureOutcome> {
+  return runFixtureInt('cleanupCategoryById', id);
+}
 export async function staffStatus(gh: string): Promise<ProDictFixtureOutcome> {
   return runFixture('staffStatus', gh);
 }
 export async function dictItemStatus(code: string): Promise<ProDictFixtureOutcome> {
   return runFixture('dictItemStatus', code);
+}
+export async function categoryStatusById(id: number): Promise<ProDictFixtureOutcome> {
+  return runFixtureInt('categoryStatusById', id);
 }
