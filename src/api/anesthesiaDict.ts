@@ -1,5 +1,5 @@
 import { samisRequest } from '@/api/samisClient';
-import { buildFormPost, flatFormFieldsFromRecord } from '@/api/samisFormBody';
+import { buildFormPost, flatFormFieldsFromRecord, formPostInit } from '@/api/samisFormBody';
 import type { ApiDrugDictItem, DrugRecommendResponse, SpecialDrugCategory } from '@/types/drugDict';
 
 export type { ApiDrugDictItem, DrugRecommendResponse, SpecialDrugCategory };
@@ -60,6 +60,27 @@ function dictFormPost<T>(path: string, data: Record<string, unknown>) {
     buildFormPost(flatFormFieldsFromRecord(data)),
     { module: 'anesthesiaDict' },
   );
+}
+
+/**
+ * 专业字典富表单提交：数组/对象（scopes、ruleDefinition）以 JSON 字符串传输；
+ * 布尔转 1/0；空串保留以支持清除；null/undefined 跳过。
+ */
+function dictFormPostRich<T>(path: string, data: Record<string, unknown>) {
+  const params = new URLSearchParams();
+  Object.entries(data).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    if (Array.isArray(value) || (typeof value === 'object')) {
+      params.set(key, JSON.stringify(value));
+      return;
+    }
+    if (typeof value === 'boolean') {
+      params.set(key, value ? '1' : '0');
+      return;
+    }
+    params.set(key, String(value));
+  });
+  return samisRequest<T>(`/anesthesiaDict${path}`, formPostInit(params.toString()), { module: 'anesthesiaDict' });
 }
 
 /** SAMIS 麻醉字典 — 对齐 Apifox `anesthesia_dict_apifox_openapi.json` */
@@ -236,7 +257,7 @@ export const anesthesiaDictApi = {
     return dictGet<unknown>('/getStaffDetail', { id });
   },
   saveStaff(data: Record<string, unknown>) {
-    return dictFormPost<{ id?: number; version?: number }>('/saveStaff', data);
+    return dictFormPostRich<{ id?: number; version?: number }>('/saveStaff', data);
   },
   getProfessionalItems(params: { categoryCode: string; allStatus?: boolean }) {
     return dictGet<unknown>('/getProfessionalItems', {
@@ -248,7 +269,7 @@ export const anesthesiaDictApi = {
     return dictGet<unknown>('/getProfessionalItemDetail', { id });
   },
   saveProfessionalItem(data: Record<string, unknown>) {
-    return dictFormPost<{ id?: number; version?: number }>('/saveProfessionalItem', data);
+    return dictFormPostRich<{ id?: number; version?: number }>('/saveProfessionalItem', data);
   },
   changeProfessionalStatus(data: Record<string, unknown>) {
     return dictFormPost<{ status?: string; version?: number }>('/changeProfessionalStatus', data);
