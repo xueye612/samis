@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapDrugDictListResponse, unwrapDictListPayload, mapProfessionalItem, mapProfessionalItemList } from '@/services/anesthesia/adapters/anesthesiaDictAdapter';
+import { mapDrugDictListResponse, unwrapDictListPayload, mapProfessionalItem, mapProfessionalItemList, mapMethodCategory, mapMethodCategoryList } from '@/services/anesthesia/adapters/anesthesiaDictAdapter';
 
 describe('anesthesiaDictAdapter', () => {
   it('unwraps paginated list payload', () => {
@@ -64,5 +64,18 @@ describe('anesthesiaDictAdapter', () => {
     const rule = (items[0].profile as { ruleDefinition: Array<{ dimension: string }> }).ruleDefinition;
     expect(Array.isArray(rule)).toBe(true);
     expect(rule[0].dimension).toBe('心率');
+  });
+
+  it('mapMethodCategory preserves id/code/version/status', () => {
+    const cat = mapMethodCategory({ id: 9, categoryCode: 'GA', categoryName: '全身麻醉', domainCode: 'anesthesia_method', status: 'paused', version: 2, sortNo: 3 });
+    expect(cat!.id).toBe(9);
+    expect(cat!.categoryCode).toBe('GA');
+    expect(cat!.status).toBe('paused');
+    expect(cat!.version).toBe(2);
+    expect(cat!.sortNo).toBe(3);
+  });
+
+  it('mapMethodCategoryList empty stays empty', () => {
+    expect(mapMethodCategoryList({ list: [] })).toEqual([]);
   });
 });

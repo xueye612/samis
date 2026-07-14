@@ -9,6 +9,8 @@ const apiMock = {
   saveProfessionalItem: vi.fn(),
   changeProfessionalStatus: vi.fn(),
   professionalHistory: vi.fn(),
+  getMethodCategories: vi.fn(),
+  saveMethodCategory: vi.fn(),
 };
 
 vi.mock('@/api/anesthesiaDict', () => ({ anesthesiaDictApi: apiMock }));
@@ -28,6 +30,9 @@ const {
   changeStaffStatusConfig,
   loadStaffHistory,
   loadProfessionalHistory,
+  loadMethodCategories,
+  saveMethodCategoryConfig,
+  changeCategoryStatusConfig,
   canManageStaff,
   canManageProfessional,
   ProfessionalConflictError,
@@ -118,5 +123,29 @@ describe('professionalDictionaryService', () => {
     expect(canManageProfessional(['config.event.manage'], 'anesthesia_event')).toBe(true);
     expect(canManageProfessional(['config.score.manage'], 'anesthesia_score')).toBe(true);
     expect(canManageProfessional(['config.method.manage'], 'anesthesia_score')).toBe(false);
+  });
+
+  it('loadMethodCategories maps category preserving id/version/status', async () => {
+    apiMock.getMethodCategories.mockResolvedValue({
+      list: [{ id: 9, categoryCode: 'GA', categoryName: '全身麻醉', domainCode: 'anesthesia_method', status: 'paused', version: 2, sortNo: 1 }],
+    });
+    const cats = await loadMethodCategories({ allStatus: true });
+    expect(cats[0].categoryCode).toBe('GA');
+    expect(cats[0].status).toBe('paused');
+    expect(cats[0].version).toBe(2);
+  });
+
+  it('saveMethodCategoryConfig returns version', async () => {
+    apiMock.saveMethodCategory.mockResolvedValue({ id: 20, version: 1 });
+    const r = await saveMethodCategoryConfig({ categoryCode: 'NEW', categoryName: '新大类' });
+    expect(r.id).toBe(20);
+    expect(r.version).toBe(1);
+  });
+
+  it('changeCategoryStatusConfig delegates entityType=method_category', async () => {
+    apiMock.changeProfessionalStatus.mockResolvedValue({ status: 'paused', version: 2 });
+    const r = await changeCategoryStatusConfig({ id: 20, toStatus: 'paused', reason: '检修', expectedVersion: 1 });
+    expect(r.status).toBe('paused');
+    expect(apiMock.changeProfessionalStatus).toHaveBeenCalledWith(expect.objectContaining({ entityType: 'method_category', toStatus: 'paused' }));
   });
 });

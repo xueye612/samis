@@ -1,7 +1,7 @@
 import { unwrapListPayload, pickString, pickNumber, pickField } from '@/services/anesthesia/adapters/fieldUtils';
 import type { ApiDrugDictItem } from '@/types/drugDict';
 import { apiDrugDictToItem } from '@/services/drugDictMapper';
-import type { DrugDictItem, ProfessionalDictItem, ProfessionalProfile, ProfessionalHistoryItem } from '@/types/system';
+import type { DrugDictItem, ProfessionalDictItem, ProfessionalProfile, ProfessionalHistoryItem, MethodCategory } from '@/types/system';
 
 /** 字典接口常见分页：data[] / data.list / data.records */
 export function unwrapDictListPayload<T = unknown>(data: unknown): T[] {
@@ -112,4 +112,30 @@ export function mapProfessionalHistory(data: unknown): ProfessionalHistoryItem[]
       occurredAt: nullableStr(record, ['occurredAt', 'occurred_at']),
     };
   });
+}
+
+/** P06A R2：麻醉方式大类映射，保留服务端 ID/编码/版本/状态。 */
+export function mapMethodCategory(raw: unknown): MethodCategory | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  return {
+    id: pickNumber(r, ['id'], 0),
+    categoryCode: pickString(r, ['categoryCode', 'category_code'], ''),
+    categoryName: pickString(r, ['categoryName', 'category_name'], ''),
+    domainCode: nullableStr(r, ['domainCode', 'domain_code']),
+    description: nullableStr(r, ['description']),
+    sortNo: pickNumber(r, ['sortNo', 'sort_no'], 0),
+    status: pickString(r, ['status'], ''),
+    statusReason: nullableStr(r, ['statusReason', 'status_reason']),
+    effectiveAt: nullableStr(r, ['effectiveAt', 'effective_at']),
+    pausedAt: nullableStr(r, ['pausedAt', 'paused_at']),
+    disabledAt: nullableStr(r, ['disabledAt', 'disabled_at']),
+    version: pickNumber(r, ['version'], 0),
+  };
+}
+
+export function mapMethodCategoryList(data: unknown): MethodCategory[] {
+  return unwrapDictListPayload<unknown>(data)
+    .map(mapMethodCategory)
+    .filter((c): c is MethodCategory => c !== null);
 }

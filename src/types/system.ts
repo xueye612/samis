@@ -264,3 +264,18 @@ export interface ProfessionalHistoryItem {
   version: number;
   occurredAt: string | null;
 }
+
+export interface MethodCategory {
+  id: number;
+  categoryCode: string;
+  categoryName: string;
+  domainCode: string | null;
+  description: string | null;
+  sortNo: number;
+  status: string;
+  statusReason: string | null;
+  effectiveAt: string | null;
+  pausedAt: string | null;
+  disabledAt: string | null;
+  version: number;
+}

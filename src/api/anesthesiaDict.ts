@@ -272,9 +272,18 @@ export const anesthesiaDictApi = {
     return dictFormPostRich<{ id?: number; version?: number }>('/saveProfessionalItem', data);
   },
   changeProfessionalStatus(data: Record<string, unknown>) {
-    return dictFormPost<{ status?: string; version?: number }>('/changeProfessionalStatus', data);
+    return dictFormPostRich<{ status?: string; version?: number }>('/changeProfessionalStatus', data);
   },
   professionalHistory(entityType: string, id: number | string) {
     return dictGet<unknown>('/professionalHistory', { entityType, id });
+  },
+  getMethodCategories(params?: { allStatus?: boolean; keyword?: string }) {
+    return dictGet<unknown>('/getMethodCategories', { allStatus: params?.allStatus, keyword: params?.keyword });
+  },
+  getCategoryDetail(id: number | string) {
+    return dictGet<unknown>('/getCategoryDetail', { id });
+  },
+  saveMethodCategory(data: Record<string, unknown>) {
+    return dictFormPostRich<{ id?: number; version?: number }>('/saveMethodCategory', data);
   },
 };

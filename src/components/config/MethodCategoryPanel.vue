@@ -12,8 +12,16 @@
         <a-col :span="12"><a-form-item label="编码" :required="true"><a-input v-model="form.itemCode" :disabled="!isCreate" /></a-form-item></a-col>
         <a-col :span="12"><a-form-item label="名称" :required="true"><a-input v-model="form.itemName" /></a-form-item></a-col>
       </a-row>
-      <a-form-item label="所属大类编码（parentCode）"><a-input v-model="form.parentCode" placeholder="如已有大类编码" /></a-form-item>
+      <a-form-item label="所属大类" :required="true">
+        <a-select v-model="form.parentCode" placeholder="选择真实大类" allow-clear :disabled="!isCreate && !!form.parentCode">
+          <a-option v-for="cat in categories" :key="cat.categoryCode" :value="cat.categoryCode" :label="cat.categoryName" />
+        </a-select>
+      </a-form-item>
       <a-form-item label="适用手术类型"><a-textarea v-model="form.applicableOperationTypes" :auto-size="{ minRows: 2 }" /></a-form-item>
+      <a-row :gutter="12">
+        <a-col :span="12"><a-form-item label="默认模板编码"><a-input v-model="form.defaultTemplateCode" /></a-form-item></a-col>
+        <a-col :span="12"><a-form-item label="排序"><a-input-number v-model="form.sortNo" :min="0" /></a-form-item></a-col>
+      </a-row>
       <a-form-item label="用药方案"><a-textarea v-model="form.medicationPlan" :auto-size="{ minRows: 2 }" /></a-form-item>
       <a-form-item label="监测方案"><a-textarea v-model="form.monitoringPlan" :auto-size="{ minRows: 2 }" /></a-form-item>
       <a-row :gutter="12">
@@ -38,16 +46,17 @@
 import { Message } from '@arco-design/web-vue';
 import { reactive, ref, watch } from 'vue';
 import { saveProfessionalItem, ProfessionalConflictError, METHOD_CATEGORY } from '@/services/configuration/professionalDictionaryService';
-import type { ProfessionalDictItem, MethodProfile } from '@/types/system';
+import type { ProfessionalDictItem, MethodProfile, MethodCategory } from '@/types/system';
 
 interface MethodForm {
   id: number; itemCode: string; itemName: string; parentCode: string;
-  applicableOperationTypes: string; medicationPlan: string; monitoringPlan: string;
+  applicableOperationTypes: string; defaultTemplateCode: string; sortNo: number;
+  medicationPlan: string; monitoringPlan: string;
   airwayStrategy: string; analgesiaStrategy: string; pacuDestination: string;
   risks: string; contraindications: string; remark: string; expectedVersion: number;
 }
 
-const props = defineProps<{ visible: boolean; item: ProfessionalDictItem | null }>();
+const props = defineProps<{ visible: boolean; item: ProfessionalDictItem | null; categories: MethodCategory[] }>();
 const emit = defineEmits<{ (e: 'cancel'): void; (e: 'saved'): void }>();
 
 const isCreate = ref(true);
@@ -55,7 +64,7 @@ const saving = ref(false);
 const form = reactive<MethodForm>(blank());
 
 function blank(): MethodForm {
-  return { id: 0, itemCode: '', itemName: '', parentCode: '', applicableOperationTypes: '', medicationPlan: '', monitoringPlan: '', airwayStrategy: '', analgesiaStrategy: '', pacuDestination: '', risks: '', contraindications: '', remark: '', expectedVersion: 1 };
+  return { id: 0, itemCode: '', itemName: '', parentCode: '', applicableOperationTypes: '', defaultTemplateCode: '', sortNo: 0, medicationPlan: '', monitoringPlan: '', airwayStrategy: '', analgesiaStrategy: '', pacuDestination: '', risks: '', contraindications: '', remark: '', expectedVersion: 1 };
 }
 
 watch(() => [props.visible, props.item] as const, ([visible]) => {
@@ -66,10 +75,10 @@ watch(() => [props.visible, props.item] as const, ([visible]) => {
     const p = (it.profile ?? {}) as Partial<MethodProfile>;
     Object.assign(form, {
       id: it.id, itemCode: it.itemCode, itemName: it.itemName, parentCode: it.parentCode ?? '',
-      applicableOperationTypes: p.applicableOperationTypes ?? '', medicationPlan: p.medicationPlan ?? '',
-      monitoringPlan: p.monitoringPlan ?? '', airwayStrategy: p.airwayStrategy ?? '', analgesiaStrategy: p.analgesiaStrategy ?? '',
-      pacuDestination: p.pacuDestination ?? '', risks: p.risks ?? '', contraindications: p.contraindications ?? '',
-      remark: it.remark ?? '', expectedVersion: it.version,
+      applicableOperationTypes: p.applicableOperationTypes ?? '', defaultTemplateCode: p.defaultTemplateCode ?? '',
+      sortNo: it.sortNo, medicationPlan: p.medicationPlan ?? '', monitoringPlan: p.monitoringPlan ?? '',
+      airwayStrategy: p.airwayStrategy ?? '', analgesiaStrategy: p.analgesiaStrategy ?? '', pacuDestination: p.pacuDestination ?? '',
+      risks: p.risks ?? '', contraindications: p.contraindications ?? '', remark: it.remark ?? '', expectedVersion: it.version,
     });
   } else {
     isCreate.value = true;
@@ -80,6 +89,7 @@ watch(() => [props.visible, props.item] as const, ([visible]) => {
 async function onSave() {
   if (!form.itemCode.trim()) { Message.warning('编码不能为空'); return; }
   if (!form.itemName.trim()) { Message.warning('名称不能为空'); return; }
+  if (!form.parentCode) { Message.warning('必须选择所属大类'); return; }
   saving.value = true;
   try {
     await saveProfessionalItem(toPayload());
@@ -95,8 +105,9 @@ function toPayload(): Record<string, unknown> {
   return {
     id: form.id, categoryCode: METHOD_CATEGORY,
     itemCode: form.itemCode.trim(), itemName: form.itemName.trim(),
-    parentCode: form.parentCode || null,
+    parentCode: form.parentCode || null, sortNo: form.sortNo,
     applicableOperationTypes: form.applicableOperationTypes || null,
+    defaultTemplateCode: form.defaultTemplateCode || null,
     medicationPlan: form.medicationPlan || null, monitoringPlan: form.monitoringPlan || null,
     airwayStrategy: form.airwayStrategy || null, analgesiaStrategy: form.analgesiaStrategy || null,
     pacuDestination: form.pacuDestination || null, risks: form.risks || null,

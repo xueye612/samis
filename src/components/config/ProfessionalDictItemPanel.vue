@@ -46,8 +46,9 @@
     <a-drawer :visible="editorVisible" :width="560" :title="isCreate ? `新增${title}` : `编辑${title}`" :mask-closable="false" unmount-on-close @cancel="editorVisible = false">
       <a-form :model="form" layout="vertical">
         <a-row :gutter="12">
-          <a-col :span="12"><a-form-item label="编码" :required="true"><a-input v-model="form.itemCode" :disabled="!isCreate" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="名称" :required="true"><a-input v-model="form.itemName" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="编码" :required="true"><a-input v-model="form.itemCode" :disabled="!isCreate" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="名称" :required="true"><a-input v-model="form.itemName" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="排序"><a-input-number v-model="form.sortNo" :min="0" /></a-form-item></a-col>
         </a-row>
         <template v-if="isEvent">
           <a-row :gutter="12">
@@ -131,14 +132,14 @@ const statusReason = ref('');
 const statusTarget = ref<{ item: ProfessionalDictItem; toStatus: 'enabled' | 'paused' | 'disabled' } | null>(null);
 
 interface ItemForm {
-  id: number; itemCode: string; itemName: string; remark: string; expectedVersion: number;
+  id: number; itemCode: string; itemName: string; sortNo: number; remark: string; expectedVersion: number;
   eventCategory: string; severity: string; responseGuidance: string; qualityIncluded: boolean;
   scoreType: string; ruleDefinitionText: string; applicableScenario: string; thresholdInterpretation: string;
 }
 const form = reactive<ItemForm>(blankForm());
 
 function blankForm(): ItemForm {
-  return { id: 0, itemCode: '', itemName: '', remark: '', expectedVersion: 1, eventCategory: '', severity: '', responseGuidance: '', qualityIncluded: false, scoreType: '', ruleDefinitionText: '[]', applicableScenario: '', thresholdInterpretation: '' };
+  return { id: 0, itemCode: '', itemName: '', sortNo: 0, remark: '', expectedVersion: 1, eventCategory: '', severity: '', responseGuidance: '', qualityIncluded: false, scoreType: '', ruleDefinitionText: '[]', applicableScenario: '', thresholdInterpretation: '' };
 }
 
 const canManage = computed(() => !useRealAnesthesiaDict() || canManageProfessional(permissions.value, props.categoryCode));
@@ -161,7 +162,7 @@ function openEdit(item: ProfessionalDictItem) {
   editing.value = item; isCreate.value = false;
   const p = (item.profile ?? {}) as Partial<EventProfile> & Partial<ScoreProfile>;
   Object.assign(form, {
-    id: item.id, itemCode: item.itemCode, itemName: item.itemName, remark: item.remark ?? '', expectedVersion: item.version,
+    id: item.id, itemCode: item.itemCode, itemName: item.itemName, sortNo: item.sortNo, remark: item.remark ?? '', expectedVersion: item.version,
     eventCategory: p.eventCategory ?? '', severity: p.severity ?? '', responseGuidance: p.responseGuidance ?? '',
     qualityIncluded: !!p.qualityIncluded,
     scoreType: p.scoreType ?? '', ruleDefinitionText: p.ruleDefinition === undefined || p.ruleDefinition === null ? '[]' : JSON.stringify(p.ruleDefinition, null, 2),
@@ -179,6 +180,7 @@ async function onSave() {
   if (!form.itemName.trim()) { Message.warning('名称不能为空'); return; }
   let payload: Record<string, unknown> = {
     id: form.id, categoryCode: props.categoryCode, itemCode: form.itemCode.trim(), itemName: form.itemName.trim(),
+    sortNo: form.sortNo,
     remark: form.remark || null, expectedVersion: form.expectedVersion,
   };
   if (isEvent.value) {

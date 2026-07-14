@@ -1,8 +1,8 @@
 import { anesthesiaDictApi } from '@/api/anesthesiaDict';
 import { SamisHttpError } from '@/api/samisHttpClient';
 import { mapStaffProfile, mapStaffProfileList, mapStaffHistory } from '@/services/anesthesia/adapters/staffDictAdapter';
-import { mapProfessionalItem, mapProfessionalItemList, mapProfessionalHistory } from '@/services/anesthesia/adapters/anesthesiaDictAdapter';
-import type { StaffProfile, ProfessionalDictItem, ProfessionalHistoryItem } from '@/types/system';
+import { mapProfessionalItem, mapProfessionalItemList, mapProfessionalHistory, mapMethodCategory, mapMethodCategoryList } from '@/services/anesthesia/adapters/anesthesiaDictAdapter';
+import type { StaffProfile, ProfessionalDictItem, ProfessionalHistoryItem, MethodCategory } from '@/types/system';
 
 export const PROFESSIONAL_CONFLICT_CODE = 4091;
 export const STAFF_PERM = 'config.staff.manage';
@@ -117,5 +117,36 @@ export async function changeProfessionalStatusConfig(payload: Record<string, unk
 
 export async function loadProfessionalHistory(entityType: string, id: number): Promise<ProfessionalHistoryItem[]> {
   const raw = await anesthesiaDictApi.professionalHistory(entityType, id);
+  return mapProfessionalHistory(unwrap(raw));
+}
+
+// ===== 麻醉方式大类 =====
+export async function loadMethodCategories(params: { allStatus?: boolean; keyword?: string } = {}): Promise<MethodCategory[]> {
+  const raw = await anesthesiaDictApi.getMethodCategories(params);
+  return mapMethodCategoryList(unwrap(raw));
+}
+
+export async function saveMethodCategoryConfig(payload: Record<string, unknown>): Promise<{ id?: number; version: number }> {
+  try {
+    const result = await anesthesiaDictApi.saveMethodCategory(payload);
+    const data = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
+    return { id: data.id === undefined ? undefined : Number(data.id), version: Number(data.version ?? 0) };
+  } catch (error) {
+    throwIfConflict(error);
+  }
+}
+
+export async function changeCategoryStatusConfig(payload: Record<string, unknown>): Promise<{ status: string; version: number }> {
+  try {
+    const result = await anesthesiaDictApi.changeProfessionalStatus({ entityType: 'method_category', ...payload });
+    const data = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
+    return { status: String(data.status ?? ''), version: Number(data.version ?? 0) };
+  } catch (error) {
+    throwIfConflict(error);
+  }
+}
+
+export async function loadCategoryHistory(id: number): Promise<ProfessionalHistoryItem[]> {
+  const raw = await anesthesiaDictApi.professionalHistory('method_category', id);
   return mapProfessionalHistory(unwrap(raw));
 }

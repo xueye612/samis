@@ -24,6 +24,7 @@
       </a-row>
       <a-row :gutter="12">
         <a-col :span="8"><a-form-item label="排班权重"><a-input-number v-model="form.schedulingWeight" :min="0" /></a-form-item></a-col>
+        <a-col :span="8"><a-form-item label="排序"><a-input-number v-model="form.sortNo" :min="0" /></a-form-item></a-col>
         <a-col :span="8"><a-form-item label="有效期起"><a-input v-model="form.validFrom" placeholder="YYYY-MM-DD" /></a-form-item></a-col>
         <a-col :span="8"><a-form-item label="有效期止"><a-input v-model="form.validTo" placeholder="YYYY-MM-DD" /></a-form-item></a-col>
       </a-row>
@@ -57,7 +58,7 @@ interface EditorScope { scopeType: string; scopeCode: string; scopeName: string 
 interface EditorForm {
   id: number; gh: string; name: string; title: string; role: string;
   professionalGroup: string; departmentCode: string; departmentName: string;
-  authorizationLevel: string; schedulingWeight: number; validFrom: string; validTo: string;
+  authorizationLevel: string; schedulingWeight: number; sortNo: number; validFrom: string; validTo: string;
   remark: string; expectedVersion: number; scopes: EditorScope[];
 }
 
@@ -74,7 +75,7 @@ const scopeTypeOptions = [
 ];
 
 function blank(): EditorForm {
-  return { id: 0, gh: '', name: '', title: '', role: '麻醉医生', professionalGroup: '', departmentCode: '', departmentName: '', authorizationLevel: '', schedulingWeight: 1, validFrom: '', validTo: '', remark: '', expectedVersion: 1, scopes: [] };
+  return { id: 0, gh: '', name: '', title: '', role: '麻醉医生', professionalGroup: '', departmentCode: '', departmentName: '', authorizationLevel: '', schedulingWeight: 1, sortNo: 0, validFrom: '', validTo: '', remark: '', expectedVersion: 1, scopes: [] };
 }
 function addScope() { form.scopes.push({ scopeType: 'practice', scopeCode: '', scopeName: '' }); }
 
@@ -86,7 +87,7 @@ watch(() => [props.visible, props.staff] as const, ([visible]) => {
     Object.assign(form, {
       id: s.id, gh: s.gh, name: s.name, title: s.title ?? '', role: s.role,
       professionalGroup: s.professionalGroup ?? '', departmentCode: s.departmentCode ?? '', departmentName: s.departmentName ?? '',
-      authorizationLevel: s.authorizationLevel ?? '', schedulingWeight: s.schedulingWeight, validFrom: s.validFrom ?? '', validTo: s.validTo ?? '',
+      authorizationLevel: s.authorizationLevel ?? '', schedulingWeight: s.schedulingWeight, sortNo: s.sortNo, validFrom: s.validFrom ?? '', validTo: s.validTo ?? '',
       remark: s.remark ?? '', expectedVersion: s.version,
       scopes: s.scopes.map((c) => ({ scopeType: c.scopeType, scopeCode: c.scopeCode, scopeName: c.scopeName ?? '' })),
     });
@@ -120,7 +121,7 @@ function toPayload(): Record<string, unknown> {
     id: form.id, gh: form.gh.trim(), name: form.name.trim(), title: form.title || null,
     role: form.role || '麻醉医生', professionalGroup: form.professionalGroup || null,
     departmentCode: form.departmentCode || null, departmentName: form.departmentName || null,
-    authorizationLevel: form.authorizationLevel || null, schedulingWeight: form.schedulingWeight,
+    authorizationLevel: form.authorizationLevel || null, schedulingWeight: form.schedulingWeight, sortNo: form.sortNo,
     validFrom: form.validFrom || null, validTo: form.validTo || null, remark: form.remark || null,
     expectedVersion: form.expectedVersion, scopes,
   };
