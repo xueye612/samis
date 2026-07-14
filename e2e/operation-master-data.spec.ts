@@ -1,10 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
+import {
+  cleanupMasterDataFixture,
+  setupMasterDataFixture,
+  statusMasterDataFixture,
+} from './helpers/operationMasterFixture';
 
 const e2eEnabled = process.env.SAMIS_OPERATION_MASTER_E2E === '1';
 const e2eUsername = process.env.SAMIS_E2E_USERNAME;
 const e2ePassword = process.env.SAMIS_E2E_PASSWORD;
 const MASTER_PERM = 'operation.master_data.update';
-const OP_E2E_PREFIX = 'OP-E2E-SCHEDULE';
 
 function ok(data: unknown) {
   return { status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data }) };
@@ -212,40 +216,84 @@ test.describe('手术主数据受控修改', () => {
     await expect(auditSection.getByText('2026-07-13 10:00:00')).toBeVisible();
   });
 
-  test('真实凭据主数据保存回读（opt-in）', async ({ page }) => {
+  test('真实凭据主数据保存与清理（opt-in）', async ({ page }) => {
     test.skip(!e2eEnabled || !e2eUsername || !e2ePassword,
       'requires SAMIS_OPERATION_MASTER_E2E=1 and SAMIS_E2E_USERNAME/SAMIS_E2E_PASSWORD');
+    if (!e2eUsername || !e2ePassword) return;
 
-    // 真实保存验收：登录 → 打开排班 → 仅修改 OP-E2E-SCHEDULE-* 合成病例受控字段并填写原因 →
-    // POST → GET 回读 → 刷新 → 审计读取；finally 清理合成病例（不删除审计表记录）。
+    // 1. 登录真实账号
     await page.goto('/login');
-    await page.locator('input').first().fill(e2eUsername!);
-    await page.locator('input[type="password"]').fill(e2ePassword!);
+    await page.locator('input').first().fill(e2eUsername);
+    await page.locator('input[type="password"]').fill(e2ePassword);
     await page.getByRole('button', { name: '登录' }).click();
     await expect(page).toHaveURL(/\/(workbench|surgery)/);
     await expect(page.getByText('Token缺失')).toHaveCount(0);
 
-    await page.goto('/surgery/schedule');
-    await page.waitForLoadState('networkidle');
+    // 2. 从会话取得真实 roomCode/roomGroup
+    const roomCode = await page.evaluate(() => sessionStorage.getItem('samis_room') ?? '');
+    const roomGroup = await page.evaluate(() => sessionStorage.getItem('samis_room_group') ?? '');
+    expect(roomCode, '登录后会话应包含 samis_room').toBeTruthy();
 
-    // 仅操作 OP-E2E-SCHEDULE-* 合成病例；找不到则视为环境未播种并跳过
-    const editButtons = page.getByRole('button', { name: '编辑' });
-    const count = await editButtons.count();
-    let handled = false;
-    for (let i = 0; i < count; i += 1) {
-      const row = editButtons.nth(i);
-      const rowText = (await row.locator('xpath=ancestor::tr').first().innerText().catch(() => '')) as string;
-      if (!rowText.includes(OP_E2E_PREFIX)) continue;
-      await row.click();
+    // 3. setup 唯一 OP-E2E-SCHEDULE-* 合成病例（不预先播种，由 CLI 创建并返回唯一 ID）
+    const fixture = await setupMasterDataFixture(roomCode, roomGroup);
+    const operationId = fixture.operationId;
+    expect(fixture.status).toBe('present');
+    expect(fixture.visible).toBe(true);
+
+    try {
+      // 4. 打开排班并定位该合成病例（住院号列展示 patientId=operationId）
+      await page.goto('/surgery/schedule');
+      await page.waitForLoadState('networkidle');
+      const targetRow = page.locator('tr').filter({ hasText: operationId });
+      await expect(targetRow.first()).toBeVisible({ timeout: 15_000 });
+
+      const versionBefore = await readDrawerVersion(page, targetRow);
+
+      // 5. 修改患者姓名/性别，填写原因
+      await targetRow.first().getByRole('button', { name: '编辑' }).click();
       const drawer = page.locator('.arco-drawer');
       await drawer.locator('.arco-form-item').filter({ hasText: '患者' }).locator('input').first()
-        .fill(`${OP_E2E_PREFIX}-修正`);
-      await page.getByPlaceholder('请填写本次主数据修改原因').fill('E2E 合成病例回归');
-      await page.locator('.arco-drawer-footer button').first().click();
+        .fill(`${operationId}-修正`);
+      await drawer.locator('.arco-form-item').filter({ hasText: '性别' }).locator('.arco-select-view').click();
+      await page.locator('.arco-select-option').filter({ hasText: '女' }).first().click();
+      await page.getByPlaceholder('请填写本次主数据修改原因').fill('E2E 合成病例主数据回归');
+
+      // 6. 明确点击名称为“确定”的按钮
+      // 7. 等待主数据 POST 和详情 GET
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes('/operationInfo/updateOperationInfo') && r.request().method() === 'POST'),
+        page.locator('.arco-drawer-footer').getByRole('button', { name: '确定' }).click(),
+      ]);
+      await page.waitForResponse((r) => r.url().includes('/operationInfo/getOperationInfo'));
       await page.waitForLoadState('networkidle');
-      handled = true;
-      break;
+
+      // 8. 验证新版本与刷新保持
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator('tr').filter({ hasText: operationId }).first()).toBeVisible();
+      const versionAfter = await readDrawerVersion(page, page.locator('tr').filter({ hasText: operationId }));
+      expect(versionAfter, '保存后版本号应递增').toBeGreaterThan(versionBefore);
+
+      // 审计记录：重新打开抽屉，状态列展示成功或审计待确认
+      await page.locator('tr').filter({ hasText: operationId }).first().getByRole('button', { name: '编辑' }).click();
+      await expect(page.locator('.arco-drawer .drawer-audit').getByText(/成功|审计待确认/).first()).toBeVisible({ timeout: 10_000 });
+    } finally {
+      // 9. finally 无条件清理；10. cleanup 后 status 必须为 absent
+      await cleanupMasterDataFixture(operationId);
+      const after = await statusMasterDataFixture(operationId);
+      expect(after.status).toBe('absent');
     }
-    expect(handled, 'should find an OP-E2E-SCHEDULE-* seeded case').toBeTruthy();
   });
 });
+
+/** 打开某行编辑抽屉并读取版本号元数据（无版本时返回 -1），随后保持抽屉关闭以便后续操作。 */
+async function readDrawerVersion(page: Page, row: import('@playwright/test').Locator): Promise<number> {
+  await row.first().getByRole('button', { name: '编辑' }).click();
+  const drawer = page.locator('.arco-drawer');
+  const metaText = await drawer.locator('.arco-descriptions').first().innerText().catch(() => '');
+  // 关闭抽屉，避免影响后续步骤
+  await page.locator('.arco-drawer-footer').getByRole('button', { name: '取消' }).click().catch(() => {});
+  const match = metaText.match(/版本[^\d-]*(-?\d+)/);
+  if (!match) return -1;
+  return Number(match[1]);
+}
