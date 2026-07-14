@@ -1,24 +1,12 @@
 <template>
-  <DictCrudPanel title="评分模板" :model-value="list" @update:model-value="save" />
+  <ProfessionalDictItemPanel
+    category-code="anesthesia_score"
+    entity-type="score"
+    title="评分模板"
+    description="维护含结构化规则数组、评分类型与阈值解释的评分模板，保留服务端 ID/编码/版本"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import DictCrudPanel from '@/components/shared/DictCrudPanel.vue';
-import { useAnesthesiaStore, type DictListKey } from '@/stores/anesthesia';
-import { persistStringListDiff } from '@/composables/useDictArrayPersist';
-
-const store = useAnesthesiaStore();
-const key = 'configScores' as DictListKey;
-const categoryCode = 'anesthesia_score';
-const list = computed(() => store[key] as string[]);
-
-const save = async (value: string[]) => {
-  const prev = store[key] as string[];
-  store.upsertDictList(key, value);
-  await persistStringListDiff(value, prev, {
-    save: (name) => store.saveDictListItem('configScores', categoryCode, name),
-    disable: (name) => store.disableDictListItem('configScores', name),
-  });
-};
+import ProfessionalDictItemPanel from '@/components/config/ProfessionalDictItemPanel.vue';
 </script>

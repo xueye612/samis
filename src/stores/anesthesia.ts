@@ -852,7 +852,8 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     async loadRemoteDictList(listKey: 'configEvents' | 'configScores', categoryCode: string) {
       const result = await loadDictListByCategory(categoryCode);
       this.configDictSource = result.source;
-      if (result.names.length) this[listKey] = result.names;
+      // 真实空列表直接覆盖，不再保留 seed；错误已由 loadDictListByCategory 吞掉并返回空
+      this[listKey] = result.names;
       return result;
     },
     async loadRemoteMethodTree() {
