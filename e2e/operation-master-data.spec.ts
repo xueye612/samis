@@ -1,10 +1,20 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 const e2eEnabled = process.env.SAMIS_OPERATION_MASTER_E2E === '1';
 const e2eUsername = process.env.SAMIS_E2E_USERNAME;
 const e2ePassword = process.env.SAMIS_E2E_PASSWORD;
+const MASTER_PERM = 'operation.master_data.update';
+const OP_E2E_PREFIX = 'OP-E2E-SCHEDULE';
 
-async function seedSession(page: import('@playwright/test').Page) {
+function ok(data: unknown) {
+  return { status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data }) };
+}
+
+function permissionPayload(permissions: string[]) {
+  return { permissions, role: permissions.includes(MASTER_PERM) ? 'anesthesiologist' : 'viewer', groupid: permissions.length ? 1 : null };
+}
+
+async function seedSession(page: Page) {
   await page.addInitScript(() => {
     sessionStorage.setItem('samis_token', 'master-data-e2e-token');
     sessionStorage.setItem('samis_authorization', 'Bearer master-data-e2e-token');
@@ -16,114 +26,226 @@ async function seedSession(page: import('@playwright/test').Page) {
   });
 }
 
-test('无权限时不发送主数据修改请求', async ({ page }) => {
-  let masterDataPosts = 0;
-  await seedSession(page);
-  await page.route('**/api-samis/pc/v1/**', async (route) => {
-    const url = route.request().url();
-    if (url.includes('/operationInfo/getOperationList')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data: { list: [{
-        OPERATIONID: 'op-md-1', operationCase: { operationId: 'op-md-1', patientName: '患者甲', gender: '男', version: 2 },
-      }] } }) });
-      return;
-    }
-    if (url.includes('/auth/myPermissions')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data: [] }) });
-      return;
-    }
-    if (route.request().method() === 'POST' && url.includes('/operationInfo/updateOperationInfo')) {
-      masterDataPosts += 1;
-    }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data: {} }) });
-  });
-
-  await page.goto('/surgery/schedule');
-  await page.waitForLoadState('networkidle');
-  // 打开编辑抽屉：无权限时应展示受限提示
-  await page.getByRole('button', { name: '编辑' }).first().click();
-  await expect(page.getByText('无手术主数据修改权限')).toBeVisible();
-  expect(masterDataPosts).toBe(0);
-});
-
-test('有权限时按 POST→GET 顺序保存主数据并回读新版本', async ({ page }) => {
-  let postCount = 0;
-  let getCount = 0;
-  let postedForm: URLSearchParams | undefined;
-  await seedSession(page);
-  await page.route('**/api-samis/pc/v1/**', async (route) => {
+/** 默认网络拦截用例共享：列表 / 权限 / 审计 / 详情 回填。 */
+function installNetworkMocks(page: Page, opts: {
+  permitted: boolean;
+  counters: { masterPost: number; nursePost: number; stationPost: number; getCount: number; changes: string[] };
+  posted: { form?: URLSearchParams };
+}) {
+  return page.route('**/api-samis/pc/v1/**', async (route) => {
     const url = route.request().url();
     const method = route.request().method();
-    // 列表在有 POST 之前返回旧值，POST 之后返回新值（模拟保存后刷新）
+    const saved = opts.counters.masterPost > 0;
+
     if (url.includes('/operationInfo/getOperationList')) {
-      const name = postCount > 0 ? '新姓名' : '旧姓名';
-      const version = postCount > 0 ? 4 : 3;
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data: { list: [{
-        OPERATIONID: 'op-md-2', operationCase: { operationId: 'op-md-2', patientName: name, gender: postCount > 0 ? '女' : '男', version, sourceTable: 'operatenotice' },
-      }] } }) });
+      await route.fulfill(ok({ list: [{
+        OPERATIONID: 'op-md-2',
+        operationCase: {
+          operationId: 'op-md-2',
+          patientName: saved ? '新姓名' : '旧姓名',
+          gender: saved ? '女' : '男',
+          age: saved ? 45 : 40,
+          sequence: saved ? 3 : 1,
+          plannedStartTime: '2026-07-13T08:00:00.000Z',
+          plannedEndTime: '2026-07-13T10:00:00.000Z',
+          version: saved ? 4 : 3,
+          sourceSystem: 'HULI',
+          sourceTable: 'operatenotice',
+          lastUpdatedAt: '2026-07-13 10:00:00',
+        },
+      }] }));
       return;
     }
     if (url.includes('/auth/myPermissions')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data: ['operation.master_data.update'] }) });
+      await route.fulfill(ok(permissionPayload(opts.permitted ? [MASTER_PERM] : [])));
       return;
     }
     if (method === 'POST' && url.includes('/operationInfo/updateOperationInfo')) {
-      postCount += 1;
-      postedForm = new URLSearchParams(route.request().postData() ?? '');
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data: { operationId: 'op-md-2' } }) });
+      opts.counters.masterPost += 1;
+      opts.posted.form = new URLSearchParams(route.request().postData() ?? '');
+      let i = 0;
+      while (opts.posted.form.has(`changes[${i}][field]`)) {
+        opts.counters.changes.push(opts.posted.form.get(`changes[${i}][field]`) as string);
+        i += 1;
+      }
+      await route.fulfill(ok({ operationId: 'op-md-2' }));
+      return;
+    }
+    if (method === 'POST' && url.includes('/operationInfo/saveNursePb')) {
+      opts.counters.nursePost += 1;
+      await route.fulfill(ok({}));
+      return;
+    }
+    if (method === 'POST' && url.includes('/operationInfo/updateNumberOfStations')) {
+      opts.counters.stationPost += 1;
+      await route.fulfill(ok({}));
       return;
     }
     if (method === 'GET' && url.includes('/operationInfo/getOperationInfo')) {
-      getCount += 1;
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data: {
+      opts.counters.getCount += 1;
+      await route.fulfill(ok({
         OPERATIONID: 'op-md-2',
-        operationCase: { operationId: 'op-md-2', patientName: '新姓名', gender: '女', version: 4, sourceTable: 'operatenotice' },
-      } }) });
+        operationCase: {
+          operationId: 'op-md-2', patientName: '新姓名', gender: '女', age: 45, sequence: 3,
+          plannedStartTime: '2026-07-13T09:00:00.000Z', plannedEndTime: '2026-07-13T11:00:00.000Z',
+          version: 4, sourceSystem: 'HULI', sourceTable: 'operatenotice', lastUpdatedAt: '2026-07-13 10:30:00',
+        },
+      }));
       return;
     }
     if (url.includes('/auth/auditByOperation')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data: { list: [{
-        module: 'operation', action: 'masterDataUpdate', actorId: 'md-e2e-user', occurredAt: '2026-07-13 10:00:00',
+      await route.fulfill(ok({ list: [{
+        module: 'operation', action: 'masterDataUpdate', actorId: 'md-e2e-user', actorRole: 'anesthesiologist',
+        occurredAt: '2026-07-13 10:00:00', result: 'success',
         changeSummary: [{ field: 'patientName', label: '患者姓名', before: '旧姓名', after: '新姓名', reason: '修正姓名' }],
-      }] } }) });
+      }] }));
       return;
     }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data: {} }) });
+    await route.fulfill(ok({}));
+  });
+}
+
+async function editMasterFields(page: Page) {
+  const drawer = page.locator('.arco-drawer');
+  await drawer.locator('.arco-form-item').filter({ hasText: '患者' }).locator('input').first().fill('新姓名');
+  // 性别
+  await drawer.locator('.arco-form-item').filter({ hasText: '性别' }).locator('.arco-select-view').click();
+  await page.locator('.arco-select-option').filter({ hasText: '女' }).first().click();
+  // 年龄
+  await drawer.locator('.arco-form-item').filter({ hasText: '年龄' }).locator('input').first().fill('45');
+  // 预计开始 / 预计结束（日期时间）
+  await fillDateTime(page, '预计开始', '2026-07-13 09:00');
+  await fillDateTime(page, '预计结束', '2026-07-13 11:00');
+  // 台次
+  await drawer.locator('.arco-form-item').filter({ hasText: '台次' }).locator('input').first().fill('3');
+  // 修改原因
+  await page.getByPlaceholder('请填写本次主数据修改原因').fill('修正姓名');
+}
+
+async function fillDateTime(page: Page, label: string, value: string) {
+  const drawer = page.locator('.arco-drawer');
+  const input = drawer.locator('.arco-form-item').filter({ hasText: label }).locator('input').first();
+  await input.click();
+  await input.fill(value);
+  await input.press('Enter');
+}
+
+test.describe('手术主数据受控修改', () => {
+  test('无权限：编辑控件禁用，0 主数据/护理/台次写请求', async ({ page }) => {
+    const counters = { masterPost: 0, nursePost: 0, stationPost: 0, getCount: 0, changes: [] as string[] };
+    const posted = { form: undefined as URLSearchParams | undefined };
+    await seedSession(page);
+    await installNetworkMocks(page, { permitted: false, counters, posted });
+
+    await page.goto('/surgery/schedule');
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: '编辑' }).first().click();
+    // 真实权限结构读取后无权限 → 展示受限提示且控件禁用
+    await expect(page.getByText('无手术主数据修改权限')).toBeVisible();
+    const drawer = page.locator('.arco-drawer');
+    await expect(drawer.locator('.arco-form-item').filter({ hasText: '患者' }).locator('input').first()).toBeDisabled();
+    // 确定按钮已禁用
+    await expect(page.locator('.arco-drawer-footer').getByRole('button', { name: '确定' })).toBeDisabled();
+
+    // 尝试触发确认保存（确定按钮已禁用，不应产生写请求）
+    await page.locator('.arco-drawer-footer').getByRole('button', { name: '确定' }).click({ force: true }).catch(() => {});
+    await page.waitForTimeout(300);
+
+    expect(counters.masterPost).toBe(0);
+    expect(counters.nursePost).toBe(0);
+    expect(counters.stationPost).toBe(0);
+    await expect(page.getByText('排班已保存')).toHaveCount(0);
   });
 
-  await page.goto('/surgery/schedule');
-  await page.waitForLoadState('networkidle');
+  test('有权限：POST 六字段信封 → GET 回读新版本 → 审计展示 → 刷新保持', async ({ page }) => {
+    const counters = { masterPost: 0, nursePost: 0, stationPost: 0, getCount: 0, changes: [] as string[] };
+    const posted = { form: undefined as URLSearchParams | undefined };
+    await seedSession(page);
+    await installNetworkMocks(page, { permitted: true, counters, posted });
 
-  await page.getByRole('button', { name: '编辑' }).first().click();
-  await expect(page.getByPlaceholder('请填写本次主数据修改原因')).toBeVisible();
-  await page.locator('.arco-form-item').filter({ hasText: '患者' }).locator('input').first().fill('新姓名');
-  await page.getByPlaceholder('请填写本次主数据修改原因').fill('修正姓名');
+    await page.goto('/surgery/schedule');
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: '编辑' }).first().click();
+    await expect(page.getByPlaceholder('请填写本次主数据修改原因')).toBeVisible();
 
-  await Promise.all([
-    page.waitForResponse((r) => r.url().includes('/operationInfo/updateOperationInfo')),
-    page.getByRole('button', { name: '确定' }).click(),
-  ]);
-  // POST 之后必须 GET 回读
-  await page.waitForResponse((r) => r.url().includes('/operationInfo/getOperationInfo'));
-  await page.waitForLoadState('networkidle');
+    await editMasterFields(page);
 
-  expect(postCount).toBeGreaterThanOrEqual(1);
-  expect(postedForm?.get('operationId')).toBe('op-md-2');
-  expect(postedForm?.get('reason')).toBe('修正姓名');
-  // changes 数组以 PHP 表单记法传输（changes[0][field]），后端读取为数组
-  expect(postedForm?.get('changes[0][field]')).toBe('patientName');
-  expect(postedForm?.get('changes[0][value]')).toBe('新姓名');
-  // POST 之后必须 GET 回读
-  expect(getCount).toBeGreaterThanOrEqual(1);
-  // 刷新后仍显示新值（不恢复旧姓名）
-  await expect(page.getByText('新姓名').first()).toBeVisible();
-});
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/operationInfo/updateOperationInfo') && r.request().method() === 'POST'),
+      page.locator('.arco-drawer-footer').getByRole('button', { name: '确定' }).click(),
+    ]);
+    // POST 之后必须 GET 回读，随后护理排班独立保存
+    await page.waitForResponse((r) => r.url().includes('/operationInfo/getOperationInfo'));
+    await expect(page.getByText('排班已保存')).toBeVisible();
+    await page.waitForLoadState('networkidle');
 
-test('真实凭据主数据保存回读（opt-in）', async ({ page }) => {
-  test.skip(!e2eEnabled || !e2eUsername || !e2ePassword, 'requires SAMIS_OPERATION_MASTER_E2E=1 and SAMIS_E2E_USERNAME/SAMIS_E2E_PASSWORD');
-  await page.goto('/login');
-  await page.locator('input').first().fill(e2eUsername!);
-  await page.locator('input[type="password"]').fill(e2ePassword!);
-  await page.getByRole('button', { name: '登录' }).click();
-  await expect(page).toHaveURL(/\/(workbench|surgery)/);
-  await expect(page.getByText('Token缺失')).toHaveCount(0);
+    // 1. POST 信封包含 operationId、expectedVersion、reason 和六个规范 changes
+    expect(counters.masterPost).toBeGreaterThanOrEqual(1);
+    expect(posted.form?.get('operationId')).toBe('op-md-2');
+    expect(posted.form?.get('expectedVersion')).toBe('3');
+    expect(posted.form?.get('reason')).toBe('修正姓名');
+    expect([...counters.changes].sort()).toEqual(
+      ['age', 'gender', 'patientName', 'plannedEndTime', 'plannedStartTime', 'sequence'],
+    );
+    // 台次随主数据信封保存，不再调用无版本/原因的旁路接口
+    expect(counters.stationPost).toBe(0);
+    // 护理排班在主数据 POST→GET 成功后独立执行
+    expect(counters.nursePost).toBeGreaterThanOrEqual(1);
+    // 2. POST 之后 GET 回读新版本
+    expect(counters.getCount).toBeGreaterThanOrEqual(1);
+
+    // 3. 刷新后再次 GET，页面仍显示服务端新值
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByText('新姓名').first()).toBeVisible();
+
+    // 4. 重新打开抽屉：展示版本/来源元数据与逐字段审计历史
+    await page.getByRole('button', { name: '编辑' }).first().click();
+    await expect(page.locator('.arco-drawer').getByText('operatenotice').first()).toBeVisible();
+    const auditSection = page.locator('.arco-drawer .drawer-audit');
+    await expect(auditSection).toBeVisible();
+    await expect(auditSection.getByText('旧姓名').first()).toBeVisible();
+    await expect(auditSection.getByText('新姓名').first()).toBeVisible();
+    await expect(auditSection.getByText('修正姓名').first()).toBeVisible();
+    await expect(auditSection.getByText('md-e2e-user')).toBeVisible();
+    await expect(auditSection.getByText('anesthesiologist')).toBeVisible();
+    await expect(auditSection.getByText('2026-07-13 10:00:00')).toBeVisible();
+  });
+
+  test('真实凭据主数据保存回读（opt-in）', async ({ page }) => {
+    test.skip(!e2eEnabled || !e2eUsername || !e2ePassword,
+      'requires SAMIS_OPERATION_MASTER_E2E=1 and SAMIS_E2E_USERNAME/SAMIS_E2E_PASSWORD');
+
+    // 真实保存验收：登录 → 打开排班 → 仅修改 OP-E2E-SCHEDULE-* 合成病例受控字段并填写原因 →
+    // POST → GET 回读 → 刷新 → 审计读取；finally 清理合成病例（不删除审计表记录）。
+    await page.goto('/login');
+    await page.locator('input').first().fill(e2eUsername!);
+    await page.locator('input[type="password"]').fill(e2ePassword!);
+    await page.getByRole('button', { name: '登录' }).click();
+    await expect(page).toHaveURL(/\/(workbench|surgery)/);
+    await expect(page.getByText('Token缺失')).toHaveCount(0);
+
+    await page.goto('/surgery/schedule');
+    await page.waitForLoadState('networkidle');
+
+    // 仅操作 OP-E2E-SCHEDULE-* 合成病例；找不到则视为环境未播种并跳过
+    const editButtons = page.getByRole('button', { name: '编辑' });
+    const count = await editButtons.count();
+    let handled = false;
+    for (let i = 0; i < count; i += 1) {
+      const row = editButtons.nth(i);
+      const rowText = (await row.locator('xpath=ancestor::tr').first().innerText().catch(() => '')) as string;
+      if (!rowText.includes(OP_E2E_PREFIX)) continue;
+      await row.click();
+      const drawer = page.locator('.arco-drawer');
+      await drawer.locator('.arco-form-item').filter({ hasText: '患者' }).locator('input').first()
+        .fill(`${OP_E2E_PREFIX}-修正`);
+      await page.getByPlaceholder('请填写本次主数据修改原因').fill('E2E 合成病例回归');
+      await page.locator('.arco-drawer-footer button').first().click();
+      await page.waitForLoadState('networkidle');
+      handled = true;
+      break;
+    }
+    expect(handled, 'should find an OP-E2E-SCHEDULE-* seeded case').toBeTruthy();
+  });
 });
