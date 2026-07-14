@@ -1,7 +1,7 @@
 <template>
   <a-drawer
     :visible="visible"
-    :width="640"
+    :width="960"
     title="医院字段配置"
     unmount-on-close
     @cancel="emit('cancel')"
@@ -34,9 +34,26 @@
               <a-input-number v-model="record.sortNo" :disabled="!canManage" :min="0" />
             </template>
           </a-table-column>
+          <a-table-column title="分组" :width="140">
+            <template #cell="{ record }">
+              <a-input v-model="record.groupName" :disabled="!canManage" placeholder="未分组" />
+            </template>
+          </a-table-column>
           <a-table-column title="默认值">
             <template #cell="{ record }">
               <a-input v-model="record.defaultValue" :disabled="!canManage" placeholder="无" />
+            </template>
+          </a-table-column>
+          <a-table-column title="候选项" :width="220">
+            <template #cell="{ record }">
+              <a-select
+                v-model="record.options"
+                multiple
+                allow-create
+                :disabled="!canManage"
+                :options="record.options.map((item: string) => ({ label: item, value: item }))"
+                placeholder="可输入后回车添加"
+              />
             </template>
           </a-table-column>
         </template>
@@ -58,6 +75,7 @@ import {
   loadHospitalFieldConfig,
   saveHospitalFieldConfig,
   RoomConfigConflictError,
+  type RoomFieldConfigEntry,
 } from '@/services/configuration/roomConfigurationService';
 
 const props = defineProps<{ visible: boolean; hospitalCode: string; canManage: boolean }>();
@@ -65,8 +83,8 @@ const emit = defineEmits<{ (e: 'cancel'): void; (e: 'saved'): void }>();
 
 const loading = ref(false);
 const saving = ref(false);
-const fields = ref<Array<Record<string, unknown>>>([]);
-const original = ref<Array<Record<string, unknown>>>([]);
+const fields = ref<RoomFieldConfigEntry[]>([]);
+const original = ref<RoomFieldConfigEntry[]>([]);
 
 watch(
   () => props.visible,
@@ -81,8 +99,8 @@ async function reload() {
   loading.value = true;
   try {
     const list = await loadHospitalFieldConfig(props.hospitalCode);
-    fields.value = (Array.isArray(list) ? list : []).map((r) => ({ ...(r as Record<string, unknown>) }));
-    original.value = fields.value.map((r) => ({ ...r }));
+    fields.value = list.map((r) => ({ ...r, options: [...r.options] }));
+    original.value = fields.value.map((r) => ({ ...r, options: [...r.options] }));
   } catch (error) {
     fields.value = [];
     if (error instanceof Error) Message.error(error.message);
@@ -108,7 +126,9 @@ async function onSave() {
       if (cur.visible !== prev.visible) changes.visible = cur.visible ? 1 : 0;
       if (cur.required !== prev.required) changes.required = cur.required ? 1 : 0;
       if (Number(cur.sortNo) !== Number(prev.sortNo)) changes.sortNo = Number(cur.sortNo);
+      if (cur.groupName !== prev.groupName) changes.groupName = cur.groupName ?? '';
       if (cur.defaultValue !== prev.defaultValue) changes.defaultValue = cur.defaultValue;
+      if (JSON.stringify(cur.options) !== JSON.stringify(prev.options)) changes.options = cur.options;
       if (Object.keys(changes).length <= 4) continue;
       await saveHospitalFieldConfig(changes);
     }

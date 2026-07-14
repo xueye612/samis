@@ -8,54 +8,54 @@
     @cancel="emit('cancel')"
   >
     <a-form :model="form" layout="vertical">
-      <a-form-item label="手术间编码" :required="isRequired('roomCode')">
+      <a-form-item v-if="isVisible('roomCode')" :label="labelFor('roomCode', '手术间编码')" :required="isRequired('roomCode')">
         <a-input v-model="form.roomCode" placeholder="稳定业务编码，全局唯一" :disabled="!isCreate" />
       </a-form-item>
-      <a-form-item label="手术间名称" :required="isRequired('roomName')">
+      <a-form-item v-if="isVisible('roomName')" :label="labelFor('roomName', '手术间名称')" :required="isRequired('roomName')">
         <a-input v-model="form.roomName" />
       </a-form-item>
       <a-row :gutter="12">
-        <a-col :span="8"><a-form-item label="简称"><a-input v-model="form.shortName" /></a-form-item></a-col>
-        <a-col :span="8"><a-form-item label="类型" :required="isRequired('roomType')"><a-input v-model="form.roomType" /></a-form-item></a-col>
-        <a-col :span="8"><a-form-item label="排序"><a-input-number v-model="form.sortNo" :min="0" /></a-form-item></a-col>
+        <a-col v-if="isVisible('shortName')" :span="8"><a-form-item :label="labelFor('shortName', '简称')" :required="isRequired('shortName')"><a-input v-model="form.shortName" /></a-form-item></a-col>
+        <a-col v-if="isVisible('roomType')" :span="8"><a-form-item :label="labelFor('roomType', '类型')" :required="isRequired('roomType')"><a-select v-if="optionsFor('roomType').length" v-model="form.roomType" :options="optionsFor('roomType')" allow-clear /><a-input v-else v-model="form.roomType" /></a-form-item></a-col>
+        <a-col v-if="isVisible('sortNo')" :span="8"><a-form-item :label="labelFor('sortNo', '排序')" :required="isRequired('sortNo')"><a-input-number v-model="form.sortNo" :min="0" /></a-form-item></a-col>
       </a-row>
       <a-row :gutter="12">
-        <a-col :span="12"><a-form-item label="所属手术部编码" :required="isRequired('roomGroupId')"><a-input v-model="form.roomGroupId" /></a-form-item></a-col>
-        <a-col :span="12"><a-form-item label="所属手术部名称"><a-input v-model="form.roomGroupName" /></a-form-item></a-col>
+        <a-col v-if="isVisible('roomGroupId')" :span="12"><a-form-item :label="labelFor('roomGroupId', '所属手术部编码')" :required="isRequired('roomGroupId')"><a-input v-model="form.roomGroupId" /></a-form-item></a-col>
+        <a-col v-if="isVisible('roomGroupName')" :span="12"><a-form-item :label="labelFor('roomGroupName', '所属手术部名称')" :required="isRequired('roomGroupName')"><a-input v-model="form.roomGroupName" /></a-form-item></a-col>
       </a-row>
       <a-row :gutter="12">
-        <a-col :span="8"><a-form-item label="院区" :required="isRequired('campus')"><a-input v-model="form.campus" /></a-form-item></a-col>
-        <a-col :span="8"><a-form-item label="楼层"><a-input v-model="form.floor" /></a-form-item></a-col>
-        <a-col :span="8"><a-form-item label="位置" :required="isRequired('location')"><a-input v-model="form.location" /></a-form-item></a-col>
+        <a-col v-if="isVisible('campus')" :span="8"><a-form-item :label="labelFor('campus', '院区')" :required="isRequired('campus')"><a-input v-model="form.campus" /></a-form-item></a-col>
+        <a-col v-if="isVisible('floor')" :span="8"><a-form-item :label="labelFor('floor', '楼层')" :required="isRequired('floor')"><a-input v-model="form.floor" /></a-form-item></a-col>
+        <a-col v-if="isVisible('location')" :span="8"><a-form-item :label="labelFor('location', '位置')" :required="isRequired('location')"><a-input v-model="form.location" /></a-form-item></a-col>
       </a-row>
       <a-row :gutter="12">
-        <a-col :span="8"><a-form-item label="洁净等级" :required="isRequired('cleanLevel')"><a-input v-model="form.cleanLevel" /></a-form-item></a-col>
-        <a-col :span="8"><a-form-item label="台位数量" :required="isRequired('stationCapacity')"><a-input-number v-model="form.stationCapacity" :min="0" /></a-form-item></a-col>
-        <a-col :span="8">
+        <a-col v-if="isVisible('cleanLevel')" :span="8"><a-form-item :label="labelFor('cleanLevel', '洁净等级')" :required="isRequired('cleanLevel')"><a-select v-if="optionsFor('cleanLevel').length" v-model="form.cleanLevel" :options="optionsFor('cleanLevel')" allow-clear /><a-input v-else v-model="form.cleanLevel" /></a-form-item></a-col>
+        <a-col v-if="isVisible('stationCapacity')" :span="8"><a-form-item :label="labelFor('stationCapacity', '台位数量')" :required="isRequired('stationCapacity')"><a-input-number v-model="form.stationCapacity" :min="0" /></a-form-item></a-col>
+        <a-col v-if="isVisible('emergencyCapable') || isVisible('negativePressure') || isVisible('hybridRoom')" :span="8">
           <a-form-item label="能力开关">
             <a-space>
-              <a-checkbox v-model="form.emergencyCapable">急诊</a-checkbox>
-              <a-checkbox v-model="form.negativePressure">负压</a-checkbox>
-              <a-checkbox v-model="form.hybridRoom">复合</a-checkbox>
+              <a-checkbox v-if="isVisible('emergencyCapable')" v-model="form.emergencyCapable">{{ labelFor('emergencyCapable', '急诊') }}</a-checkbox>
+              <a-checkbox v-if="isVisible('negativePressure')" v-model="form.negativePressure">{{ labelFor('negativePressure', '负压') }}</a-checkbox>
+              <a-checkbox v-if="isVisible('hybridRoom')" v-model="form.hybridRoom">{{ labelFor('hybridRoom', '复合') }}</a-checkbox>
             </a-space>
           </a-form-item>
         </a-col>
       </a-row>
       <a-row :gutter="12">
-        <a-col :span="8"><a-form-item label="默认麻醉机" :required="isRequired('defaultAnesthesiaMachine')"><a-input v-model="form.defaultAnesthesiaMachine" /></a-form-item></a-col>
-        <a-col :span="8"><a-form-item label="默认监护仪" :required="isRequired('defaultMonitor')"><a-input v-model="form.defaultMonitor" /></a-form-item></a-col>
-        <a-col :span="8"><a-form-item label="默认工作站" :required="isRequired('defaultWorkstation')"><a-input v-model="form.defaultWorkstation" /></a-form-item></a-col>
+        <a-col v-if="isVisible('defaultAnesthesiaMachine')" :span="8"><a-form-item :label="labelFor('defaultAnesthesiaMachine', '默认麻醉机')" :required="isRequired('defaultAnesthesiaMachine')"><a-input v-model="form.defaultAnesthesiaMachine" /></a-form-item></a-col>
+        <a-col v-if="isVisible('defaultMonitor')" :span="8"><a-form-item :label="labelFor('defaultMonitor', '默认监护仪')" :required="isRequired('defaultMonitor')"><a-input v-model="form.defaultMonitor" /></a-form-item></a-col>
+        <a-col v-if="isVisible('defaultWorkstation')" :span="8"><a-form-item :label="labelFor('defaultWorkstation', '默认工作站')" :required="isRequired('defaultWorkstation')"><a-input v-model="form.defaultWorkstation" /></a-form-item></a-col>
       </a-row>
       <a-row :gutter="12">
-        <a-col :span="8"><a-form-item label="开放时间" :required="isRequired('openTime')"><a-input v-model="form.openTime" placeholder="HH:mm" /></a-form-item></a-col>
-        <a-col :span="8"><a-form-item label="关闭时间"><a-input v-model="form.closeTime" placeholder="HH:mm" /></a-form-item></a-col>
-        <a-col :span="8"><a-form-item label="备注"><a-input v-model="form.remark" /></a-form-item></a-col>
+        <a-col v-if="isVisible('openTime')" :span="8"><a-form-item :label="labelFor('openTime', '开放时间')" :required="isRequired('openTime')"><a-input v-model="form.openTime" placeholder="HH:mm" /></a-form-item></a-col>
+        <a-col v-if="isVisible('closeTime')" :span="8"><a-form-item :label="labelFor('closeTime', '关闭时间')" :required="isRequired('closeTime')"><a-input v-model="form.closeTime" placeholder="HH:mm" /></a-form-item></a-col>
+        <a-col v-if="isVisible('remark')" :span="8"><a-form-item :label="labelFor('remark', '备注')" :required="isRequired('remark')"><a-input v-model="form.remark" /></a-form-item></a-col>
       </a-row>
       <a-row :gutter="12">
-        <a-col :span="12"><a-form-item label="排班偏好"><a-input v-model="form.schedulePreference" /></a-form-item></a-col>
-        <a-col :span="12"><a-form-item label="人员偏好"><a-input v-model="form.staffPreference" /></a-form-item></a-col>
+        <a-col v-if="isVisible('schedulePreference')" :span="12"><a-form-item :label="labelFor('schedulePreference', '排班偏好')" :required="isRequired('schedulePreference')"><a-input v-model="form.schedulePreference" /></a-form-item></a-col>
+        <a-col v-if="isVisible('staffPreference')" :span="12"><a-form-item :label="labelFor('staffPreference', '人员偏好')" :required="isRequired('staffPreference')"><a-input v-model="form.staffPreference" /></a-form-item></a-col>
       </a-row>
-      <a-form-item label="能力（可开展手术类型 / 麻醉方式 / 设备）">
+      <a-form-item v-if="isVisible('capabilities')" :label="labelFor('capabilities', '能力（可开展手术类型 / 麻醉方式 / 设备）')" :required="isRequired('capabilities')">
         <div v-for="(cap, idx) in form.capabilities" :key="idx" class="cap-row">
           <a-select
             v-model="cap.capabilityType"
@@ -86,6 +86,9 @@ import {
   createRoomConfiguration,
   updateRoomConfiguration,
   RoomConfigConflictError,
+  validateRoomRequiredFields,
+  applyRoomFieldDefaults,
+  type RoomFieldConfigEntry,
 } from '@/services/configuration/roomConfigurationService';
 import type { RoomConfiguration } from '@/services/anesthesia/adapters/roomAdapter';
 
@@ -124,7 +127,7 @@ interface EditorForm {
   capabilities: EditorCapability[];
 }
 
-const props = defineProps<{ visible: boolean; room: RoomConfiguration | null; requiredFields?: string[] }>();
+const props = defineProps<{ visible: boolean; room: RoomConfiguration | null; fieldConfigs?: RoomFieldConfigEntry[] }>();
 const emit = defineEmits<{
   (e: 'cancel'): void;
   (e: 'saved'): void;
@@ -135,7 +138,22 @@ const saving = ref(false);
 const form = reactive<EditorForm>(blankForm());
 
 function isRequired(code: string): boolean {
-  return (props.requiredFields ?? ['roomCode', 'roomName']).includes(code);
+  return props.fieldConfigs?.find((field) => field.fieldCode === code)?.required
+    ?? ['roomCode', 'roomName'].includes(code);
+}
+
+function isVisible(code: string): boolean {
+  const field = props.fieldConfigs?.find((item) => item.fieldCode === code);
+  return field ? field.visible || field.required || field.systemField : true;
+}
+
+function labelFor(code: string, fallback: string): string {
+  return props.fieldConfigs?.find((field) => field.fieldCode === code)?.displayName || fallback;
+}
+
+function optionsFor(code: string): Array<{ label: string; value: string }> {
+  return (props.fieldConfigs?.find((field) => field.fieldCode === code)?.options ?? [])
+    .map((option) => ({ label: option, value: option }));
 }
 
 const capabilityTypeOptions = [
@@ -220,7 +238,7 @@ watch(
       });
     } else {
       isCreate.value = true;
-      Object.assign(form, blankForm());
+      Object.assign(form, applyRoomFieldDefaults(blankForm() as unknown as Record<string, unknown>, props.fieldConfigs ?? []));
     }
   },
   { immediate: true },
@@ -235,13 +253,19 @@ async function onSave() {
     Message.warning('手术间名称不能为空');
     return;
   }
+  const payload = toPayload();
+  const missing = validateRoomRequiredFields(payload, props.fieldConfigs ?? []);
+  if (missing) {
+    Message.warning(`${missing.displayName}不能为空`);
+    return;
+  }
   saving.value = true;
   try {
     if (isCreate.value) {
-      await createRoomConfiguration(toPayload());
+      await createRoomConfiguration(payload);
       Message.success('创建成功');
     } else {
-      await updateRoomConfiguration(toPayload());
+      await updateRoomConfiguration(payload);
       Message.success('更新成功');
     }
     emit('saved');

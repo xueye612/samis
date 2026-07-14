@@ -30,20 +30,18 @@
           <a-empty description="暂无手术间" />
         </template>
         <template #columns>
-          <a-table-column
-            v-for="field in tableFields"
-            :key="field.fieldCode"
-            :title="field.displayName"
-          >
-            <template #cell="{ record }">
-              <span v-if="field.fieldCode === 'capabilities'">
-                <a-tag v-for="cap in record.capabilities" :key="cap.capabilityType + cap.capabilityCode">
-                  {{ cap.capabilityCode }}
-                </a-tag>
-              </span>
-              <a-tag v-else-if="field.fieldCode === 'status'" :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
-              <span v-else>{{ formatCell(record, field.fieldCode) }}</span>
-            </template>
+          <a-table-column v-for="group in tableFieldGroups" :key="group.groupName" :title="group.groupName">
+            <a-table-column v-for="field in group.fields" :key="field.fieldCode" :title="field.displayName">
+              <template #cell="{ record }">
+                <span v-if="field.fieldCode === 'capabilities'">
+                  <a-tag v-for="cap in record.capabilities" :key="cap.capabilityType + cap.capabilityCode">
+                    {{ cap.capabilityCode }}
+                  </a-tag>
+                </span>
+                <a-tag v-else-if="field.fieldCode === 'status'" :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
+                <span v-else>{{ formatCell(record, field.fieldCode) }}</span>
+              </template>
+            </a-table-column>
           </a-table-column>
           <a-table-column title="操作" :width="280" :fixed="rooms.length ? 'right' : undefined">
             <template #cell="{ record }">
@@ -63,7 +61,7 @@
     <RoomEditorDrawer
       :visible="editorVisible"
       :room="editingRoom"
-      :required-fields="requiredFieldCodes"
+      :field-configs="fieldConfig"
       @cancel="editorVisible = false"
       @saved="onSaved"
     />
@@ -111,26 +109,17 @@ import {
   loadHospitalFieldConfig,
   canManageRoom,
   canManageField,
+  groupRoomTableFields,
   RoomConfigConflictError,
+  type RoomFieldConfigEntry,
 } from '@/services/configuration/roomConfigurationService';
 import type { RoomConfiguration } from '@/services/anesthesia/adapters/roomAdapter';
 import { useRealRoom } from '@/config/apiFlags';
 
-interface FieldConfigEntry {
-  fieldCode: string;
-  displayName: string;
-  visible: boolean;
-  required: boolean;
-  sortNo: number;
-  groupName: string | null;
-  systemField: boolean;
-  serverRequired: boolean;
-}
-
 const store = useAnesthesiaStore();
 
 const rooms = ref<RoomConfiguration[]>([]);
-const fieldConfig = ref<FieldConfigEntry[]>([]);
+const fieldConfig = ref<RoomFieldConfigEntry[]>([]);
 const loading = ref(false);
 const loadError = ref('');
 const source = ref<'remote' | 'local'>('local');
@@ -141,21 +130,33 @@ const editingRoom = ref<RoomConfiguration | null>(null);
 const historyVisible = ref(false);
 const historyRoomId = ref<number | null>(null);
 const fieldConfigVisible = ref(false);
-const hospitalCode = ref('default');
+const hospitalCode = ref(resolveHospitalCode());
 const statusModalVisible = ref(false);
 const statusSaving = ref(false);
 const statusReason = ref('');
 const statusTarget = ref<{ room: RoomConfiguration; toStatus: 'enabled' | 'paused' | 'disabled' } | null>(null);
+
+function resolveHospitalCode(): string {
+  if (typeof window === 'undefined') return 'default';
+  const explicit = sessionStorage.getItem('samis_hospital_code');
+  if (explicit) return explicit;
+  try {
+    const profile = JSON.parse(sessionStorage.getItem('samis_user_profile') ?? '{}') as Record<string, unknown>;
+    return String(profile.hospitalCode ?? profile.hospital_code ?? 'default');
+  } catch {
+    return 'default';
+  }
+}
 
 const canManage = computed(() => !useRealRoom() || canManageRoom(permissions.value));
 const canManageFieldCfg = computed(() => !useRealRoom() || canManageField(permissions.value));
 
 /** 表格列：按医院字段配置的显示名/显示/排序控制；系统关键字段（编码/状态/版本）与能力核心列始终可见，不可隐藏。 */
 const SYSTEM_ALWAYS_FIELDS = ['roomCode', 'status', 'version', 'capabilities'];
-const tableFields = computed<FieldConfigEntry[]>(() => {
+const tableFields = computed<RoomFieldConfigEntry[]>(() => {
   const cfgMap = new Map(fieldConfig.value.map((f) => [f.fieldCode, f]));
-  const baseOrder = ['roomCode', 'roomName', 'shortName', 'roomType', 'roomGroupId', 'roomGroupName', 'campus', 'floor', 'location', 'cleanLevel', 'capabilities', 'stationCapacity', 'version', 'status'];
-  const result: FieldConfigEntry[] = [];
+  const baseOrder = ['roomCode', 'roomName', 'shortName', 'roomType', 'roomGroupId', 'roomGroupName', 'campus', 'floor', 'location', 'cleanLevel', 'emergencyCapable', 'negativePressure', 'hybridRoom', 'capabilities', 'defaultAnesthesiaMachine', 'defaultMonitor', 'defaultWorkstation', 'stationCapacity', 'openTime', 'closeTime', 'schedulePreference', 'staffPreference', 'sortNo', 'remark', 'version', 'status'];
+  const result: RoomFieldConfigEntry[] = [];
   for (const code of baseOrder) {
     const cfg = cfgMap.get(code);
     const visible = cfg ? cfg.visible || SYSTEM_ALWAYS_FIELDS.includes(code) : SYSTEM_ALWAYS_FIELDS.includes(code);
@@ -169,16 +170,17 @@ const tableFields = computed<FieldConfigEntry[]>(() => {
       groupName: cfg?.groupName ?? null,
       systemField: cfg?.systemField ?? SYSTEM_ALWAYS_FIELDS.includes(code),
       serverRequired: cfg?.serverRequired ?? false,
+      dataType: cfg?.dataType ?? 'string',
+      defaultValue: cfg?.defaultValue ?? null,
+      options: cfg?.options ?? [],
+      version: cfg?.version ?? null,
+      id: cfg?.id ?? null,
+      updatedAt: cfg?.updatedAt ?? null,
     });
   }
   return [...result].sort((a, b) => a.sortNo - b.sortNo);
 });
-
-const requiredFieldCodes = computed(() => {
-  const codes = new Set<string>(['roomCode', 'roomName']);
-  fieldConfig.value.filter((f) => f.required).forEach((f) => codes.add(f.fieldCode));
-  return [...codes];
-});
+const tableFieldGroups = computed(() => groupRoomTableFields(tableFields.value));
 
 function defaultLabel(code: string): string {
   const map: Record<string, string> = {
@@ -197,10 +199,10 @@ async function reload() {
     // 配置管理页查询全部生命周期状态；业务目录默认只返回 enabled（后端边界）
     const [roomList, cfg] = await Promise.all([
       loadRoomConfigurationList({ allStatus: true }),
-      loadHospitalFieldConfig(hospitalCode.value).catch(() => [] as FieldConfigEntry[]),
+      loadHospitalFieldConfig(hospitalCode.value).catch(() => [] as RoomFieldConfigEntry[]),
     ]);
     rooms.value = roomList;
-    fieldConfig.value = (cfg as FieldConfigEntry[]).map((c) => ({ ...c }));
+    fieldConfig.value = cfg.map((c) => ({ ...c, options: [...c.options] }));
     source.value = 'remote';
   } catch (error) {
     rooms.value = [];

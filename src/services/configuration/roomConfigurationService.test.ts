@@ -32,6 +32,10 @@ const {
   loadRoomConfigurationHistory,
   loadHospitalFieldConfig,
   saveHospitalFieldConfig,
+  normalizeRoomFieldConfigs,
+  validateRoomRequiredFields,
+  applyRoomFieldDefaults,
+  groupRoomTableFields,
   canManageRoom,
   canManageField,
   RoomConfigConflictError,
@@ -96,9 +100,47 @@ describe('roomConfigurationService', () => {
   });
 
   it('field config load returns baseline merged data', async () => {
-    configurationApiMock.fieldConfig.mockResolvedValue({ list: [{ fieldCode: 'roomCode', required: true }] });
+    configurationApiMock.fieldConfig.mockResolvedValue({
+      list: [
+        { fieldCode: 'roomCode', displayName: '编码', dataType: 'string', visible: true, required: true, sortNo: 1, groupName: '基础', options: null },
+        { fieldCode: 'cleanLevel', displayName: '洁净', dataType: 'enum', visible: true, required: false, sortNo: 2, groupName: '环境', defaultValue: '千级', options: '["百级","千级"]' },
+      ],
+    });
     const cfg = await loadHospitalFieldConfig('E2E');
     expect(cfg).toEqual(expect.arrayContaining([expect.objectContaining({ fieldCode: 'roomCode' })]));
+    expect(cfg[1].options).toEqual(['百级', '千级']);
+  });
+
+  it('normalizes field options and groups fields by configured order', () => {
+    const fields = normalizeRoomFieldConfigs([
+      { fieldCode: 'location', displayName: '位置', dataType: 'string', visible: true, required: false, sortNo: 20, groupName: '环境', options: null },
+      { fieldCode: 'roomCode', displayName: '编码', dataType: 'string', visible: true, required: true, sortNo: 1, groupName: '基础', options: null },
+      { fieldCode: 'cleanLevel', displayName: '洁净', dataType: 'enum', visible: true, required: false, sortNo: 10, groupName: '环境', options: '["百级","千级"]' },
+    ]);
+    expect(fields.find((field) => field.fieldCode === 'cleanLevel')?.options).toEqual(['百级', '千级']);
+    expect(groupRoomTableFields(fields).map((group) => [group.groupName, group.fields.map((field) => field.fieldCode)]))
+      .toEqual([['基础', ['roomCode']], ['环境', ['cleanLevel', 'location']]]);
+  });
+
+  it('enforces configured required fields while preserving valid false and zero values', () => {
+    const fields = normalizeRoomFieldConfigs([
+      { fieldCode: 'location', displayName: '位置', dataType: 'string', visible: true, required: true, sortNo: 1 },
+      { fieldCode: 'stationCapacity', displayName: '台位', dataType: 'integer', visible: true, required: true, sortNo: 2 },
+      { fieldCode: 'negativePressure', displayName: '负压', dataType: 'boolean', visible: true, required: true, sortNo: 3 },
+    ]);
+    expect(validateRoomRequiredFields({ location: '', stationCapacity: 0, negativePressure: false }, fields))
+      .toEqual({ fieldCode: 'location', displayName: '位置' });
+    expect(validateRoomRequiredFields({ location: 'A区', stationCapacity: 0, negativePressure: false }, fields)).toBeNull();
+  });
+
+  it('applies configured defaults only to empty create-form values', () => {
+    const fields = normalizeRoomFieldConfigs([
+      { fieldCode: 'stationCapacity', displayName: '台位', dataType: 'integer', visible: true, required: false, sortNo: 1, defaultValue: '2' },
+      { fieldCode: 'negativePressure', displayName: '负压', dataType: 'boolean', visible: true, required: false, sortNo: 2, defaultValue: '1' },
+      { fieldCode: 'cleanLevel', displayName: '洁净', dataType: 'enum', visible: true, required: false, sortNo: 3, defaultValue: '千级', options: '["百级","千级"]' },
+    ]);
+    expect(applyRoomFieldDefaults({ stationCapacity: 0, negativePressure: false, cleanLevel: '' }, fields))
+      .toMatchObject({ stationCapacity: 2, negativePressure: true, cleanLevel: '千级' });
   });
 
   it('permission helpers honor wildcard and explicit codes', () => {

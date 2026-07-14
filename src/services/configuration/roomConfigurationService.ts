@@ -14,6 +14,28 @@ export const ROOM_MANAGE_PERMISSION = 'config.room.manage';
 export const FIELD_MANAGE_PERMISSION = 'config.field.manage';
 export const ROOM_CONFIG_CONFLICT_CODE = 4091;
 
+export interface RoomFieldConfigEntry {
+  fieldCode: string;
+  displayName: string;
+  dataType: string;
+  serverRequired: boolean;
+  systemField: boolean;
+  visible: boolean;
+  required: boolean;
+  sortNo: number;
+  groupName: string | null;
+  defaultValue: string | null;
+  options: string[];
+  version: number | null;
+  id: number | null;
+  updatedAt: string | null;
+}
+
+export interface RoomFieldGroup {
+  groupName: string;
+  fields: RoomFieldConfigEntry[];
+}
+
 export class RoomConfigConflictError extends Error {
   constructor(message = '数据已被其他人修改，请刷新后重试') {
     super(message);
@@ -107,7 +129,7 @@ export async function loadRoomConfigurationHistory(id: number | string): Promise
 
 export async function loadHospitalFieldConfig(hospitalCode: string, entityType = 'room') {
   const raw = await configurationApi.fieldConfig(hospitalCode, entityType);
-  return unwrapListPayload(unwrapData(raw));
+  return normalizeRoomFieldConfigs(unwrapListPayload(unwrapData(raw)));
 }
 
 export async function saveHospitalFieldConfig(payload: Record<string, unknown>) {
@@ -116,4 +138,91 @@ export async function saveHospitalFieldConfig(payload: Record<string, unknown>) 
   } catch (error) {
     throwIfConflict(error);
   }
+}
+
+export function normalizeRoomFieldConfigs(raw: unknown): RoomFieldConfigEntry[] {
+  const list = Array.isArray(raw) ? raw : unwrapListPayload(raw);
+  return list.map((item, index) => {
+    const row = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    return {
+      fieldCode: String(row.fieldCode ?? ''),
+      displayName: String(row.displayName ?? row.fieldCode ?? ''),
+      dataType: String(row.dataType ?? 'string'),
+      serverRequired: Boolean(row.serverRequired),
+      systemField: Boolean(row.systemField),
+      visible: row.visible === undefined ? true : Boolean(row.visible),
+      required: Boolean(row.required),
+      sortNo: Number.isFinite(Number(row.sortNo)) ? Number(row.sortNo) : index,
+      groupName: row.groupName === null || row.groupName === undefined || row.groupName === '' ? null : String(row.groupName),
+      defaultValue: row.defaultValue === null || row.defaultValue === undefined ? null : String(row.defaultValue),
+      options: normalizeOptions(row.options),
+      version: row.version === null || row.version === undefined ? null : Number(row.version),
+      id: row.id === null || row.id === undefined ? null : Number(row.id),
+      updatedAt: row.updatedAt === null || row.updatedAt === undefined ? null : String(row.updatedAt),
+    };
+  }).filter((item) => item.fieldCode);
+}
+
+function normalizeOptions(value: unknown): string[] {
+  let values: unknown = value;
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      values = JSON.parse(value);
+    } catch {
+      values = [];
+    }
+  }
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.map((item) => String(item).trim()).filter(Boolean))];
+}
+
+export function groupRoomTableFields(fields: RoomFieldConfigEntry[]): RoomFieldGroup[] {
+  const sorted = [...fields].filter((field) => field.visible).sort((a, b) => a.sortNo - b.sortNo);
+  const groups = new Map<string, RoomFieldConfigEntry[]>();
+  sorted.forEach((field) => {
+    const groupName = field.groupName || '其他';
+    const current = groups.get(groupName) ?? [];
+    current.push(field);
+    groups.set(groupName, current);
+  });
+  return [...groups.entries()].map(([groupName, groupFields]) => ({ groupName, fields: groupFields }));
+}
+
+export function validateRoomRequiredFields(
+  payload: Record<string, unknown>,
+  fields: RoomFieldConfigEntry[],
+): { fieldCode: string; displayName: string } | null {
+  for (const field of [...fields].sort((a, b) => a.sortNo - b.sortNo)) {
+    if (!field.required || !(field.fieldCode in payload)) continue;
+    const value = payload[field.fieldCode];
+    const missing = value === null
+      || value === undefined
+      || (typeof value === 'string' && value.trim() === '')
+      || (Array.isArray(value) && value.length === 0);
+    if (missing) return { fieldCode: field.fieldCode, displayName: field.displayName };
+  }
+  return null;
+}
+
+export function applyRoomFieldDefaults<T extends Record<string, unknown>>(
+  payload: T,
+  fields: RoomFieldConfigEntry[],
+): T {
+  const result: Record<string, unknown> = { ...payload };
+  fields.forEach((field) => {
+    if (field.defaultValue === null || !(field.fieldCode in result)) return;
+    const current = result[field.fieldCode];
+    const empty = current === '' || current === null || current === undefined
+      || (field.dataType === 'integer' && current === 0)
+      || (field.dataType === 'boolean' && current === false);
+    if (!empty) return;
+    if (field.dataType === 'integer') {
+      result[field.fieldCode] = Number(field.defaultValue);
+    } else if (field.dataType === 'boolean') {
+      result[field.fieldCode] = ['1', 'true'].includes(field.defaultValue);
+    } else {
+      result[field.fieldCode] = field.defaultValue;
+    }
+  });
+  return result as T;
 }
