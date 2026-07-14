@@ -172,21 +172,22 @@
           </a-card>
         </a-spin>
 
-        <a-drawer v-model:visible="drawerVisible" width="640px" :title="editing?.id?.startsWith('case-new') ? '新增手术排班' : '编辑手术排班'" @ok="saveCase">
-          <a-form v-if="editing" :model="editing" layout="vertical">
+        <a-drawer v-model:visible="drawerVisible" width="640px" :title="editing?.id?.startsWith('case-new') ? '新增手术排班' : '编辑手术排班'" :ok-button-props="{ disabled: !editing || formDisabled }" @ok="saveCase">
+          <a-form v-if="editing" :model="editing" :disabled="formDisabled" layout="vertical">
             <a-alert v-if="useRealOperationInfo() && !canEditMaster" type="warning" show-icon class="drawer-tip">
               无手术主数据修改权限（operation.master_data.update）；仅可查看，不可保存主数据。
             </a-alert>
             <a-alert v-else type="normal" show-icon class="drawer-tip">
               主数据走受控修改（权限+白名单+版本+字段审计）；护理排班/台次单独保存。不保存用药与生命体征。
             </a-alert>
+            <a-descriptions v-if="useRealOperationInfo() && !editing.id.startsWith('case-new')" :column="3" size="mini" class="drawer-meta" :data="masterDataMeta" />
             <a-form-item v-if="useRealOperationInfo() && canEditMaster && !editing.id.startsWith('case-new')" label="修改原因（必填）">
               <a-input v-model="masterDataReason" placeholder="请填写本次主数据修改原因" :max-length="200" />
             </a-form-item>
             <a-row :gutter="12">
               <a-col :span="8"><a-form-item label="手术间"><a-select v-model="editing.room" :options="drawerRoomOptions" /></a-form-item></a-col>
               <a-col :span="8"><a-form-item label="台次"><a-input-number v-model="editing.sequence" :min="1" /></a-form-item></a-col>
-              <a-col :span="8"><a-form-item label="状态"><a-select v-model="editing.status" :options="statusOptions" /></a-form-item></a-col>
+              <a-col :span="8"><a-form-item label="状态"><a-select v-model="editing.status" :options="statusOptions" :disabled="useRealOperationInfo()" /></a-form-item></a-col>
               <a-col :span="12"><a-form-item label="预计开始"><a-date-picker v-model="editing.scheduledStart" show-time format="YYYY-MM-DD HH:mm" style="width: 100%" /></a-form-item></a-col>
               <a-col :span="12"><a-form-item label="预计结束"><a-date-picker v-model="editing.scheduledEnd" show-time format="YYYY-MM-DD HH:mm" style="width: 100%" /></a-form-item></a-col>
               <a-col :span="8"><a-form-item label="患者"><a-input v-model="editing.patientName" /></a-form-item></a-col>
@@ -199,9 +200,23 @@
               <a-col :span="12"><a-form-item label="麻醉方式"><a-input v-model="editing.anesthesiaMethod" /></a-form-item></a-col>
               <a-col :span="12"><a-form-item label="麻醉医师"><a-select v-model="editing.anesthesiologist" :options="store.doctorOptions.map((d) => ({ label: d, value: d }))" allow-search /></a-form-item></a-col>
               <a-col :span="12"><a-form-item label="麻醉护士"><a-input v-model="editing.anesthesiaNurse" /></a-form-item></a-col>
-              <a-col :span="12"><a-form-item label="急诊插单"><a-switch v-model="editing.emergencyInserted" /></a-form-item></a-col>
+              <a-col :span="12"><a-form-item label="急诊插单"><a-switch v-model="editing.emergencyInserted" :disabled="useRealOperationInfo()" /></a-form-item></a-col>
             </a-row>
           </a-form>
+          <div v-if="useRealOperationInfo() && editing && !editing.id.startsWith('case-new') && masterDataAudit.length" class="drawer-audit">
+            <h4>主数据修改审计</h4>
+            <a-table :data="masterDataAudit" :pagination="false" size="mini">
+              <template #columns>
+                <a-table-column title="字段" data-index="label" :width="90" />
+                <a-table-column title="变更前" data-index="before" :width="90" />
+                <a-table-column title="变更后" data-index="after" :width="90" />
+                <a-table-column title="原因" data-index="reason" />
+                <a-table-column title="操作人" data-index="actorId" :width="80" />
+                <a-table-column title="角色" data-index="actorRole" :width="80" />
+                <a-table-column title="时间" data-index="occurredAt" :width="140" />
+              </template>
+            </a-table>
+          </div>
         </a-drawer>
       </a-tab-pane>
       <a-tab-pane key="calendar" title="日历视图">
@@ -250,7 +265,9 @@ import {
 import {
   canEditMasterData,
   MasterDataConflictError,
-  saveMasterDataWithReadback,
+  MasterDataPermissionError,
+  saveScheduleMasterData,
+  type MasterDataAuditEntry,
 } from '@/services/anesthesia/operationMasterDataService';
 import { authApi } from '@/api/auth';
 import type { SurgeryCase } from '@/types/anesthesia';
@@ -278,7 +295,20 @@ const originalSequence = ref<number>();
 const editingSnapshot = ref<SurgeryCase>();
 const permissions = ref<string[]>([]);
 const masterDataReason = ref('');
+const masterDataAudit = ref<MasterDataAuditEntry[]>([]);
 const canEditMaster = computed(() => canEditMasterData(permissions.value));
+const formDisabled = computed(() => useRealOperationInfo() && !canEditMaster.value);
+
+const dash = (v: unknown) => (v === undefined || v === null || v === '') ? '—' : String(v);
+const masterDataMeta = computed(() => {
+  const oc = editing.value?.operationCase;
+  return [
+    { label: '版本', value: dash(oc?.version) },
+    { label: '来源系统', value: dash(oc?.sourceSystem) },
+    { label: '来源表', value: dash(oc?.sourceTable) },
+    { label: '最后更新', value: dash(oc?.lastUpdatedAt) },
+  ];
+});
 
 const statusOptions = ['待入室', '已入室', '麻醉诱导', '麻醉中', '手术中', '苏醒中', 'PACU', '已离室', '已取消'];
 
@@ -392,6 +422,11 @@ function onStationDraftChange(caseId: string, value: number) {
 }
 
 async function saveStationBatch() {
+  // 真实模式台次必须通过受控主数据信封（含版本/原因）保存，不调用无凭据旁路接口
+  if (useRealOperationInfo()) {
+    Message.warning('真实模式下台次修改请在编辑抽屉中填写原因后随主数据保存');
+    return;
+  }
   const items = Object.entries(stationDirty)
     .filter(([, dirty]) => dirty)
     .map(([operationId]) => {
@@ -436,8 +471,47 @@ const openEdit = (item: SurgeryCase) => {
   editingSnapshot.value = clone(item);
   originalSequence.value = item.sequence;
   masterDataReason.value = '';
+  masterDataAudit.value = [];
   drawerVisible.value = true;
+  if (useRealOperationInfo()) {
+    loadMasterDataAudit(item.id);
+  }
 };
+
+async function loadMasterDataAudit(operationId: string) {
+  try {
+    const result = await authApi.auditByOperation(operationId);
+    const list = (result as { list?: unknown })?.list ?? [];
+    masterDataAudit.value = (Array.isArray(list) ? list : [])
+      .filter((row) => {
+        const r = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>;
+        return r.module === 'operation' && r.action === 'masterDataUpdate';
+      })
+      .flatMap((row) => {
+        const r = (row && typeof row === 'object' ? row : {}) as Record<string, unknown>;
+        const summary = Array.isArray(r.changeSummary) ? r.changeSummary : [];
+        const base = {
+          actorId: r.actorId != null ? String(r.actorId) : '—',
+          actorRole: r.actorRole != null ? String(r.actorRole) : '—',
+          occurredAt: r.occurredAt != null ? String(r.occurredAt) : '—',
+          result: r.result != null ? String(r.result) : '',
+        };
+        return summary.map((change) => {
+          const c = (change && typeof change === 'object' ? change : {}) as Record<string, unknown>;
+          return {
+            field: String(c.field ?? ''),
+            label: c.label != null ? String(c.label) : String(c.field ?? ''),
+            before: c.before ?? '—',
+            after: c.after ?? '—',
+            reason: c.reason != null ? String(c.reason) : '—',
+            ...base,
+          } as MasterDataAuditEntry & { result: string };
+        });
+      });
+  } catch {
+    masterDataAudit.value = [];
+  }
+}
 
 const openCreate = (emergency: boolean) => {
   const base = store.cases[0] ? clone(store.cases[0]) : undefined;
@@ -524,25 +598,40 @@ const saveCase = async () => {
     Message.warning('真实模式下新增/急诊插单需独立创建接口，暂未开放');
     return;
   }
+  // 真实模式无主数据权限：完全阻止保存（0 主数据/护理/台次写请求）
+  if (useRealOperationInfo() && !canEditMaster.value) {
+    Message.warning('无手术主数据修改权限');
+    return;
+  }
   item.roomId = item.room;
   item.roomName = item.room;
   item.plannedStart = item.scheduledStart ?? item.plannedStart;
   item.assignedAnesthesiologistIds = [item.anesthesiologist];
 
-  // 受控主数据保存（需权限 + 修改原因）：校验 → POST → GET 回读 → 更新 store
-  if (canEditMaster.value && !isNew) {
-    const reason = masterDataReason.value.trim();
-    if (!reason) {
-      Message.warning('请填写修改原因');
-      return;
-    }
+  if (useRealOperationInfo()) {
+    // 受控主数据保存：权限门禁 + 修改原因 + POST 信封（台次随 sequence 进入信封）→ GET 回读 → 护理排班独立
     const changes = buildMasterDataChangesFromDiff(editingSnapshot.value ?? item, item);
     try {
-      const { case: readback } = await saveMasterDataWithReadback({ item, reason, changes });
-      store.upsertCase(readback);
+      const outcome = await saveScheduleMasterData({
+        permissions: permissions.value,
+        item,
+        reason: masterDataReason.value,
+        changes,
+        saveNursePb: (it, date) => saveNurseSchedule(buildSaveNursePbPayload(it, date ?? filterDate.value)),
+        operationDate: filterDate.value,
+      });
+      store.upsertCase(outcome.case);
+      masterDataAudit.value = outcome.audit;
       masterDataReason.value = '';
+      if (outcome.nurseError) {
+        Message.warning(`主数据已保存；护理排班：${outcome.nurseError}`);
+      } else {
+        Message.success('排班已保存');
+      }
     } catch (error) {
-      if (error instanceof MasterDataConflictError) {
+      if (error instanceof MasterDataPermissionError) {
+        Message.warning('无手术主数据修改权限');
+      } else if (error instanceof MasterDataConflictError) {
         Message.warning('数据已被其他人修改，请刷新后重试');
       } else {
         Message.warning(error instanceof Error ? error.message : '主数据保存失败');
@@ -552,29 +641,24 @@ const saveCase = async () => {
     }
   } else if (item.emergencyInserted) {
     store.createEmergencyCase(item);
+    // Mock 模式保留护理排班与台次旁路（真实模式台次已随主数据信封保存）
+    await saveNurseSchedule(buildSaveNursePbPayload(item, filterDate.value)).catch((e) => {
+      Message.warning(e instanceof Error ? e.message : '护理排班保存失败');
+    });
+    if (originalSequence.value !== undefined && item.sequence !== originalSequence.value) {
+      await updateOperationStations([{ operationId: item.id, numberOfStations: item.sequence, room: item.room }])
+        .catch((e) => Message.warning(e instanceof Error ? e.message : '台次更新失败'));
+    }
+    Message.success('排班已保存');
   } else {
     store.upsertCase(item);
-  }
-
-  // 护理排班与台次职责分离：主数据成功后单独保存，部分失败不影响主数据真值
-  const errors: string[] = [];
-  await saveNurseSchedule(buildSaveNursePbPayload(item, filterDate.value)).catch((e) => {
-    errors.push(e instanceof Error ? e.message : '护理排班保存失败');
-  });
-
-  if (originalSequence.value !== undefined && item.sequence !== originalSequence.value) {
-    await updateOperationStations([{
-      operationId: item.id,
-      numberOfStations: item.sequence,
-      room: item.room,
-    }]).catch((e) => {
-      errors.push(e instanceof Error ? e.message : '台次更新失败');
+    await saveNurseSchedule(buildSaveNursePbPayload(item, filterDate.value)).catch((e) => {
+      Message.warning(e instanceof Error ? e.message : '护理排班保存失败');
     });
-  }
-
-  if (errors.length) {
-    Message.warning(`主数据已保存；护理排班/台次：${errors.join('；')}`);
-  } else {
+    if (originalSequence.value !== undefined && item.sequence !== originalSequence.value) {
+      await updateOperationStations([{ operationId: item.id, numberOfStations: item.sequence, room: item.room }])
+        .catch((e) => Message.warning(e instanceof Error ? e.message : '台次更新失败'));
+    }
     Message.success('排班已保存');
   }
 
@@ -590,7 +674,10 @@ onMounted(async () => {
   if (useRealOperationInfo()) {
     try {
       const result = await authApi.myPermissions();
-      permissions.value = Array.isArray(result) ? result.map(String) : [];
+      // 真实返回结构为 { permissions, role, groupid }；页面读取 result.permissions
+      permissions.value = Array.isArray(result?.permissions)
+        ? result.permissions.map(String)
+        : (Array.isArray(result) ? (result as unknown[]).map(String) : []);
     } catch {
       permissions.value = [];
     }
@@ -663,6 +750,16 @@ onMounted(async () => {
 }
 .drawer-tip {
   margin-bottom: 12px;
+}
+.drawer-meta {
+  margin-bottom: 12px;
+}
+.drawer-audit {
+  margin-top: 16px;
+}
+.drawer-audit h4 {
+  margin: 0 0 8px;
+  font-size: var(--font-size-sm);
 }
 @media (max-width: 1200px) {
   .week-grid {

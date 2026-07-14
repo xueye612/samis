@@ -32,6 +32,14 @@ export class MasterDataConflictError extends Error {
   }
 }
 
+/** 无手术主数据修改权限时抛出；页面据此阻止任何写请求。 */
+export class MasterDataPermissionError extends Error {
+  constructor(message = '无手术主数据修改权限') {
+    super(message);
+    this.name = 'MasterDataPermissionError';
+  }
+}
+
 /** 是否拥有手术主数据修改权限（通配 * 或显式权限码）。 */
 export function canEditMasterData(permissions: string[] | null | undefined): boolean {
   if (!permissions) return false;
@@ -111,4 +119,57 @@ export async function saveMasterDataWithReadback(options: SaveMasterDataOptions)
   }
 
   return { case: merged, audit };
+}
+
+export interface SaveScheduleMasterDataOptions {
+  permissions: string[] | null | undefined;
+  item: SurgeryCase;
+  reason: string;
+  changes: MasterDataChange[];
+  /** 主数据 POST→GET 成功后独立执行的护理排班保存回调。 */
+  saveNursePb?: (item: SurgeryCase, operationDate?: string) => Promise<unknown>;
+  operationDate?: string;
+}
+
+export interface SaveScheduleMasterDataOutcome {
+  case: SurgeryCase;
+  audit: MasterDataAuditEntry[];
+  nurseSaved: boolean;
+  nurseError?: string;
+}
+
+/**
+ * 排班页受控主数据保存编排：权限门禁 → 校验原因 → POST 信封（台次随 sequence 进入信封）→
+ * GET 回读 → 护理排班独立保存。无权限时立即抛出，不发起任何主数据/护理/台次写请求。
+ * 真实模式台次不再调用无 expectedVersion/reason 的旁路接口。
+ */
+export async function saveScheduleMasterData(
+  options: SaveScheduleMasterDataOptions,
+): Promise<SaveScheduleMasterDataOutcome> {
+  if (!canEditMasterData(options.permissions)) {
+    throw new MasterDataPermissionError();
+  }
+  const reason = options.reason.trim();
+  if (!reason) {
+    throw new Error('请填写修改原因');
+  }
+
+  const { case: merged, audit } = await saveMasterDataWithReadback({
+    item: options.item,
+    reason,
+    changes: options.changes,
+  });
+
+  let nurseSaved = false;
+  let nurseError: string | undefined;
+  if (options.saveNursePb) {
+    try {
+      await options.saveNursePb(merged, options.operationDate);
+      nurseSaved = true;
+    } catch (e) {
+      nurseError = e instanceof Error ? e.message : '护理排班保存失败';
+    }
+  }
+
+  return { case: merged, audit, nurseSaved, nurseError };
 }

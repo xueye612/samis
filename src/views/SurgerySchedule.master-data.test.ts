@@ -11,22 +11,26 @@ vi.mock('@/api/operationInfo', () => ({
   operationInfoApi: {
     updateMasterData: vi.fn(async () => ({})),
     updateOperationInfo: vi.fn(async () => ({})),
+    updateNumberOfStations: vi.fn(async () => ({})),
     getOperationInfo: vi.fn(async () => ({ operationCase: { operationId: 'op-1', patientName: '远端新姓名', gender: '女', version: 8 } })),
   },
 }));
 vi.mock('@/api/auth', () => ({
   authApi: {
-    myPermissions: vi.fn(async () => ['operation.master_data.update']),
+    myPermissions: vi.fn(async () => ({ permissions: ['operation.master_data.update'], role: 'anesthesiologist', groupid: 1 })),
     auditByOperation: vi.fn(async () => ({ list: [] })),
   },
 }));
 
 import { operationInfoApi } from '@/api/operationInfo';
+import { authApi } from '@/api/auth';
 import { SamisHttpError } from '@/api/samisHttpClient';
 import {
   canEditMasterData,
   MasterDataConflictError,
+  MasterDataPermissionError,
   saveMasterDataWithReadback,
+  saveScheduleMasterData,
   MASTER_DATA_PERMISSION,
 } from '@/services/anesthesia/operationMasterDataService';
 import { buildMasterDataChangesFromDiff, buildMasterDataUpdateEnvelope } from '@/services/anesthesia/scheduleService';
@@ -84,5 +88,79 @@ describe('SurgerySchedule master-data page behavior', () => {
       .rejects.toBeInstanceOf(MasterDataConflictError);
     // 冲突时不进行 GET 回读
     expect(vi.mocked(operationInfoApi.getOperationInfo)).not.toHaveBeenCalled();
+  });
+
+  it('reads permissions from the real object structure and edits only when permitted', async () => {
+    const permResult = await authApi.myPermissions();
+    // 真实返回结构为 { permissions, role, groupid }，页面读取 result.permissions
+    expect(Array.isArray(permResult.permissions)).toBe(true);
+    expect(canEditMasterData(permResult.permissions)).toBe(true);
+    expect(permResult.role).toBe('anesthesiologist');
+    expect(permResult.groupid).toBe(1);
+  });
+
+  it('no-permission save is fully blocked: 0 master POST, 0 GET, 0 nurse POST, 0 station POST', async () => {
+    const saveNursePb = vi.fn(async () => ({}));
+    await expect(saveScheduleMasterData({
+      permissions: [],
+      item: baseItem(),
+      reason: '修正',
+      changes: [{ field: 'patientName', value: '新' }],
+      saveNursePb,
+    })).rejects.toBeInstanceOf(MasterDataPermissionError);
+    expect(vi.mocked(operationInfoApi.updateMasterData)).not.toHaveBeenCalled();
+    expect(vi.mocked(operationInfoApi.getOperationInfo)).not.toHaveBeenCalled();
+    expect(vi.mocked(operationInfoApi.updateNumberOfStations)).not.toHaveBeenCalled();
+    expect(saveNursePb).not.toHaveBeenCalled();
+  });
+
+  it('master-data changes are exactly the controlled editable fields; status/emergency/nurses excluded', () => {
+    const original = baseItem();
+    const edited = baseItem();
+    edited.patientName = '新姓名';
+    edited.gender = '女';
+    edited.age = 45;
+    edited.scheduledStart = '2026-07-13T09:00:00.000Z';
+    edited.scheduledEnd = '2026-07-13T11:00:00.000Z';
+    edited.sequence = 3;
+    // 状态/急诊/护理人员也会被改动，但不得进入主数据 changes
+    edited.status = '已入室';
+    edited.emergencyInserted = true;
+    edited.anesthesiaNurse = '新护士';
+
+    const changes = buildMasterDataChangesFromDiff(original, edited);
+    expect(changes.map((c) => c.field).sort()).toEqual(
+      ['age', 'gender', 'patientName', 'plannedEndTime', 'plannedStartTime', 'sequence'],
+    );
+  });
+
+  it('authorized save: POST envelope with six canonical changes, then GET readback, nurse saved, no station bypass', async () => {
+    const saveNursePb = vi.fn(async () => ({}));
+    const original = baseItem();
+    const edited = baseItem();
+    edited.patientName = '新姓名';
+    edited.gender = '女';
+    edited.age = 45;
+    edited.scheduledStart = '2026-07-13T09:00:00.000Z';
+    edited.scheduledEnd = '2026-07-13T11:00:00.000Z';
+    edited.sequence = 3;
+    const changes = buildMasterDataChangesFromDiff(original, edited);
+
+    const outcome = await saveScheduleMasterData({
+      permissions: [MASTER_DATA_PERMISSION],
+      item: edited,
+      reason: '修正',
+      changes,
+      saveNursePb,
+    });
+    expect(vi.mocked(operationInfoApi.updateMasterData)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(operationInfoApi.getOperationInfo)).toHaveBeenCalledTimes(1);
+    // 台次随主数据信封保存，不再调用无版本/原因的旁路接口
+    expect(vi.mocked(operationInfoApi.updateNumberOfStations)).not.toHaveBeenCalled();
+    // 护理排班在主数据 POST→GET 成功后独立执行
+    expect(saveNursePb).toHaveBeenCalledTimes(1);
+    // 远端主数据胜出
+    expect(outcome.case.patientName).toBe('远端新姓名');
+    expect(outcome.nurseSaved).toBe(true);
   });
 });

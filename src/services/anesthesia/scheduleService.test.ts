@@ -128,4 +128,14 @@ describe('scheduleService', () => {
     expect(changes.find((c) => c.field === 'patientName')?.value).toBe('新姓名');
     expect(changes.find((c) => c.field === 'operatorName')?.value).toBe('新主刀');
   });
+
+  it('buildMasterDataChangesFromDiff emits age/plannedStartTime/plannedEndTime changes', () => {
+    const original = minimalCase();
+    const current = minimalCase();
+    current.age = 45;
+    current.scheduledStart = '2026-07-13T09:00:00.000Z';
+    current.scheduledEnd = '2026-07-13T11:00:00.000Z';
+    const fields = buildMasterDataChangesFromDiff(original, current).map((c) => c.field).sort();
+    expect(fields).toEqual(['age', 'plannedEndTime', 'plannedStartTime']);
+  });
 });

@@ -88,6 +88,9 @@ export interface MasterDataUpdateEnvelope {
 const DISPLAY_TO_CONTROLLED: Array<{ canonical: string; get: (c: SurgeryCase) => unknown }> = [
   { canonical: 'patientName', get: (c) => c.patientName },
   { canonical: 'gender', get: (c) => c.gender },
+  { canonical: 'age', get: (c) => c.age },
+  { canonical: 'plannedStartTime', get: (c) => c.scheduledStart ?? c.plannedStart },
+  { canonical: 'plannedEndTime', get: (c) => c.scheduledEnd },
   { canonical: 'operatorName', get: (c) => c.surgeon },
   { canonical: 'anesthesiaMethodName', get: (c) => c.anesthesiaMethod },
   { canonical: 'anesthesiologistName', get: (c) => c.anesthesiologist },
