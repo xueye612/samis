@@ -794,11 +794,22 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       return result;
     },
     async loadRoomCatalog() {
-      const catalog = await loadRoomCatalog();
-      this.configRooms = catalog.roomNames;
-      this.roomGroups = catalog.groups;
-      this.roomCatalogSource = catalog.source;
-      return catalog;
+      try {
+        const catalog = await loadRoomCatalog();
+        this.configRooms = catalog.roomNames;
+        this.roomGroups = catalog.groups;
+        this.roomCatalogSource = catalog.source;
+        return catalog;
+      } catch (error) {
+        // 真实模式失败时保持现有派生状态，不回填默认手术间，不向调用方抛出以免阻断排程等页面。
+        console.warn('[samis] loadRoomCatalog failed; keeping existing room state', error);
+        return {
+          roomNames: this.configRooms,
+          rooms: [],
+          groups: this.roomGroups,
+          source: 'remote' as const,
+        };
+      }
     },
     async loadRemoteDrugDict(params?: { keyword?: string; enabled?: boolean }) {
       const result = await loadDrugDictCatalog(params);

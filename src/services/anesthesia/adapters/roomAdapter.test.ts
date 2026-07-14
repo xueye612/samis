@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { mapRoomGroupListResponse, mapRoomItem } from '@/services/anesthesia/adapters/roomAdapter';
+import {
+  mapRoomConfiguration,
+  mapRoomConfigurationList,
+  mapRoomHistory,
+  mapRoomGroupListResponse,
+  mapRoomItem,
+} from '@/services/anesthesia/adapters/roomAdapter';
 
 describe('roomAdapter', () => {
   it('mapRoomItem reads OPERATION_ROOM_* fields', () => {
@@ -25,5 +31,53 @@ describe('roomAdapter', () => {
     expect(groups[0].roomGroupId).toBe('113901912');
     expect(groups[0].roomGroupName).toBe('手术部');
     expect(groups[0].rooms[0].roomId).toBe('B1');
+  });
+
+  it('mapRoomConfiguration preserves rich fields, false/0/null and integer version; never fabricates code', () => {
+    const room = mapRoomConfiguration({
+      roomId: 9012,
+      roomCode: 'ROOM-X',
+      roomName: '一号',
+      shortName: null,
+      emergencyCapable: false,
+      negativePressure: 0,
+      hybridRoom: true,
+      stationCapacity: 0,
+      version: 3,
+      capabilities: [
+        { capabilityType: 'operation_type', capabilityCode: 'OP-GA', capabilityName: '全麻' },
+      ],
+    });
+    expect(room.roomCode).toBe('ROOM-X');
+    expect(room.roomId).toBe(9012);
+    expect(room.shortName).toBeNull();
+    expect(room.emergencyCapable).toBe(false);
+    expect(room.negativePressure).toBe(false);
+    expect(room.hybridRoom).toBe(true);
+    expect(room.stationCapacity).toBe(0);
+    expect(room.version).toBe(3);
+    expect(room.capabilities).toHaveLength(1);
+    expect(room.capabilities[0].capabilityCode).toBe('OP-GA');
+  });
+
+  it('mapRoomConfiguration does not fabricate roomCode from name', () => {
+    const room = mapRoomConfiguration({ roomName: '仅名称无编码' });
+    expect(room.roomCode).toBe('');
+    expect(room.roomName).toBe('仅名称无编码');
+  });
+
+  it('mapRoomConfigurationList unwraps payload and returns empty for empty remote list', () => {
+    expect(mapRoomConfigurationList({ list: [] })).toEqual([]);
+    expect(mapRoomConfigurationList([])).toEqual([]);
+  });
+
+  it('mapRoomHistory preserves order, version and occurredAt', () => {
+    const history = mapRoomHistory([
+      { id: 1, fromStatus: null, toStatus: 'enabled', reason: null, actor: 'a', version: 1, occurredAt: '2026-07-14 10:00:00' },
+      { id: 2, fromStatus: 'enabled', toStatus: 'paused', reason: '检修', actor: 'a', version: 2, occurredAt: '2026-07-14 11:00:00' },
+    ]);
+    expect(history).toHaveLength(2);
+    expect(history[1].toStatus).toBe('paused');
+    expect(history[1].version).toBe(2);
   });
 });

@@ -1,8 +1,5 @@
-import { Message } from '@arco-design/web-vue';
 import { roomApi } from '@/api/room';
-import { notifyIfUnhandledSamisError } from '@/services/auth/authErrorPresentation';
 import { useRealRoom } from '@/config/apiFlags';
-import { SamisHttpError } from '@/api/samisHttpClient';
 import { isSamisLoggedIn } from '@/services/session/samisSession';
 import {
   mapRoomGroupListResponse,
@@ -20,7 +17,7 @@ export interface RoomCatalogState {
 
 const DEFAULT_ROOMS = ['OR-01', 'OR-02', 'OR-03', 'OR-04', 'OR-05', 'OR-06', 'PACU', '产房', '内镜中心'];
 
-/** 登录页未持 token 时使用；避免 getRoomGroupList 返回 9003/400 */
+/** 登录页未持 token 时使用；避免 getRoomGroupList 返回 9003/400。仅允许登录页无 token 使用。 */
 export function loginRoomCatalogFallback(): RoomCatalogState {
   const rooms = [
     { roomId: '01', roomName: '01' },
@@ -40,17 +37,20 @@ export function loginRoomCatalogFallback(): RoomCatalogState {
 }
 
 export async function loadRoomCatalog(): Promise<RoomCatalogState> {
+  // 仅登录页未持 token 时使用兜底，避免受保护接口返回 9003/400。
   if (useRealRoom() && !isSamisLoggedIn()) {
     return loginRoomCatalogFallback();
   }
 
+  const [listRaw, groupRaw] = await Promise.all([
+    roomApi.getRoomList(),
+    roomApi.getRoomGroupList(),
+  ]);
+  const rooms = mapRoomListResponse(listRaw);
+  const groups = mapRoomGroupListResponse(groupRaw);
+
   if (!useRealRoom()) {
-    const [listRaw, groupRaw] = await Promise.all([
-      roomApi.getRoomList(),
-      roomApi.getRoomGroupList(),
-    ]);
-    const rooms = mapRoomListResponse(listRaw);
-    const groups = mapRoomGroupListResponse(groupRaw);
+    // mock 模式：空列表回退默认房间（仅 mock 模式允许）。
     const roomNames = roomNamesFromCatalog(rooms);
     return {
       roomNames: roomNames.length ? roomNames : DEFAULT_ROOMS,
@@ -60,32 +60,11 @@ export async function loadRoomCatalog(): Promise<RoomCatalogState> {
     };
   }
 
-  try {
-    const [listRaw, groupRaw] = await Promise.all([
-      roomApi.getRoomList(),
-      roomApi.getRoomGroupList(),
-    ]);
-    const rooms = mapRoomListResponse(listRaw);
-    const groups = mapRoomGroupListResponse(groupRaw);
-    const roomNames = roomNamesFromCatalog(rooms);
-    return {
-      roomNames: roomNames.length ? roomNames : DEFAULT_ROOMS,
-      rooms,
-      groups,
-      source: 'remote',
-    };
-  } catch (error) {
-    const msg = error instanceof SamisHttpError
-      ? error.message
-      : error instanceof Error
-        ? error.message
-        : '加载手术间失败';
-    notifyIfUnhandledSamisError(error, () => Message.warning(`${msg}，已使用默认手术间`));
-    return {
-      roomNames: DEFAULT_ROOMS,
-      rooms: DEFAULT_ROOMS.map((name) => ({ roomId: name, roomName: name })),
-      groups: [],
-      source: 'mock',
-    };
-  }
+  // 真实模式：空列表保持空，错误向上抛出由调用方显示 error 并保留重试，绝不回填默认房间。
+  return {
+    roomNames: roomNamesFromCatalog(rooms),
+    rooms,
+    groups,
+    source: 'remote',
+  };
 }

@@ -28,16 +28,29 @@ export const roomApi = {
       module: 'room',
     });
   },
+  getRoomById(id: string | number) {
+    return samisRequest<unknown>(`/room/getRoomById?id=${encodeURIComponent(String(id))}`, undefined, {
+      module: 'room',
+    });
+  },
   getRoomGroupList(params: RoomQuery = {}) {
     return samisRequest<unknown>(`/room/getRoomGroupList${buildRoomQuery(params)}`, undefined, {
       module: 'room',
     });
   },
   roomCreate(data: Record<string, unknown>) {
-    return roomFormPost<{ id?: string | number }>('/roomCreate', data);
+    return roomFormPost<{ roomId?: string | number; version?: number; id?: string | number }>('/roomCreate', data);
   },
   roomUpdate(data: Record<string, unknown>) {
-    return roomFormPost<void>('/roomUpdate', data);
+    return roomFormPost<{ version?: number }>('/roomUpdate', data);
+  },
+  roomChangeStatus(data: Record<string, unknown>) {
+    return roomFormPost<{ status?: string; version?: number }>('/roomChangeStatus', data);
+  },
+  roomHistory(id: string | number) {
+    return samisRequest<unknown>(`/room/roomHistory?id=${encodeURIComponent(String(id))}`, undefined, {
+      module: 'room',
+    });
   },
   roomDelete(id: string | number) {
     return roomFormPost<void>('/roomDelete', { id });
