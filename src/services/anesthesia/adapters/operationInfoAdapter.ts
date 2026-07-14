@@ -148,8 +148,8 @@ export interface OperationCase {
   lastUpdatedAt?: string | null;
   bit?: number | null;
   version?: number | null;
-  sourceSystem?: string;
-  sourceTable?: string;
+  sourceSystem?: string | null;
+  sourceTable?: string | null;
   // 实际时间兼容字段（只读）
   actualInRoomTime?: string | null;
   actualAnesthesiaStartTime?: string | null;
@@ -445,8 +445,9 @@ export function buildCanonicalOperationCase(detail: OperationDetailDto): Operati
   acc.version = versionRaw === undefined || versionRaw === null || versionRaw === '' ? null : Number(versionRaw);
   const bitRaw = pick(['bit', 'BIT']);
   acc.bit = bitRaw === undefined || bitRaw === null || bitRaw === '' ? null : Number(bitRaw);
-  acc.sourceSystem = (pick(['sourceSystem']) as string | null | undefined) ?? 'HULI';
-  acc.sourceTable = (pick(['sourceTable']) as string | null | undefined) ?? 'operatenotice';
+  // 来源元数据只读取服务端值，缺失为 undefined、服务端 null 保持 null，不补造 HULI/operatenotice
+  acc.sourceSystem = pick(['sourceSystem']);
+  acc.sourceTable = pick(['sourceTable']);
   acc.lastUpdatedAt = pick(['lastUpdatedAt', 'updateTime', 'UPDATE_TIME']);
   return acc as OperationCase;
 }
@@ -501,6 +502,15 @@ function syncFlatFromAuthoritative(result: SurgeryCase, oc: OperationCase): void
     result.circulatingNurses = toStr(oc.circulatingNurseName);
   }
   if (has('scrubNurseName')) result.scrubNurses = toStr(oc.scrubNurseName);
+  // ASA/过敏史：权威空值必须清除展示壳旧默认值（II/无），canonical 字段保持 null/undefined
+  if (has('asaClass')) {
+    const asa = toStr(oc.asaClass);
+    result.asa = asa;
+    result.preVisit = { ...result.preVisit, asa };
+  }
+  if (has('allergyHistory')) {
+    result.preVisit = { ...result.preVisit, allergy: toStr(oc.allergyHistory) };
+  }
 }
 
 /**

@@ -263,7 +263,8 @@ describe('operationInfoAdapter', () => {
     });
     expect(item.operationCase?.patientName).toBe('王五');
     expect(item.operationCase?.version).toBe(3);
-    expect(item.operationCase?.sourceTable).toBe('operatenotice');
+    // 服务端未提供来源表时不补造 operatenotice
+    expect(item.operationCase?.sourceTable).toBeUndefined();
   });
 
   it('merges so remote master data wins and local clinical records win', () => {
@@ -416,5 +417,50 @@ describe('operationInfoAdapter', () => {
     }));
     expect(trueWord.isLocked).toBe(true);
     expect(trueWord.isEmergency).toBe(true);
+  });
+
+  it('does not fabricate sourceSystem/sourceTable when server omits or nulls them', () => {
+    const absent = buildCanonicalOperationCase(mapOperationDetail({
+      OPERATIONID: 'op-src-absent',
+      operationCase: { operationId: 'op-src-absent', patientName: '甲' },
+    }));
+    expect(absent.sourceSystem).toBeUndefined();
+    expect(absent.sourceTable).toBeUndefined();
+
+    const nulled = buildCanonicalOperationCase(mapOperationDetail({
+      OPERATIONID: 'op-src-null',
+      operationCase: { operationId: 'op-src-null', sourceSystem: null, sourceTable: null },
+    }));
+    expect(nulled.sourceSystem).toBeNull();
+    expect(nulled.sourceTable).toBeNull();
+
+    const provided = buildCanonicalOperationCase(mapOperationDetail({
+      OPERATIONID: 'op-src-prov',
+      operationCase: { operationId: 'op-src-prov', sourceSystem: 'HULI', sourceTable: 'operatenotice' },
+    }));
+    expect(provided.sourceSystem).toBe('HULI');
+    expect(provided.sourceTable).toBe('operatenotice');
+  });
+
+  it('clears fabricated ASA/allergy shell defaults when authoritative fields are null or absent', () => {
+    const nulled = mapOperationListItem({
+      OPERATIONID: 'op-asa-null',
+      operationCase: { operationId: 'op-asa-null', patientName: '甲', asaClass: null, allergyHistory: null },
+    });
+    expect(nulled.asa).toBe('');
+    expect(nulled.preVisit.asa).toBe('');
+    expect(nulled.preVisit.allergy).toBe('');
+    expect(nulled.operationCase?.asaClass).toBeNull();
+    expect(nulled.operationCase?.allergyHistory).toBeNull();
+
+    const absent = mapOperationListItem({
+      OPERATIONID: 'op-asa-absent',
+      operationCase: { operationId: 'op-asa-absent', patientName: '乙' },
+    });
+    expect(absent.asa).toBe('');
+    expect(absent.preVisit.asa).toBe('');
+    expect(absent.preVisit.allergy).toBe('');
+    expect(absent.operationCase?.asaClass).toBeUndefined();
+    expect(absent.operationCase?.allergyHistory).toBeUndefined();
   });
 });
