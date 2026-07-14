@@ -845,7 +845,8 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const result = await loadStaffCatalog();
       this.configDictSource = result.source;
       this.configStaffItems = result.items;
-      if (result.names.length) this.configStaff = result.names;
+      // 真实空列表直接覆盖，不再保留 seed；错误已由 loadStaffCatalog 吞掉并返回空
+      this.configStaff = result.names;
       return result;
     },
     async loadRemoteDictList(listKey: 'configEvents' | 'configScores', categoryCode: string) {

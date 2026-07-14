@@ -211,9 +211,6 @@ export const anesthesiaDictApi = {
       page_size: params?.pageSize,
     });
   },
-  saveStaff(data: Record<string, unknown>) {
-    return dictFormPost<{ id?: string | number }>('/saveStaff', data);
-  },
   disableStaff(id: string | number) {
     return dictFormPost<void>('/disableStaff', { id });
   },
@@ -229,5 +226,34 @@ export const anesthesiaDictApi = {
   /** @deprecated OpenAPI 未定义；mock 保留 */
   getDeviceDict() {
     return dictGet<unknown[]>('/getDeviceDict');
+  },
+
+  // —— P06A 专业字典结构化端点（人员/方式/事件/评分）——
+  getStaffConfig(params?: { allStatus?: boolean; keyword?: string }) {
+    return dictGet<unknown>('/getStaff', { allStatus: params?.allStatus, keyword: params?.keyword });
+  },
+  getStaffDetail(id: number | string) {
+    return dictGet<unknown>('/getStaffDetail', { id });
+  },
+  saveStaff(data: Record<string, unknown>) {
+    return dictFormPost<{ id?: number; version?: number }>('/saveStaff', data);
+  },
+  getProfessionalItems(params: { categoryCode: string; allStatus?: boolean }) {
+    return dictGet<unknown>('/getProfessionalItems', {
+      categoryCode: params.categoryCode,
+      allStatus: params.allStatus,
+    });
+  },
+  getProfessionalItemDetail(id: number | string) {
+    return dictGet<unknown>('/getProfessionalItemDetail', { id });
+  },
+  saveProfessionalItem(data: Record<string, unknown>) {
+    return dictFormPost<{ id?: number; version?: number }>('/saveProfessionalItem', data);
+  },
+  changeProfessionalStatus(data: Record<string, unknown>) {
+    return dictFormPost<{ status?: string; version?: number }>('/changeProfessionalStatus', data);
+  },
+  professionalHistory(entityType: string, id: number | string) {
+    return dictGet<unknown>('/professionalHistory', { entityType, id });
   },
 };

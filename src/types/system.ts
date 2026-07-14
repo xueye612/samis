@@ -177,3 +177,90 @@ export interface StaffDictItem {
   enabled: boolean;
   remark?: string;
 }
+
+// ===== P06A 专业字典结构化类型 =====
+
+export interface StaffScope {
+  scopeType: 'practice' | 'duty_role' | 'work_area';
+  scopeCode: string;
+  scopeName?: string | null;
+}
+
+export interface StaffProfile {
+  id: number;
+  gh: string;
+  name: string;
+  title: string | null;
+  departmentCode: string | null;
+  departmentName: string | null;
+  role: string;
+  professionalGroup: string | null;
+  authorizationLevel: string | null;
+  schedulingWeight: number;
+  validFrom: string | null;
+  validTo: string | null;
+  status: string;
+  statusReason: string | null;
+  effectiveAt: string | null;
+  pausedAt: string | null;
+  disabledAt: string | null;
+  version: number;
+  sortNo: number;
+  remark: string | null;
+  adminUserId: number | null;
+  scopes: StaffScope[];
+}
+
+export interface MethodProfile {
+  applicableOperationTypes: string | null;
+  defaultTemplateCode: string | null;
+  medicationPlan: string | null;
+  monitoringPlan: string | null;
+  airwayStrategy: string | null;
+  analgesiaStrategy: string | null;
+  pacuDestination: string | null;
+  risks: string | null;
+  contraindications: string | null;
+  version: number;
+}
+
+export interface EventProfile {
+  eventCategory: string | null;
+  severity: string | null;
+  responseGuidance: string | null;
+  qualityIncluded: boolean;
+  version: number;
+}
+
+export interface ScoreProfile {
+  scoreType: string | null;
+  ruleDefinition: unknown;
+  applicableScenario: string | null;
+  thresholdInterpretation: string | null;
+  version: number;
+}
+
+export type ProfessionalProfile = MethodProfile | EventProfile | ScoreProfile | null;
+
+export interface ProfessionalDictItem {
+  id: number;
+  categoryCode: string;
+  itemCode: string;
+  itemName: string;
+  parentCode: string | null;
+  sortNo: number;
+  status: string;
+  version: number;
+  remark: string | null;
+  profile: ProfessionalProfile;
+}
+
+export interface ProfessionalHistoryItem {
+  id: number;
+  fromStatus: string | null;
+  toStatus: string;
+  reason: string | null;
+  actor: string | null;
+  version: number;
+  occurredAt: string | null;
+}
