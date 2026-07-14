@@ -286,4 +286,20 @@ export const anesthesiaDictApi = {
   saveMethodCategory(data: Record<string, unknown>) {
     return dictFormPostRich<{ id?: number; version?: number }>('/saveMethodCategory', data);
   },
+  // —— P06B 临床字典与模板结构化端点 ——
+  getClinicalDictionary(entityType: string, params?: { allStatus?: boolean }) {
+    return dictGet<unknown>('/getClinicalDictionary', { entityType, allStatus: params?.allStatus });
+  },
+  getClinicalDictionaryDetail(entityType: string, id: number | string) {
+    return dictGet<unknown>('/getClinicalDictionaryDetail', { entityType, id });
+  },
+  saveClinicalDictionary(data: Record<string, unknown>) {
+    return dictFormPostRich<{ id?: number; version?: number }>('/saveClinicalDictionary', data);
+  },
+  changeClinicalDictionaryStatus(data: Record<string, unknown>) {
+    return dictFormPostRich<{ status?: string; version?: number }>('/changeClinicalDictionaryStatus', data);
+  },
+  clinicalDictionaryHistory(entityType: string, id: number | string) {
+    return dictGet<unknown>('/clinicalDictionaryHistory', { entityType, id });
+  },
 };

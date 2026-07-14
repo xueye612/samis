@@ -1,199 +1,118 @@
 <template>
-  <ModulePageShell
-    title="药品管理"
-    description="维护药品字典、分类库存与安全库存预警"
-    shell-class="config-drugs-page"
-  >
-    <a-card class="section-card config-drugs-card" :bordered="false">
-      <a-alert
-        v-if="showRemoteDrugEmpty"
-        type="warning"
-        show-icon
-        class="config-drugs-alert"
-      >
-        远程药品字典暂无数据（接口来源：{{ store.drugDictSource }}）。表格区域为空属正常状态，可在本页新增或于后台维护。
-      </a-alert>
-      <a-tabs v-model:active-key="activeTab" type="rounded" class="config-drugs-tabs">
-        <a-tab-pane key="dict" title="药品字典">
-          <DrugDictPanel
-            :model-value="dictList"
-            :persist-item="persistItem"
-            :disable-item="disableItem"
-          />
-        </a-tab-pane>
-        <a-tab-pane v-for="cat in categories" :key="cat" :title="cat">
-          <div class="inventory-pane">
-            <a-alert
-              v-if="lowStockCount(cat)"
-              type="warning"
-              show-icon
-              class="inventory-alert"
-            >
-              {{ cat }} 有 <strong>{{ lowStockCount(cat) }}</strong> 种药品库存低于安全线，请及时补货。
-            </a-alert>
-            <div class="inventory-table-wrap">
-              <a-table
-                :data="inventoryByCategory(cat)"
-                row-key="id"
-                :pagination="false"
-                :stripe="true"
-                :bordered="false"
-                size="medium"
-              >
-                <template #empty>
-                  <a-empty description="该分类暂无库存数据" />
-                </template>
-                <template #columns>
-                  <a-table-column title="药品" data-index="name" />
-                  <a-table-column title="规格" data-index="specification">
-                    <template #cell="{ record }">{{ record.specification || '—' }}</template>
-                  </a-table-column>
-                  <a-table-column title="库存" :width="130">
-                    <template #cell="{ record }">
-                      <a-tag :color="isLowStock(record) ? 'red' : 'green'" bordered>
-                        {{ record.stock }} {{ record.unit }}
-                      </a-tag>
-                    </template>
-                  </a-table-column>
-                  <a-table-column title="安全库存" :width="110">
-                    <template #cell="{ record }">{{ record.minStock }} {{ record.unit }}</template>
-                  </a-table-column>
-                  <a-table-column title="单价" :width="96">
-                    <template #cell="{ record }">
-                      <span class="price-cell">¥{{ record.price }}</span>
-                    </template>
-                  </a-table-column>
-                  <a-table-column title="状态" :width="108" align="center">
-                    <template #cell="{ record }">
-                      <a-badge
-                        v-if="isLowStock(record)"
-                        status="danger"
-                        text="库存预警"
-                      />
-                      <a-badge v-else status="success" text="正常" />
-                    </template>
-                  </a-table-column>
-                </template>
-              </a-table>
-            </div>
-          </div>
-        </a-tab-pane>
-      </a-tabs>
+  <ModulePageShell title="药品字典管理" description="维护含通用名、浓度、剂型、剂量范围、分类、适用范围、状态和版本的药品" shell-class="config-drugs-page">
+    <a-card :bordered="false">
+      <template #title><a-space><span>药品列表</span><a-tag :color="source === 'remote' ? 'green' : 'gray'">{{ source === 'remote' ? '真实数据' : '本地' }}</a-tag></a-space></template>
+      <template #extra><a-space><a-button @click="reload" :loading="loading">刷新</a-button><a-button v-if="canManage" type="primary" @click="openCreate">新增药品</a-button></a-space></template>
+      <a-alert v-if="loadError" type="error" show-icon style="margin-bottom:12px">加载药品失败：{{ loadError }}。可点击刷新重试。</a-alert>
+      <a-alert v-else-if="!loading && source === 'remote' && !items.length" type="warning" show-icon style="margin-bottom:12px">远程暂无药品数据。</a-alert>
+      <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom:12px">无药品配置权限（config.drug.manage）；仅可查看。</a-alert>
+      <a-table :data="(items as any)" row-key="id" :loading="loading" :pagination="false" size="medium">
+        <template #empty><a-empty description="暂无药品" /></template>
+        <template #columns>
+          <a-table-column title="编码" data-index="drugCode" />
+          <a-table-column title="名称" data-index="drugName" />
+          <a-table-column title="通用名"><template #cell="{ record }">{{ record.genericName || '—' }}</template></a-table-column>
+          <a-table-column title="浓度"><template #cell="{ record }">{{ record.concentration || '—' }}</template></a-table-column>
+          <a-table-column title="剂量范围"><template #cell="{ record }">{{ record.minDose ?? '—' }}~{{ record.maxDose ?? '—' }}</template></a-table-column>
+          <a-table-column title="版本" :width="70"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
+          <a-table-column title="状态" :width="90"><template #cell="{ record }"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template></a-table-column>
+          <a-table-column title="操作" :width="240">
+            <template #cell="{ record }">
+              <a-space wrap>
+                <a-button size="small" @click="openHistory(record)">历史</a-button>
+                <a-button v-if="canManage" size="small" @click="openEdit(record)">编辑</a-button>
+                <a-button v-if="canManage && record.status === 'enabled'" size="small" @click="onChangeStatus(record, 'paused')">暂停</a-button>
+                <a-button v-if="canManage && record.status !== 'disabled'" size="small" status="warning" @click="onChangeStatus(record, 'disabled')">停用</a-button>
+              </a-space>
+            </template>
+          </a-table-column>
+        </template>
+      </a-table>
     </a-card>
+
+    <a-drawer :visible="editorVisible" :width="600" :title="isCreate ? '新增药品' : '编辑药品'" :mask-closable="false" unmount-on-close @cancel="editorVisible = false">
+      <a-form :model="form" layout="vertical">
+        <a-row :gutter="12">
+          <a-col :span="12"><a-form-item label="编码" required><a-input v-model="form.drugCode" :disabled="!isCreate" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="名称" required><a-input v-model="form.drugName" /></a-form-item></a-col>
+        </a-row>
+        <a-row :gutter="12">
+          <a-col :span="8"><a-form-item label="通用名"><a-input v-model="form.genericName" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="商品名"><a-input v-model="form.brandName" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="浓度"><a-input v-model="form.concentration" /></a-form-item></a-col>
+        </a-row>
+        <a-row :gutter="12">
+          <a-col :span="8"><a-form-item label="最小剂量"><a-input v-model="form.minDose" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="最大剂量"><a-input v-model="form.maxDose" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="统计分类"><a-input v-model="form.statisticalCategory" /></a-form-item></a-col>
+        </a-row>
+        <a-form-item label="备注"><a-textarea v-model="form.remark" :auto-size="{ minRows: 2 }" /></a-form-item>
+      </a-form>
+      <template #footer><a-space><a-button @click="editorVisible = false">取消</a-button><a-button type="primary" :loading="saving" @click="onSave">保存</a-button></a-space></template>
+    </a-drawer>
+
+    <a-modal :visible="statusVisible" :title="statusTarget ? statusLabel(statusTarget.toStatus) + '药品' : '状态变更'" :ok-loading="statusSaving" :mask-closable="false" @cancel="statusVisible = false" @ok="confirmStatus">
+      <a-form :model="{}" layout="vertical">
+        <a-form-item v-if="statusTarget && needsReason(statusTarget.toStatus)" label="原因（必填）" required><a-textarea v-model="statusReason" :auto-size="{ minRows: 2 }" /></a-form-item>
+        <a-form-item v-else>确认{{ statusTarget ? statusLabel(statusTarget.toStatus) : '' }}？</a-form-item>
+      </a-form>
+    </a-modal>
+    <a-drawer :visible="historyVisible" :width="500" title="药品状态变更历史" unmount-on-close @cancel="historyVisible = false">
+      <a-empty v-if="!history.length" description="暂无状态变更记录" />
+      <a-timeline v-else><a-timeline-item v-for="h in history" :key="h.id"><a-tag :color="statusColor(h.toStatus)">{{ statusLabel(h.toStatus) }}</a-tag><div style="color:var(--color-text-3);font-size:12px">版本 {{ h.version }} · {{ h.actor ?? '系统' }} · {{ h.occurredAt ?? '—' }}</div><div v-if="h.reason" style="font-size:13px">原因：{{ h.reason }}</div></a-timeline-item></a-timeline>
+    </a-drawer>
   </ModulePageShell>
 </template>
 
-
-
 <script setup lang="ts">
 import { Message } from '@arco-design/web-vue';
-import { computed, ref } from 'vue';
-import DrugDictPanel from '@/components/config/DrugDictPanel.vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import { authApi } from '@/api/auth';
+import { loadClinicalDictionary, saveClinicalDictionary, changeClinicalDictionaryStatus, loadClinicalDictionaryHistory, canManageClinical, ClinicalConflictError } from '@/services/configuration/clinicalDictionaryService';
 import { useRealAnesthesiaDict } from '@/config/apiFlags';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
-import { DRUG_INVENTORY_CATEGORIES, type DrugInventoryItem } from '@/types/clinicalModules';
-import type { DrugDictItem } from '@/types/system';
 
+const ENTITY = 'drug' as const;
+const items = ref<any[]>([]);
+const loading = ref(false); const loadError = ref(''); const source = ref<'remote'|'local'>('local');
+const permissions = ref<string[]>([]);
+const editorVisible = ref(false); const isCreate = ref(true); const saving = ref(false);
+const form = reactive<Record<string, any>>({});
+const statusVisible = ref(false); const statusSaving = ref(false); const statusReason = ref('');
+const statusTarget = ref<{ id: number; version: number; toStatus: 'enabled'|'paused'|'disabled' } | null>(null);
+const historyVisible = ref(false); const history = ref<any[]>([]);
+const canManage = computed(() => !useRealAnesthesiaDict() || canManageClinical(permissions.value, ENTITY));
 
-
-const store = useAnesthesiaStore();
-const activeTab = ref('dict');
-const dictList = computed(() => store.configDrugs);
-const showRemoteDrugEmpty = computed(
-  () => useRealAnesthesiaDict() && store.drugDictSource === 'remote' && dictList.value.length === 0,
-);
-
-
-
-const persistItem = async (item: DrugDictItem, _mode: 'create' | 'update') => {
-  const ok = await store.saveDrugDictEntry(item);
-  if (ok) Message.success('药品已保存');
-  return ok;
-};
-
-
-
-const disableItem = async (item: DrugDictItem) => {
-  const ok = await store.disableDrugDictEntry(item.id);
-  if (ok) Message.success('药品已停用');
-  return ok;
-};
-
-
-
-const categories = DRUG_INVENTORY_CATEGORIES;
-
-
-
-const inventoryByCategory = (cat: DrugInventoryItem['category']) =>
-  store.drugInventory.filter((item) => item.category === cat);
-
-
-
-const isLowStock = (item: DrugInventoryItem) => item.stock < item.minStock;
-const lowStockCount = (cat: DrugInventoryItem['category']) =>
-  inventoryByCategory(cat).filter(isLowStock).length;
+async function loadPerms() { try { const r = await authApi.myPermissions(); permissions.value = Array.isArray(r?.permissions) ? r.permissions.map(String) : []; } catch { permissions.value = []; } }
+async function reload() {
+  loading.value = true; loadError.value = '';
+  try { items.value = await loadClinicalDictionary(ENTITY, { allStatus: true }); source.value = 'remote'; }
+  catch (e) { items.value = []; source.value = 'local'; loadError.value = e instanceof Error ? e.message : '未知错误'; }
+  finally { loading.value = false; }
+}
+function blank() { return { drugCode: '', drugName: '', genericName: '', brandName: '', concentration: '', minDose: null, maxDose: null, statisticalCategory: '', remark: '', expectedVersion: 1 }; }
+function openCreate() { isCreate.value = true; Object.assign(form, blank()); editorVisible.value = true; }
+function openEdit(r: any) { isCreate.value = false; Object.assign(form, blank(), r, { expectedVersion: r.version }); editorVisible.value = true; }
+async function onSave() {
+  if (!String(form.drugCode || '').trim()) { Message.warning('编码不能为空'); return; }
+  if (!String(form.drugName || '').trim()) { Message.warning('名称不能为空'); return; }
+  saving.value = true;
+  try { await saveClinicalDictionary({ entityType: ENTITY, ...form }); Message.success('保存成功'); editorVisible.value = false; await reload(); }
+  catch (e) { if (e instanceof ClinicalConflictError) Message.warning('数据已被其他人修改，请刷新后重试'); else if (e instanceof Error) Message.error(e.message); }
+  finally { saving.value = false; }
+}
+function onChangeStatus(r: any, to: 'enabled'|'paused'|'disabled') { statusTarget.value = { id: Number(r.id), version: Number(r.version), toStatus: to }; statusReason.value = ''; statusVisible.value = true; }
+function needsReason(t: string) { return t === 'paused' || t === 'disabled'; }
+async function confirmStatus() {
+  const t = statusTarget.value; if (!t) return;
+  if (needsReason(t.toStatus) && !statusReason.value.trim()) { Message.warning('请填写变更原因'); return; }
+  statusSaving.value = true;
+  try { await changeClinicalDictionaryStatus({ entityType: ENTITY, id: t.id, toStatus: t.toStatus, reason: statusReason.value.trim(), expectedVersion: t.version }); Message.success('状态变更成功'); statusVisible.value = false; await reload(); }
+  catch (e) { if (e instanceof ClinicalConflictError) { Message.warning('数据已被其他人修改，请刷新后重试'); statusVisible.value = false; await reload(); } else if (e instanceof Error) Message.error(e.message); }
+  finally { statusSaving.value = false; }
+}
+async function openHistory(r: any) { historyVisible.value = true; try { history.value = await loadClinicalDictionaryHistory(ENTITY, Number(r.id)); } catch { history.value = []; } }
+function statusLabel(s: string): string { return ({ enabled: '启用', paused: '暂停', disabled: '停用' }[s] ?? s) || '—'; }
+function statusColor(s: string): string { return ({ enabled: 'green', paused: 'orange', disabled: 'red' }[s] ?? 'gray'); }
+onMounted(async () => { await loadPerms(); await reload(); });
 </script>
-
-
-
-<style scoped>
-.config-drugs-card :deep(.arco-card-body) {
-  padding-top: 8px;
-}
-
-.config-drugs-alert {
-  margin-bottom: 12px;
-  border-radius: 10px;
-}
-
-
-
-.config-drugs-tabs :deep(.arco-tabs-nav) {
-  margin-bottom: 4px;
-}
-
-
-
-.config-drugs-tabs :deep(.arco-tabs-content) {
-  padding-top: 4px;
-}
-
-
-
-.inventory-pane {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-top: 4px;
-}
-
-
-
-.inventory-alert {
-  border-radius: 10px;
-}
-
-
-
-.inventory-alert strong {
-  color: inherit;
-}
-
-
-
-.inventory-table-wrap :deep(.arco-table-th) {
-  background: var(--surface-muted, #f8fafc);
-  font-weight: 600;
-}
-
-
-
-.price-cell {
-  font-variant-numeric: tabular-nums;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-</style>
-
