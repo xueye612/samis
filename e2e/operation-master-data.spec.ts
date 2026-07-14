@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   cleanupMasterDataFixture,
+  generateMasterDataOperationId,
   setupMasterDataFixture,
   statusMasterDataFixture,
 } from './helpers/operationMasterFixture';
@@ -203,8 +204,13 @@ test.describe('手术主数据受控修改', () => {
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('新姓名').first()).toBeVisible();
 
-    // 4. 重新打开抽屉：展示版本/来源元数据与逐字段审计历史
+    // 4. 重新打开抽屉：展示版本/来源元数据、刷新后姓名与性别展示、逐字段审计历史
     await page.getByRole('button', { name: '编辑' }).first().click();
+    const drawer = page.locator('.arco-drawer');
+    await expect(drawer.locator('.arco-form-item').filter({ hasText: '患者' }).locator('input').first())
+      .toHaveValue('新姓名');
+    await expect(drawer.locator('.arco-form-item').filter({ hasText: '性别' }).locator('.arco-select-view'))
+      .toContainText('女');
     await expect(page.locator('.arco-drawer').getByText('operatenotice').first()).toBeVisible();
     const auditSection = page.locator('.arco-drawer .drawer-audit');
     await expect(auditSection).toBeVisible();
@@ -214,6 +220,8 @@ test.describe('手术主数据受控修改', () => {
     await expect(auditSection.getByText('md-e2e-user')).toBeVisible();
     await expect(auditSection.getByText('anesthesiologist')).toBeVisible();
     await expect(auditSection.getByText('2026-07-13 10:00:00')).toBeVisible();
+    // 成功保存流程：审计状态必须精确为“成功”，不得放宽
+    await expect(auditSection.getByText('成功', { exact: true })).toBeVisible();
   });
 
   test('真实凭据主数据保存与清理（opt-in）', async ({ page }) => {
@@ -234,32 +242,35 @@ test.describe('手术主数据受控修改', () => {
     const roomGroup = await page.evaluate(() => sessionStorage.getItem('samis_room_group') ?? '');
     expect(roomCode, '登录后会话应包含 samis_room').toBeTruthy();
 
-    // 3. setup 唯一 OP-E2E-SCHEDULE-* 合成病例（不预先播种，由 CLI 创建并返回唯一 ID）
-    const fixture = await setupMasterDataFixture(roomCode, roomGroup);
-    const operationId = fixture.operationId;
-    expect(fixture.status).toBe('present');
-    expect(fixture.visible).toBe(true);
+    // 3. 测试端先确定已知、唯一、≤50 的 OP-E2E-SCHEDULE-* operationId，立即进入 try
+    const operationId = generateMasterDataOperationId();
+    const reason = 'E2E 合成病例主数据回归';
+    const newName = `${operationId}-修正`;
 
     try {
+      // setup 接收显式 operationId 并传给 CLI；不依赖 CLI 返回才知道 id
+      const fixture = await setupMasterDataFixture(operationId, roomCode, roomGroup);
+      expect(fixture.operationId).toBe(operationId);
+      const present = await statusMasterDataFixture(operationId);
+      expect(present.status).toBe('present');
+      expect(present.visible).toBe(true);
+
       // 4. 打开排班并定位该合成病例（住院号列展示 patientId=operationId）
       await page.goto('/surgery/schedule');
       await page.waitForLoadState('networkidle');
-      const targetRow = page.locator('tr').filter({ hasText: operationId });
-      await expect(targetRow.first()).toBeVisible({ timeout: 15_000 });
-
-      const versionBefore = await readDrawerVersion(page, targetRow);
+      const targetRow = () => page.locator('tr').filter({ hasText: operationId });
+      await expect(targetRow().first()).toBeVisible({ timeout: 15_000 });
+      const versionBefore = await readDrawerVersion(page, targetRow());
 
       // 5. 修改患者姓名/性别，填写原因
-      await targetRow.first().getByRole('button', { name: '编辑' }).click();
+      await targetRow().first().getByRole('button', { name: '编辑' }).click();
       const drawer = page.locator('.arco-drawer');
-      await drawer.locator('.arco-form-item').filter({ hasText: '患者' }).locator('input').first()
-        .fill(`${operationId}-修正`);
+      await drawer.locator('.arco-form-item').filter({ hasText: '患者' }).locator('input').first().fill(newName);
       await drawer.locator('.arco-form-item').filter({ hasText: '性别' }).locator('.arco-select-view').click();
       await page.locator('.arco-select-option').filter({ hasText: '女' }).first().click();
-      await page.getByPlaceholder('请填写本次主数据修改原因').fill('E2E 合成病例主数据回归');
+      await page.getByPlaceholder('请填写本次主数据修改原因').fill(reason);
 
-      // 6. 明确点击名称为“确定”的按钮
-      // 7. 等待主数据 POST 和详情 GET
+      // 6. 明确点击名称为“确定”的按钮；7. 等待主数据 POST 和详情 GET
       await Promise.all([
         page.waitForResponse((r) => r.url().includes('/operationInfo/updateOperationInfo') && r.request().method() === 'POST'),
         page.locator('.arco-drawer-footer').getByRole('button', { name: '确定' }).click(),
@@ -267,18 +278,35 @@ test.describe('手术主数据受控修改', () => {
       await page.waitForResponse((r) => r.url().includes('/operationInfo/getOperationInfo'));
       await page.waitForLoadState('networkidle');
 
-      // 8. 验证新版本与刷新保持
+      // 8. 刷新后验证：目标行显示修改后姓名、重新打开抽屉患者输入值=修改后姓名、性别=女、版本严格递增
       await page.reload();
       await page.waitForLoadState('networkidle');
-      await expect(page.locator('tr').filter({ hasText: operationId }).first()).toBeVisible();
-      const versionAfter = await readDrawerVersion(page, page.locator('tr').filter({ hasText: operationId }));
-      expect(versionAfter, '保存后版本号应递增').toBeGreaterThan(versionBefore);
+      await expect(targetRow().first()).toBeVisible();
+      await expect(targetRow().first()).toContainText(newName);
+      const versionAfter = await readDrawerVersion(page, targetRow());
+      expect(versionAfter, '保存后版本号应严格大于修改前').toBeGreaterThan(versionBefore);
 
-      // 审计记录：重新打开抽屉，状态列展示成功或审计待确认
-      await page.locator('tr').filter({ hasText: operationId }).first().getByRole('button', { name: '编辑' }).click();
-      await expect(page.locator('.arco-drawer .drawer-audit').getByText(/成功|审计待确认/).first()).toBeVisible({ timeout: 10_000 });
+      await targetRow().first().getByRole('button', { name: '编辑' }).click();
+      const drawerAfter = page.locator('.arco-drawer');
+      await expect(drawerAfter.locator('.arco-form-item').filter({ hasText: '患者' }).locator('input').first())
+        .toHaveValue(newName);
+      await expect(drawerAfter.locator('.arco-form-item').filter({ hasText: '性别' }).locator('.arco-select-view'))
+        .toContainText('女');
+
+      // 审计必须验证两条对应字段行（精确“成功”，不得放宽为 /成功|审计待确认/）
+      const auditRows = await readAuditRows(page);
+      const nameRow = auditRows.find((r) => r.field === '患者姓名');
+      const genderRow = auditRows.find((r) => r.field === '性别');
+      expect(nameRow, '审计应包含患者姓名行').toBeTruthy();
+      expect(genderRow, '审计应包含性别行').toBeTruthy();
+      expect(nameRow?.after).toBe(newName);
+      expect(nameRow?.reason).toBe(reason);
+      expect(nameRow?.status).toBe('成功');
+      expect(genderRow?.after).toBe('女');
+      expect(genderRow?.reason).toBe(reason);
+      expect(genderRow?.status).toBe('成功');
     } finally {
-      // 9. finally 无条件清理；10. cleanup 后 status 必须为 absent
+      // 9. finally 无条件清理（setup 未写入时也因幂等安全）；10. cleanup 后 status 必须精确为 absent
       await cleanupMasterDataFixture(operationId);
       const after = await statusMasterDataFixture(operationId);
       expect(after.status).toBe('absent');
@@ -291,9 +319,25 @@ async function readDrawerVersion(page: Page, row: import('@playwright/test').Loc
   await row.first().getByRole('button', { name: '编辑' }).click();
   const drawer = page.locator('.arco-drawer');
   const metaText = await drawer.locator('.arco-descriptions').first().innerText().catch(() => '');
-  // 关闭抽屉，避免影响后续步骤
-  await page.locator('.arco-drawer-footer').getByRole('button', { name: '取消' }).click().catch(() => {});
+  await page.locator('.arco-drawer-footer').getByRole('button', { name: '取消' }).click().catch(() => '');
   const match = metaText.match(/版本[^\d-]*(-?\d+)/);
-  if (!match) return -1;
-  return Number(match[1]);
+  return match ? Number(match[1]) : -1;
+}
+
+/** 读取抽屉审计表全部行：列序为 状态/字段/变更前/变更后/原因/操作人/角色/时间。 */
+async function readAuditRows(page: Page): Promise<Array<{ status: string; field: string; before: string; after: string; reason: string }>> {
+  const rows = page.locator('.arco-drawer .drawer-audit tbody tr');
+  const count = await rows.count();
+  const out: Array<{ status: string; field: string; before: string; after: string; reason: string }> = [];
+  for (let i = 0; i < count; i += 1) {
+    const cells = await rows.nth(i).locator('td').allInnerTexts();
+    out.push({
+      status: (cells[0] ?? '').trim(),
+      field: (cells[1] ?? '').trim(),
+      before: (cells[2] ?? '').trim(),
+      after: (cells[3] ?? '').trim(),
+      reason: (cells[4] ?? '').trim(),
+    });
+  }
+  return out;
 }

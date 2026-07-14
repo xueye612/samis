@@ -38,9 +38,21 @@ async function runCli(action: string, args: readonly string[]): Promise<FixtureO
   return parsed;
 }
 
-/** setup 唯一 OP-E2E-SCHEDULE-* 合成病例（未传 operationId 时由 CLI 生成唯一 ID）。 */
-export async function setupMasterDataFixture(roomCode: string, roomGroup: string): Promise<FixtureOutcome> {
-  return runCli('setup', [`--roomCode=${roomCode}`, `--roomGroup=${roomGroup}`]);
+/** 测试端生成已知、唯一、长度不超过 50 的 OP-E2E-SCHEDULE-* operationId（在 setup 之前确定）。 */
+export function generateMasterDataOperationId(): string {
+  const stamp = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 6);
+  const id = `OP-E2E-SCHEDULE-${stamp}${rand}`;
+  return id.length <= 50 ? id : `${id.slice(0, 50)}`;
+}
+
+/** setup 显式 operationId 的 OP-E2E-SCHEDULE-* 合成病例；operationId 由调用方先确定。 */
+export async function setupMasterDataFixture(
+  operationId: string,
+  roomCode: string,
+  roomGroup: string,
+): Promise<FixtureOutcome> {
+  return runCli('setup', [`--operationId=${operationId}`, `--roomCode=${roomCode}`, `--roomGroup=${roomGroup}`]);
 }
 
 export async function statusMasterDataFixture(operationId: string): Promise<FixtureOutcome> {
