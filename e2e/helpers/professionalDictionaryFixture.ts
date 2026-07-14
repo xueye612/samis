@@ -48,6 +48,15 @@ async function runFixtureInt(method: string, arg: number): Promise<ProDictFixtur
   return JSON.parse(line) as ProDictFixtureOutcome;
 }
 
+async function categoryIdByCode(code: string): Promise<number> {
+  if (!code.startsWith('CAT-E2E-')) throw new Error('category code must start with CAT-E2E-');
+  const snippet = `require ${JSON.stringify(AUTOLOAD)}; (new think\\App())->initialize(); $r=think\\facade\\Db::connect("samis")->name("anes_dict_category")->where("category_code",${JSON.stringify(code)})->find(); echo $r ? (string)$r["id"] : "0";`;
+  const { stdout } = await execFileAsync('docker', [
+    'exec', DOCKER_CONTAINER, 'php', '-r', snippet,
+  ], { encoding: 'utf8' });
+  return Number(stdout.trim().split(/\r?\n/).pop() ?? '0');
+}
+
 export function generateStaffGh(): string {
   return `STAFF-E2E-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 }
@@ -67,6 +76,11 @@ export async function cleanupDictItem(code: string): Promise<ProDictFixtureOutco
 export async function cleanupCategoryById(id: number): Promise<ProDictFixtureOutcome> {
   return runFixtureInt('cleanupCategoryById', id);
 }
+export async function cleanupCategoryByCode(code: string): Promise<ProDictFixtureOutcome> {
+  const id = await categoryIdByCode(code);
+  if (id > 0) await cleanupCategoryById(id);
+  return categoryStatusByCode(code);
+}
 export async function staffStatus(gh: string): Promise<ProDictFixtureOutcome> {
   return runFixture('staffStatus', gh);
 }
@@ -75,4 +89,8 @@ export async function dictItemStatus(code: string): Promise<ProDictFixtureOutcom
 }
 export async function categoryStatusById(id: number): Promise<ProDictFixtureOutcome> {
   return runFixtureInt('categoryStatusById', id);
+}
+export async function categoryStatusByCode(code: string): Promise<ProDictFixtureOutcome> {
+  const id = await categoryIdByCode(code);
+  return id > 0 ? categoryStatusById(id) : { status: 'absent', id: 0 };
 }

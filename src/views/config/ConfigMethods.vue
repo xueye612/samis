@@ -56,6 +56,7 @@
                     <a-button size="mini" @click="openChildHistory(record)">历史</a-button>
                     <a-button v-if="canManage" size="mini" @click="openChildEdit(record)">编辑</a-button>
                     <a-button v-if="canManage && record.status === 'enabled'" size="mini" @click="onChangeChildStatus(record, 'paused')">暂停</a-button>
+                    <a-button v-if="canManage && record.status === 'paused'" size="mini" @click="onChangeChildStatus(record, 'enabled')">启用</a-button>
                     <a-button v-if="canManage && record.status !== 'disabled'" size="mini" status="warning" @click="onChangeChildStatus(record, 'disabled')">停用</a-button>
                   </a-space>
                 </template>

@@ -1,10 +1,9 @@
-import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import {
-  cleanupStaff, cleanupDictItem, cleanupCategoryById,
+  cleanupStaff, cleanupDictItem, cleanupCategoryByCode,
   generateStaffGh, generateDictCode, generateCategoryCode,
-  staffStatus, dictItemStatus, categoryStatusById,
+  staffStatus, dictItemStatus, categoryStatusByCode,
 } from './helpers/professionalDictionaryFixture';
 
 const e2eEnabled = process.env.SAMIS_PROFESSIONAL_DICT_E2E === '1';
@@ -83,8 +82,9 @@ function installMocks(page: Page, perms: string[], state: MockState) {
       state.writes.staff++;
       const f = parseForm(route.request());
       const gh = f.get('gh') ?? '';
-      const id = f.get('id') ? Number(f.get('id')) : state.nextId++;
-      const v = f.get('id') ? Number(f.get('expectedVersion')) + 1 : 1;
+      const submittedId = Number(f.get('id') ?? 0);
+      const id = submittedId > 0 ? submittedId : state.nextId++;
+      const v = submittedId > 0 ? Number(f.get('expectedVersion')) + 1 : 1;
       state.staff.set(gh, { id, gh, name: f.get('name') ?? '', professionalGroup: f.get('professionalGroup') ?? null, sortNo: Number(f.get('sortNo') ?? 0), validFrom: f.get('validFrom') ?? null, status: 'enabled', version: v, scopes: JSON.parse(f.get('scopes') ?? '[]') });
       await route.fulfill(ok({ id, version: v })); return;
     }
@@ -92,8 +92,9 @@ function installMocks(page: Page, perms: string[], state: MockState) {
       state.writes.category++;
       const f = parseForm(route.request());
       const code = f.get('categoryCode') ?? '';
-      const id = f.get('id') ? Number(f.get('id')) : state.nextId++;
-      const v = f.get('id') ? Number(f.get('expectedVersion')) + 1 : 1;
+      const submittedId = Number(f.get('id') ?? 0);
+      const id = submittedId > 0 ? submittedId : state.nextId++;
+      const v = submittedId > 0 ? Number(f.get('expectedVersion')) + 1 : 1;
       state.categories.set(id, { id, categoryCode: code, categoryName: f.get('categoryName') ?? '', domainCode: 'anesthesia_method', sortNo: Number(f.get('sortNo') ?? 0), status: 'enabled', version: v });
       await route.fulfill(ok({ id, version: v })); return;
     }
@@ -102,8 +103,9 @@ function installMocks(page: Page, perms: string[], state: MockState) {
       const f = parseForm(route.request());
       const code = f.get('itemCode') ?? '';
       const cat = f.get('categoryCode') ?? '';
-      const id = f.get('id') ? Number(f.get('id')) : state.nextId++;
-      const v = f.get('id') ? Number(f.get('expectedVersion')) + 1 : 1;
+      const submittedId = Number(f.get('id') ?? 0);
+      const id = submittedId > 0 ? submittedId : state.nextId++;
+      const v = submittedId > 0 ? Number(f.get('expectedVersion')) + 1 : 1;
       state.items.set(code, { id, itemCode: code, itemName: f.get('itemName') ?? '', categoryCode: cat, parentCode: f.get('parentCode') || null, sortNo: Number(f.get('sortNo') ?? 0), status: 'enabled', version: v });
       await route.fulfill(ok({ id, version: v })); return;
     }
@@ -123,6 +125,32 @@ function installMocks(page: Page, perms: string[], state: MockState) {
 
 function freshState(): MockState {
   return { staff: new Map(), categories: new Map(), items: new Map(), nextId: 9000, writes: { staff: 0, category: 0, item: 0, status: 0 } };
+}
+
+async function assertAndCloseHistory(page: Page, expectedReason = '检修') {
+  const drawer = page.locator('.arco-drawer').last();
+  await expect(drawer.getByText('启用', { exact: true }).first()).toBeVisible();
+  await expect(drawer.getByText('暂停', { exact: true }).first()).toBeVisible();
+  await expect(drawer.getByText(`原因：${expectedReason}`, { exact: true })).toBeVisible();
+  await expect(drawer.getByText(/版本 2 · pd-e2e · 2026-07-14 09:00:00/)).toBeVisible();
+  await drawer.locator('.arco-drawer-close-btn').click();
+}
+
+async function applyRealStatus(page: Page, row: Locator, action: '暂停' | '停用', reason: string) {
+  const response = page.waitForResponse((r) => r.url().includes('/changeProfessionalStatus') && r.request().method() === 'POST');
+  await row.getByRole('button', { name: action, exact: true }).click();
+  await page.locator('.arco-modal textarea').fill(reason);
+  await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
+  await response;
+  await page.waitForLoadState('networkidle');
+}
+
+async function assertRealHistory(page: Page, row: Locator, reason: string) {
+  await row.getByRole('button', { name: '历史', exact: true }).click();
+  const drawer = page.locator('.arco-drawer').last();
+  await expect(drawer.getByText(`原因：${reason}`, { exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(drawer.getByText(/版本 \d+ · .+ · \d{4}-\d{2}-\d{2}/).last()).toBeVisible();
+  await drawer.locator('.arco-drawer-close-btn').click();
 }
 
 test.describe('专业字典结构化配置生命周期', () => {
@@ -170,12 +198,27 @@ test.describe('专业字典结构化配置生命周期', () => {
     await page.locator('.arco-drawer-footer').getByRole('button', { name: '保存' }).click();
     await page.waitForLoadState('networkidle');
     await expect(page.locator('.arco-table').getByText('2').first()).toBeVisible();
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByText('STAFF-E2E-1').first()).toBeVisible();
+    await expect(page.locator('.arco-table').getByText('2').first()).toBeVisible();
     // 暂停空原因 0 POST
     const beforeStatus = state2.writes.status;
     await page.getByRole('button', { name: '暂停' }).first().click();
     await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
     await expect(page.getByText('请填写变更原因')).toBeVisible();
     expect(state2.writes.status).toBe(beforeStatus);
+    // 原因、ID、版本与历史必须形成闭环
+    const statusPost = page.waitForResponse((r) => r.url().includes('/changeProfessionalStatus'));
+    await page.locator('.arco-modal textarea').fill('检修');
+    await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
+    const statusReq = await statusPost;
+    const statusForm = parseForm(statusReq.request());
+    expect(statusForm.get('id')).toBe('9000');
+    expect(statusForm.get('expectedVersion')).toBe('2');
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: '历史' }).first().click();
+    await assertAndCloseHistory(page);
     // 无删除动作
     await expect(page.getByRole('button', { name: '删除' })).toHaveCount(0);
   });
@@ -202,6 +245,7 @@ test.describe('专业字典结构化配置生命周期', () => {
 
     await page.goto('/config/methods');
     await page.waitForLoadState('networkidle');
+    await expect(page.getByText('远程暂无麻醉方式大类')).toBeVisible();
     // 新增大类
     await page.getByRole('button', { name: '新增大类' }).click();
     await page.locator('.arco-modal').locator('input').first().fill('CAT-E2E-T');
@@ -221,14 +265,47 @@ test.describe('专业字典结构化配置生命周期', () => {
     const childPost = page.waitForResponse((r) => r.url().includes('/saveProfessionalItem'));
     await page.locator('.arco-drawer-footer').getByRole('button', { name: '保存' }).click();
     const childReq = await childPost;
-    expect(parseForm(childReq.request()).get('parentCode')).toBeTruthy();
+    expect(parseForm(childReq.request()).get('parentCode')).toBe('CAT-E2E-T');
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('METHOD-E2E-T').first()).toBeVisible();
+    const childRow = page.locator('.arco-table-tr').filter({ hasText: 'METHOD-E2E-T' });
+    const beforeChildStatus = state.writes.status;
+    await childRow.getByRole('button', { name: '暂停' }).click();
+    await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
+    await expect(page.getByText('请填写变更原因')).toBeVisible();
+    expect(state.writes.status).toBe(beforeChildStatus);
+    const childStatusPost = page.waitForResponse((r) => r.url().includes('/changeProfessionalStatus'));
+    await page.locator('.arco-modal textarea').fill('检修');
+    await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
+    const childStatusReq = await childStatusPost;
+    const childStatusForm = parseForm(childStatusReq.request());
+    expect(childStatusForm.get('id')).toBe('9001');
+    expect(childStatusForm.get('expectedVersion')).toBe('1');
+    await page.waitForLoadState('networkidle');
+    await childRow.getByRole('button', { name: '历史' }).click();
+    await assertAndCloseHistory(page);
+    const childEnable = page.waitForResponse((r) => r.url().includes('/changeProfessionalStatus'));
+    await childRow.getByRole('button', { name: '启用' }).click();
+    await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
+    await childEnable;
+    await page.waitForLoadState('networkidle');
     // 停用大类后临床 enabled 目录不含其子项（无 allStatus 的 fetch）
-    await page.getByRole('button', { name: '停用' }).first().click();
+    const categoryRow = page.locator('.arco-list-item').filter({ hasText: '测试大类' });
+    const beforeCategoryStatus = state.writes.status;
+    await categoryRow.getByRole('button', { name: '停用' }).click();
+    await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
+    await expect(page.getByText('请填写变更原因')).toBeVisible();
+    expect(state.writes.status).toBe(beforeCategoryStatus);
+    const categoryStatusPost = page.waitForResponse((r) => r.url().includes('/changeProfessionalStatus'));
     await page.locator('.arco-modal textarea').fill('停用大类');
     await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
+    const categoryStatusReq = await categoryStatusPost;
+    const categoryStatusForm = parseForm(categoryStatusReq.request());
+    expect(categoryStatusForm.get('id')).toBe('9000');
+    expect(categoryStatusForm.get('expectedVersion')).toBe('1');
     await page.waitForLoadState('networkidle');
+    await categoryRow.getByRole('button', { name: '历史' }).click();
+    await assertAndCloseHistory(page);
     const biz = await page.evaluate(async () => {
       const r = await fetch('/api-samis/pc/v1/anesthesiaDict/getProfessionalItems?categoryCode=anesthesia_method', { headers: { Authorization: 'Bearer x' } });
       return r.json();
@@ -247,6 +324,7 @@ test.describe('专业字典结构化配置生命周期', () => {
     // 事件
     await page.goto('/config/events');
     await page.waitForLoadState('networkidle');
+    await expect(page.getByText('远程暂无数据')).toBeVisible();
     await page.getByRole('button', { name: '新增' }).click();
     let drawer = page.locator('.arco-drawer');
     await drawer.locator('.arco-form-item').filter({ hasText: '编码' }).locator('input').fill('EVENT-E2E-T');
@@ -264,12 +342,31 @@ test.describe('专业字典结构化配置生命周期', () => {
     const evUpd = page.waitForResponse((r) => r.url().includes('/saveProfessionalItem'));
     await page.locator('.arco-drawer-footer').getByRole('button', { name: '保存' }).click();
     const evUpdReq = await evUpd;
-    expect(parseForm(evUpdReq.request()).get('id')).toBeTruthy();
-    expect(parseForm(evUpdReq.request()).get('expectedVersion')).toBeTruthy();
+    expect(parseForm(evUpdReq.request()).get('id')).toBe('9000');
+    expect(parseForm(evUpdReq.request()).get('expectedVersion')).toBe('1');
+    await page.waitForLoadState('networkidle');
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    const eventRow = page.locator('.arco-table-tr').filter({ hasText: 'EVENT-E2E-T' });
+    const beforeEventStatus = state.writes.status;
+    await eventRow.getByRole('button', { name: '暂停' }).click();
+    await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
+    await expect(page.getByText('请填写变更原因')).toBeVisible();
+    expect(state.writes.status).toBe(beforeEventStatus);
+    const eventStatusPost = page.waitForResponse((r) => r.url().includes('/changeProfessionalStatus'));
+    await page.locator('.arco-modal textarea').fill('检修');
+    await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
+    const eventStatusReq = await eventStatusPost;
+    expect(parseForm(eventStatusReq.request()).get('id')).toBe('9000');
+    expect(parseForm(eventStatusReq.request()).get('expectedVersion')).toBe('2');
+    await page.waitForLoadState('networkidle');
+    await eventRow.getByRole('button', { name: '历史' }).click();
+    await assertAndCloseHistory(page);
 
     // 评分：规则 JSON 精确断言
     await page.goto('/config/scores');
     await page.waitForLoadState('networkidle');
+    await expect(page.getByText('远程暂无数据')).toBeVisible();
     await page.getByRole('button', { name: '新增' }).click();
     drawer = page.locator('.arco-drawer');
     await drawer.locator('.arco-form-item').filter({ hasText: '编码' }).locator('input').fill('SCORE-E2E-T');
@@ -283,36 +380,48 @@ test.describe('专业字典结构化配置生命周期', () => {
     expect(Array.isArray(rule)).toBe(true);
     expect(rule[0].dimension).toBe('心率');
     expect(rule[0].scores).toEqual([0, 1, 2]);
-    // 状态变更携带 id
+    // 空原因不得写，成功状态变更须携带精确服务端 id/version
     await page.waitForLoadState('networkidle');
+    const scoreRow = page.locator('.arco-table-tr').filter({ hasText: 'SCORE-E2E-T' });
+    const beforeScoreStatus = state.writes.status;
+    await scoreRow.getByRole('button', { name: '停用' }).click();
+    await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
+    await expect(page.getByText('请填写变更原因')).toBeVisible();
+    expect(state.writes.status).toBe(beforeScoreStatus);
     const statusPost = page.waitForResponse((r) => r.url().includes('/changeProfessionalStatus'));
-    await page.getByRole('button', { name: '停用' }).first().click();
-    await page.locator('.arco-modal textarea').fill('停用');
+    await page.locator('.arco-modal textarea').fill('检修');
     await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
     const statusReq = await statusPost;
-    expect(parseForm(statusReq.request()).get('id')).toBeTruthy();
+    expect(parseForm(statusReq.request()).get('id')).toBe('9001');
+    expect(parseForm(statusReq.request()).get('expectedVersion')).toBe('1');
     expect(parseForm(statusReq.request()).get('entityType')).toBe('score');
+    await page.waitForLoadState('networkidle');
+    await scoreRow.getByRole('button', { name: '历史' }).click();
+    await assertAndCloseHistory(page);
+    await expect(page.getByRole('button', { name: '删除' })).toHaveCount(0);
   });
 
   test('四类权限分别缺失时对应写请求为 0（统计真实请求数）', async ({ page }) => {
     const state = freshState();
     await seed(page);
-    // 仅评分权限：人员/方式/事件写请求为 0
-    await installMocks(page, [SCORE_PERM], state);
+    await installMocks(page, [], state);
     await page.goto('/config/staff');
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('无人员配置权限')).toBeVisible();
+    await expect(page.getByRole('button', { name: '新增人员' })).toHaveCount(0);
     await page.goto('/config/methods');
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('无麻醉方式配置权限')).toBeVisible();
+    await expect(page.getByRole('button', { name: '新增大类' })).toHaveCount(0);
     await page.goto('/config/events');
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('无配置权限')).toBeVisible();
-    // 评分页有权限，可新增
+    await expect(page.getByRole('button', { name: '新增' })).toHaveCount(0);
     await page.goto('/config/scores');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByRole('button', { name: '新增' })).toBeVisible();
-    expect(state.writes.staff + state.writes.category + state.writes.item).toBe(0);
+    await expect(page.getByText('无配置权限')).toBeVisible();
+    await expect(page.getByRole('button', { name: '新增' })).toHaveCount(0);
+    expect(state.writes.staff + state.writes.category + state.writes.item + state.writes.status).toBe(0);
   });
 
   test('真实凭据四类生命周期与清理（opt-in）', async ({ page }) => {
@@ -324,7 +433,6 @@ test.describe('专业字典结构化配置生命周期', () => {
     const methodCode = generateDictCode('METHOD');
     const eventCode = generateDictCode('EVENT');
     const scoreCode = generateDictCode('SCORE');
-    let categoryId = 0;
     try {
       await page.goto('/login');
       await page.locator('input').first().fill(e2eUsername);
@@ -344,8 +452,21 @@ test.describe('专业字典结构化配置生命周期', () => {
       await page.reload();
       await page.waitForLoadState('networkidle');
       await expect(page.getByText(gh).first()).toBeVisible({ timeout: 15000 });
+      let row = page.locator('.arco-table-tr').filter({ hasText: gh });
+      await row.getByRole('button', { name: '编辑', exact: true }).click();
+      await page.locator('.arco-drawer').locator('.arco-form-item').filter({ hasText: '姓名' }).locator('input').fill(`${gh}-修改`);
+      await page.locator('.arco-drawer-footer').getByRole('button', { name: '保存' }).click();
+      await page.waitForLoadState('networkidle');
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      row = page.locator('.arco-table-tr').filter({ hasText: gh });
+      await expect(row.getByText(`${gh}-修改`)).toBeVisible();
+      await applyRealStatus(page, row, '暂停', '真实人员暂停');
+      row = page.locator('.arco-table-tr').filter({ hasText: gh });
+      await assertRealHistory(page, row, '真实人员暂停');
+      await applyRealStatus(page, row, '停用', '真实人员停用');
 
-      // 大类→子项→状态→历史
+      // 大类：创建→编辑→刷新；子项：创建→编辑→暂停/停用→历史
       await page.goto('/config/methods');
       await page.waitForLoadState('networkidle');
       await page.getByRole('button', { name: '新增大类' }).click();
@@ -353,18 +474,46 @@ test.describe('专业字典结构化配置生命周期', () => {
       await page.locator('.arco-modal').locator('.arco-form-item').filter({ hasText: '大类名称' }).locator('input').fill(`${catCode}-大类`);
       await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
       await page.waitForLoadState('networkidle');
+      let categoryRow = page.locator('.arco-list-item').filter({ hasText: catCode });
+      await categoryRow.getByRole('button', { name: '编辑', exact: true }).click();
+      await page.locator('.arco-modal').locator('.arco-form-item').filter({ hasText: '大类名称' }).locator('input').fill(`${catCode}-大类修改`);
+      await page.locator('.arco-modal').getByRole('button', { name: '确定' }).click();
+      await page.waitForLoadState('networkidle');
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      categoryRow = page.locator('.arco-list-item').filter({ hasText: catCode });
+      await expect(categoryRow.getByText(`${catCode}-大类修改`)).toBeVisible();
+      await categoryRow.click();
       await page.getByRole('button', { name: '新增子项' }).click();
       const md = page.locator('.arco-drawer');
       await md.locator('.arco-form-item').filter({ hasText: '编码' }).locator('input').fill(methodCode);
       await md.locator('.arco-form-item').filter({ hasText: '名称' }).locator('input').fill(`${methodCode}-方式`);
       await md.locator('.arco-form-item').filter({ hasText: '所属大类' }).locator('.arco-select-view').click();
-      await page.waitForTimeout(150);
-      await page.keyboard.press('ArrowDown');
-      await page.keyboard.press('Enter');
+      await page.locator('.arco-select-option').filter({ hasText: `${catCode}-大类修改` }).click();
       await page.locator('.arco-drawer-footer').getByRole('button', { name: '保存' }).click();
       await page.waitForLoadState('networkidle');
+      row = page.locator('.arco-table-tr').filter({ hasText: methodCode });
+      await row.getByRole('button', { name: '编辑', exact: true }).click();
+      await page.locator('.arco-drawer').locator('.arco-form-item').filter({ hasText: '气道策略' }).locator('input').fill('真实气道策略');
+      await page.locator('.arco-drawer-footer').getByRole('button', { name: '保存' }).click();
+      await page.waitForLoadState('networkidle');
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      categoryRow = page.locator('.arco-list-item').filter({ hasText: catCode });
+      await categoryRow.click();
+      row = page.locator('.arco-table-tr').filter({ hasText: methodCode });
+      await expect(row.getByText('真实气道策略')).toBeVisible();
+      await applyRealStatus(page, row, '暂停', '真实方式暂停');
+      row = page.locator('.arco-table-tr').filter({ hasText: methodCode });
+      await assertRealHistory(page, row, '真实方式暂停');
+      await applyRealStatus(page, row, '停用', '真实方式停用');
+      categoryRow = page.locator('.arco-list-item').filter({ hasText: catCode });
+      await applyRealStatus(page, categoryRow, '暂停', '真实大类暂停');
+      categoryRow = page.locator('.arco-list-item').filter({ hasText: catCode });
+      await assertRealHistory(page, categoryRow, '真实大类暂停');
+      await applyRealStatus(page, categoryRow, '停用', '真实大类停用');
 
-      // 事件、评分创建
+      // 事件：创建→编辑→刷新→暂停/停用→历史
       await page.goto('/config/events');
       await page.waitForLoadState('networkidle');
       await page.getByRole('button', { name: '新增' }).click();
@@ -373,7 +522,21 @@ test.describe('专业字典结构化配置生命周期', () => {
       await d.locator('.arco-form-item').filter({ hasText: '名称' }).locator('input').fill(`${eventCode}-事件`);
       await page.locator('.arco-drawer-footer').getByRole('button', { name: '保存' }).click();
       await page.waitForLoadState('networkidle');
+      row = page.locator('.arco-table-tr').filter({ hasText: eventCode });
+      await row.getByRole('button', { name: '编辑', exact: true }).click();
+      await page.locator('.arco-drawer').locator('.arco-form-item').filter({ hasText: '名称' }).locator('input').fill(`${eventCode}-事件修改`);
+      await page.locator('.arco-drawer-footer').getByRole('button', { name: '保存' }).click();
+      await page.waitForLoadState('networkidle');
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      row = page.locator('.arco-table-tr').filter({ hasText: eventCode });
+      await expect(row.getByText(`${eventCode}-事件修改`)).toBeVisible();
+      await applyRealStatus(page, row, '暂停', '真实事件暂停');
+      row = page.locator('.arco-table-tr').filter({ hasText: eventCode });
+      await assertRealHistory(page, row, '真实事件暂停');
+      await applyRealStatus(page, row, '停用', '真实事件停用');
 
+      // 评分：创建→编辑→刷新→暂停/停用→历史
       await page.goto('/config/scores');
       await page.waitForLoadState('networkidle');
       await page.getByRole('button', { name: '新增' }).click();
@@ -383,24 +546,31 @@ test.describe('专业字典结构化配置生命周期', () => {
       await d.locator('.arco-form-item').filter({ hasText: '结构化规则' }).locator('textarea').fill(JSON.stringify([{ dimension: '心率' }]));
       await page.locator('.arco-drawer-footer').getByRole('button', { name: '保存' }).click();
       await page.waitForLoadState('networkidle');
-
-      // 取真实 categoryId 用于清理（按 code 反查）
+      row = page.locator('.arco-table-tr').filter({ hasText: scoreCode });
+      await row.getByRole('button', { name: '编辑', exact: true }).click();
+      await page.locator('.arco-drawer').locator('.arco-form-item').filter({ hasText: '名称' }).locator('input').fill(`${scoreCode}-评分修改`);
+      await page.locator('.arco-drawer-footer').getByRole('button', { name: '保存' }).click();
+      await page.waitForLoadState('networkidle');
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      row = page.locator('.arco-table-tr').filter({ hasText: scoreCode });
+      await expect(row.getByText(`${scoreCode}-评分修改`)).toBeVisible();
+      await applyRealStatus(page, row, '暂停', '真实评分暂停');
+      row = page.locator('.arco-table-tr').filter({ hasText: scoreCode });
+      await assertRealHistory(page, row, '真实评分暂停');
+      await applyRealStatus(page, row, '停用', '真实评分停用');
     } finally {
       await cleanupStaff(gh);
       await cleanupDictItem(methodCode);
       await cleanupDictItem(eventCode);
       await cleanupDictItem(scoreCode);
-      // 大类清理：按 code 反查 id 后清理
-      const catPhp = execFileSync('docker', ['exec', '1Panel-php8-B01L', 'php', '-r',
-        `require "/www/sites/api.cnwenhui.cn/index/vendor/autoload.php"; require "/www/sites/api.cnwenhui.cn/index/tests/support/ProfessionalDictionaryFixture.php"; (new think\\App())->initialize(); $r=think\\facade\\Db::connect("samis")->name("anes_dict_category")->where("category_code",${JSON.stringify(catCode)})->find(); echo $r? (string)$r["id"] : "0";`], { encoding: 'utf8' }).trim();
-      categoryId = Number(catPhp || '0');
-      if (categoryId > 0) { await cleanupCategoryById(categoryId); }
+      await cleanupCategoryByCode(catCode);
       // 逐项断言 absent
       expect((await staffStatus(gh)).status).toBe('absent');
       expect((await dictItemStatus(methodCode)).status).toBe('absent');
       expect((await dictItemStatus(eventCode)).status).toBe('absent');
       expect((await dictItemStatus(scoreCode)).status).toBe('absent');
-      if (categoryId > 0) { expect((await categoryStatusById(categoryId)).status).toBe('absent'); }
+      expect((await categoryStatusByCode(catCode)).status).toBe('absent');
     }
   });
 });
