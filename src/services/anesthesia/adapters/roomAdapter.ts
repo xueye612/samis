@@ -129,12 +129,12 @@ export function mapRoomConfiguration(raw: unknown): RoomConfiguration {
     schedulePreference: nullableString(record, ['schedulePreference', 'schedule_preference']),
     staffPreference: nullableString(record, ['staffPreference', 'staff_preference']),
     sortNo: intField(record, ['sortNo', 'sort_no'], 0),
-    status: pickString(record, ['status'], 'enabled'),
+    status: pickString(record, ['status'], ''),
     statusReason: nullableString(record, ['statusReason', 'status_reason']),
     effectiveAt: nullableString(record, ['effectiveAt', 'effective_at']),
     pausedAt: nullableString(record, ['pausedAt', 'paused_at']),
     disabledAt: nullableString(record, ['disabledAt', 'disabled_at']),
-    version: intField(record, ['version'], 1),
+    version: intField(record, ['version'], 0),
     remark: nullableString(record, ['remark']),
     createdBy: nullableString(record, ['createdBy', 'created_by']),
     createdAt: nullableString(record, ['createdAt', 'created_at']),
@@ -164,20 +164,14 @@ export function mapRoomHistory(data: unknown): RoomStatusHistoryItem[] {
 }
 
 export function mapRoomItem(raw: unknown): RoomCatalogItem {
-  const roomId = pickString(raw, [
-    'OPERATION_ROOM_CODE',
-    'OPERATION_ROOM_ID',
-    'roomId',
-    'ROOMID',
-    'id',
-    'roomCode',
-  ], '');
-  const roomName = pickString(raw, ['OPERATION_ROOM_NAME', 'roomName', 'ROOMNAME', 'name', 'room'], roomId);
+  // 优先稳定业务编码 roomCode/OPERATION_ROOM_CODE；不得用数字 roomId 替代，也不以名称反造编码。
+  const roomCode = pickString(raw, ['roomCode', 'OPERATION_ROOM_CODE'], '');
+  const roomName = pickString(raw, ['roomName', 'OPERATION_ROOM_NAME', 'ROOMNAME', 'name', 'room'], roomCode);
   return {
-    roomId: roomId || roomName,
-    roomName: roomName || roomId,
-    roomGroup: pickString(raw, ['OPERATION_ROOM_GROUP_NAME', 'roomGroup', 'room_group', 'groupName']),
-    roomGroupId: pickString(raw, ['OPERATION_ROOM_GROUP', 'roomGroupId', 'room_group_id', 'groupId']),
+    roomId: roomCode,
+    roomName: roomName || roomCode,
+    roomGroup: pickString(raw, ['roomGroupName', 'OPERATION_ROOM_GROUP_NAME', 'roomGroup', 'room_group', 'groupName']),
+    roomGroupId: pickString(raw, ['roomGroupId', 'OPERATION_ROOM_GROUP', 'room_group_id', 'groupId']),
   };
 }
 

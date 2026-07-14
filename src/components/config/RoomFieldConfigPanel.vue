@@ -113,6 +113,8 @@ async function onSave() {
       await saveHospitalFieldConfig(changes);
     }
     Message.success('字段配置已保存');
+    // 保存后强制重新 GET，以数据库值替换本地态
+    await reload();
     emit('saved');
   } catch (error) {
     if (error instanceof RoomConfigConflictError) {

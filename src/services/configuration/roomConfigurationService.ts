@@ -51,8 +51,8 @@ function throwIfConflict(error: unknown): never {
   throw error;
 }
 
-/** 真实加载手术间配置列表；空列表保持空，不造默认房间。 */
-export async function loadRoomConfigurationList(params: { keyword?: string; status?: string } = {}): Promise<RoomConfiguration[]> {
+/** 真实加载手术间配置列表；空列表保持空，不造默认房间。配置管理页传 allStatus 查全部生命周期状态。 */
+export async function loadRoomConfigurationList(params: { keyword?: string; status?: string; allStatus?: boolean } = {}): Promise<RoomConfiguration[]> {
   const raw = await roomApi.getRoomList(params);
   return mapRoomConfigurationList(unwrapData(raw));
 }

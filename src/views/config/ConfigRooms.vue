@@ -11,7 +11,7 @@
         <a-space>
           <a-button @click="reload" :loading="loading">刷新</a-button>
           <a-button v-if="canManage" type="primary" @click="openCreate">新增手术间</a-button>
-          <a-button @click="fieldConfigVisible = true">字段配置</a-button>
+          <a-button @click="openFieldConfig">字段配置</a-button>
         </a-space>
       </template>
 
@@ -30,32 +30,22 @@
           <a-empty description="暂无手术间" />
         </template>
         <template #columns>
-          <a-table-column title="编码" data-index="roomCode" />
-          <a-table-column title="名称" data-index="roomName" />
-          <a-table-column title="位置">
-            <template #cell="{ record }">{{ joinLocation(record) }}</template>
-          </a-table-column>
-          <a-table-column title="能力">
+          <a-table-column
+            v-for="field in tableFields"
+            :key="field.fieldCode"
+            :title="field.displayName"
+          >
             <template #cell="{ record }">
-              <a-space wrap>
+              <span v-if="field.fieldCode === 'capabilities'">
                 <a-tag v-for="cap in record.capabilities" :key="cap.capabilityType + cap.capabilityCode">
                   {{ cap.capabilityCode }}
                 </a-tag>
-              </a-space>
+              </span>
+              <a-tag v-else-if="field.fieldCode === 'status'" :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
+              <span v-else>{{ formatCell(record, field.fieldCode) }}</span>
             </template>
           </a-table-column>
-          <a-table-column title="台位" :width="80">
-            <template #cell="{ record }">{{ record.stationCapacity }}</template>
-          </a-table-column>
-          <a-table-column title="版本" :width="80">
-            <template #cell="{ record }">{{ record.version }}</template>
-          </a-table-column>
-          <a-table-column title="状态" :width="100">
-            <template #cell="{ record }">
-              <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="操作" :width="280">
+          <a-table-column title="操作" :width="280" :fixed="rooms.length ? 'right' : undefined">
             <template #cell="{ record }">
               <a-space wrap>
                 <a-button size="small" @click="openHistory(record)">历史</a-button>
@@ -70,14 +60,20 @@
       </a-table>
     </a-card>
 
-    <RoomEditorDrawer :visible="editorVisible" :room="editingRoom" @cancel="editorVisible = false" @saved="onSaved" />
+    <RoomEditorDrawer
+      :visible="editorVisible"
+      :room="editingRoom"
+      :required-fields="requiredFieldCodes"
+      @cancel="editorVisible = false"
+      @saved="onSaved"
+    />
     <RoomHistoryDrawer :visible="historyVisible" :room-id="historyRoomId" @cancel="historyVisible = false" />
     <RoomFieldConfigPanel
       :visible="fieldConfigVisible"
       :hospital-code="hospitalCode"
       :can-manage="canManageFieldCfg"
       @cancel="fieldConfigVisible = false"
-      @saved="fieldConfigVisible = false"
+      @saved="onFieldConfigSaved"
     />
 
     <a-modal
@@ -112,6 +108,7 @@ import { useAnesthesiaStore } from '@/stores/anesthesia';
 import {
   loadRoomConfigurationList,
   changeRoomStatus,
+  loadHospitalFieldConfig,
   canManageRoom,
   canManageField,
   RoomConfigConflictError,
@@ -119,9 +116,21 @@ import {
 import type { RoomConfiguration } from '@/services/anesthesia/adapters/roomAdapter';
 import { useRealRoom } from '@/config/apiFlags';
 
+interface FieldConfigEntry {
+  fieldCode: string;
+  displayName: string;
+  visible: boolean;
+  required: boolean;
+  sortNo: number;
+  groupName: string | null;
+  systemField: boolean;
+  serverRequired: boolean;
+}
+
 const store = useAnesthesiaStore();
 
 const rooms = ref<RoomConfiguration[]>([]);
+const fieldConfig = ref<FieldConfigEntry[]>([]);
 const loading = ref(false);
 const loadError = ref('');
 const source = ref<'remote' | 'local'>('local');
@@ -141,11 +150,57 @@ const statusTarget = ref<{ room: RoomConfiguration; toStatus: 'enabled' | 'pause
 const canManage = computed(() => !useRealRoom() || canManageRoom(permissions.value));
 const canManageFieldCfg = computed(() => !useRealRoom() || canManageField(permissions.value));
 
+/** 表格列：按医院字段配置的显示名/显示/排序控制；系统关键字段（编码/状态/版本）与能力核心列始终可见，不可隐藏。 */
+const SYSTEM_ALWAYS_FIELDS = ['roomCode', 'status', 'version', 'capabilities'];
+const tableFields = computed<FieldConfigEntry[]>(() => {
+  const cfgMap = new Map(fieldConfig.value.map((f) => [f.fieldCode, f]));
+  const baseOrder = ['roomCode', 'roomName', 'shortName', 'roomType', 'roomGroupId', 'roomGroupName', 'campus', 'floor', 'location', 'cleanLevel', 'capabilities', 'stationCapacity', 'version', 'status'];
+  const result: FieldConfigEntry[] = [];
+  for (const code of baseOrder) {
+    const cfg = cfgMap.get(code);
+    const visible = cfg ? cfg.visible || SYSTEM_ALWAYS_FIELDS.includes(code) : SYSTEM_ALWAYS_FIELDS.includes(code);
+    if (!visible) continue;
+    result.push({
+      fieldCode: code,
+      displayName: cfg?.displayName ?? defaultLabel(code),
+      visible,
+      required: cfg?.required ?? false,
+      sortNo: cfg?.sortNo ?? baseOrder.indexOf(code),
+      groupName: cfg?.groupName ?? null,
+      systemField: cfg?.systemField ?? SYSTEM_ALWAYS_FIELDS.includes(code),
+      serverRequired: cfg?.serverRequired ?? false,
+    });
+  }
+  return [...result].sort((a, b) => a.sortNo - b.sortNo);
+});
+
+const requiredFieldCodes = computed(() => {
+  const codes = new Set<string>(['roomCode', 'roomName']);
+  fieldConfig.value.filter((f) => f.required).forEach((f) => codes.add(f.fieldCode));
+  return [...codes];
+});
+
+function defaultLabel(code: string): string {
+  const map: Record<string, string> = {
+    roomCode: '手术间编码', roomName: '手术间名称', shortName: '简称', roomType: '类型',
+    roomGroupId: '所属手术部', roomGroupName: '手术部名称', campus: '院区', floor: '楼层',
+    location: '位置', cleanLevel: '洁净等级', capabilities: '能力', stationCapacity: '台位',
+    version: '版本', status: '状态',
+  };
+  return map[code] ?? code;
+}
+
 async function reload() {
   loading.value = true;
   loadError.value = '';
   try {
-    rooms.value = await loadRoomConfigurationList();
+    // 配置管理页查询全部生命周期状态；业务目录默认只返回 enabled（后端边界）
+    const [roomList, cfg] = await Promise.all([
+      loadRoomConfigurationList({ allStatus: true }),
+      loadHospitalFieldConfig(hospitalCode.value).catch(() => [] as FieldConfigEntry[]),
+    ]);
+    rooms.value = roomList;
+    fieldConfig.value = (cfg as FieldConfigEntry[]).map((c) => ({ ...c }));
     source.value = 'remote';
   } catch (error) {
     rooms.value = [];
@@ -181,16 +236,23 @@ function openHistory(room: RoomConfiguration) {
   historyRoomId.value = room.roomId;
   historyVisible.value = true;
 }
+function openFieldConfig() {
+  fieldConfigVisible.value = true;
+}
 
 async function onSaved() {
   editorVisible.value = false;
-  // 保存成功后强制 GET 回读，替换页面与 store 派生 configRooms；失败不保留乐观假状态。
   await reload();
   try {
     await store.loadRoomCatalog();
   } catch {
     // 门店面目录刷新失败不影响配置页真值
   }
+}
+
+async function onFieldConfigSaved() {
+  // 字段配置保存后重新 GET，刷新列定义
+  await reload();
 }
 
 function onChangeStatus(room: RoomConfiguration, toStatus: 'enabled' | 'paused' | 'disabled') {
@@ -235,13 +297,16 @@ async function confirmStatusChange() {
 }
 
 function statusLabel(status: string): string {
-  return { draft: '草稿', enabled: '启用', paused: '暂停', disabled: '停用' }[status] ?? status;
+  return ({ draft: '草稿', enabled: '启用', paused: '暂停', disabled: '停用' }[status] ?? status) || '—';
 }
 function statusColor(status: string): string {
   return { enabled: 'green', paused: 'orange', disabled: 'red', draft: 'gray' }[status] ?? 'gray';
 }
-function joinLocation(room: RoomConfiguration): string {
-  return [room.campus, room.floor, room.location].filter(Boolean).join(' / ') || '—';
+function formatCell(room: RoomConfiguration, code: string): string {
+  const value = (room as unknown as Record<string, unknown>)[code];
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  return String(value);
 }
 
 onMounted(async () => {

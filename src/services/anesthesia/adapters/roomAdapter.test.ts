@@ -71,6 +71,21 @@ describe('roomAdapter', () => {
     expect(mapRoomConfigurationList([])).toEqual([]);
   });
 
+  it('mapRoomItem prefers stable roomCode and does not use numeric id or fabricate from name', () => {
+    const item = mapRoomItem({ roomId: 9012, roomCode: 'ROOM-A', OPERATION_ROOM_ID: 64, roomName: '甲' });
+    expect(item.roomId).toBe('ROOM-A');
+    expect(item.roomName).toBe('甲');
+    const noCode = mapRoomItem({ roomId: 9012, OPERATION_ROOM_ID: 64, roomName: '乙' });
+    expect(noCode.roomId).toBe('');
+    expect(noCode.roomName).toBe('乙');
+  });
+
+  it('mapRoomConfiguration does not fabricate status/version when absent', () => {
+    const room = mapRoomConfiguration({ roomCode: 'C', roomName: '丙' });
+    expect(room.status).toBe('');
+    expect(room.version).toBe(0);
+  });
+
   it('mapRoomHistory preserves order, version and occurredAt', () => {
     const history = mapRoomHistory([
       { id: 1, fromStatus: null, toStatus: 'enabled', reason: null, actor: 'a', version: 1, occurredAt: '2026-07-14 10:00:00' },

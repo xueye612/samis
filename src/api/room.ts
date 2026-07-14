@@ -1,10 +1,11 @@
 import { samisRequest } from '@/api/samisClient';
-import { buildFormPost, flatFormFieldsFromRecord } from '@/api/samisFormBody';
+import { formPostInit } from '@/api/samisFormBody';
 
 export interface RoomQuery {
   roomGroup?: string;
   roomGroupId?: string;
   keyword?: string;
+  allStatus?: boolean | number;
 }
 
 function buildRoomQuery(params: RoomQuery = {}): string {
@@ -12,12 +13,38 @@ function buildRoomQuery(params: RoomQuery = {}): string {
   if (params.roomGroup) query.set('roomGroup', params.roomGroup);
   if (params.roomGroupId) query.set('roomGroupId', params.roomGroupId);
   if (params.keyword) query.set('keyword', params.keyword);
+  if (params.allStatus) query.set('allStatus', '1');
   const text = query.toString();
   return text ? `?${text}` : '';
 }
 
+/**
+ * 房间表单序列化：
+ * - capabilities 以受控 JSON 字符串传输（后端 resolveCapabilities 解析）。
+ * - 布尔转 '1'/'0'，避免 'false' 被后端判为真。
+ * - 空串保留以支持清除后端旧值；null/undefined 跳过。
+ */
+function flattenRoomFields(data: Record<string, unknown>): string {
+  const params = new URLSearchParams();
+  Object.entries(data).forEach(([key, value]) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+    if (key === 'capabilities' || Array.isArray(value)) {
+      params.set(key, JSON.stringify(value));
+      return;
+    }
+    if (typeof value === 'boolean') {
+      params.set(key, value ? '1' : '0');
+      return;
+    }
+    params.set(key, String(value));
+  });
+  return params.toString();
+}
+
 function roomFormPost<T>(path: string, data: Record<string, unknown>) {
-  return samisRequest<T>(`/room${path}`, buildFormPost(flatFormFieldsFromRecord(data)), {
+  return samisRequest<T>(`/room${path}`, formPostInit(flattenRoomFields(data)), {
     module: 'room',
   });
 }
