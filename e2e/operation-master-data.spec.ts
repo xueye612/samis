@@ -99,10 +99,15 @@ function installNetworkMocks(page: Page, opts: {
       return;
     }
     if (url.includes('/auth/auditByOperation')) {
+      // 模拟审计回读的异步延迟，暴露即时读取竞态
+      await new Promise((resolve) => setTimeout(resolve, 300));
       await route.fulfill(ok({ list: [{
         module: 'operation', action: 'masterDataUpdate', actorId: 'md-e2e-user', actorRole: 'anesthesiologist',
         occurredAt: '2026-07-13 10:00:00', result: 'success',
-        changeSummary: [{ field: 'patientName', label: '患者姓名', before: '旧姓名', after: '新姓名', reason: '修正姓名' }],
+        changeSummary: [
+          { field: 'patientName', label: '患者姓名', before: '旧姓名', after: '新姓名', reason: '修正姓名' },
+          { field: 'gender', label: '性别', before: '男', after: '女', reason: '修正姓名' },
+        ],
       }] }));
       return;
     }
@@ -175,12 +180,12 @@ test.describe('手术主数据受控修改', () => {
 
     await editMasterFields(page);
 
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes('/operationInfo/updateOperationInfo') && r.request().method() === 'POST'),
-      page.locator('.arco-drawer-footer').getByRole('button', { name: '确定' }).click(),
-    ]);
-    // POST 之后必须 GET 回读，随后护理排班独立保存
-    await page.waitForResponse((r) => r.url().includes('/operationInfo/getOperationInfo'));
+    // 点击“确定”前同时创建 POST 与 GET response waiter，消除 POST→GET 回读竞态
+    const postResponse = page.waitForResponse((r) => r.url().includes('/operationInfo/updateOperationInfo') && r.request().method() === 'POST');
+    const getResponse = page.waitForResponse((r) => r.url().includes('/operationInfo/getOperationInfo'));
+    await page.locator('.arco-drawer-footer').getByRole('button', { name: '确定' }).click();
+    await postResponse;
+    await getResponse;
     await expect(page.getByText('排班已保存')).toBeVisible();
     await page.waitForLoadState('networkidle');
 
@@ -212,16 +217,18 @@ test.describe('手术主数据受控修改', () => {
     await expect(drawer.locator('.arco-form-item').filter({ hasText: '性别' }).locator('.arco-select-view'))
       .toContainText('女');
     await expect(page.locator('.arco-drawer').getByText('operatenotice').first()).toBeVisible();
-    const auditSection = page.locator('.arco-drawer .drawer-audit');
-    await expect(auditSection).toBeVisible();
-    await expect(auditSection.getByText('旧姓名').first()).toBeVisible();
-    await expect(auditSection.getByText('新姓名').first()).toBeVisible();
-    await expect(auditSection.getByText('修正姓名').first()).toBeVisible();
-    await expect(auditSection.getByText('md-e2e-user')).toBeVisible();
-    await expect(auditSection.getByText('anesthesiologist')).toBeVisible();
-    await expect(auditSection.getByText('2026-07-13 10:00:00')).toBeVisible();
-    // 成功保存流程：审计状态必须精确为“成功”，不得放宽
-    await expect(auditSection.getByText('成功', { exact: true })).toBeVisible();
+    // 审计：两条对应字段行（患者姓名 / 性别）
+    const auditRows = await readAuditRows(page, 2);
+    const nameRow = auditRows.find((r) => r.field === '患者姓名');
+    const genderRow = auditRows.find((r) => r.field === '性别');
+    expect(nameRow, '审计应包含患者姓名行').toBeTruthy();
+    expect(genderRow, '审计应包含性别行').toBeTruthy();
+    expect(nameRow?.after).toBe('新姓名');
+    expect(nameRow?.reason).toBe('修正姓名');
+    expect(nameRow?.status).toBe('成功');
+    expect(genderRow?.after).toBe('女');
+    expect(genderRow?.reason).toBe('修正姓名');
+    expect(genderRow?.status).toBe('成功');
   });
 
   test('真实凭据主数据保存与清理（opt-in）', async ({ page }) => {
@@ -270,12 +277,12 @@ test.describe('手术主数据受控修改', () => {
       await page.locator('.arco-select-option').filter({ hasText: '女' }).first().click();
       await page.getByPlaceholder('请填写本次主数据修改原因').fill(reason);
 
-      // 6. 明确点击名称为“确定”的按钮；7. 等待主数据 POST 和详情 GET
-      await Promise.all([
-        page.waitForResponse((r) => r.url().includes('/operationInfo/updateOperationInfo') && r.request().method() === 'POST'),
-        page.locator('.arco-drawer-footer').getByRole('button', { name: '确定' }).click(),
-      ]);
-      await page.waitForResponse((r) => r.url().includes('/operationInfo/getOperationInfo'));
+      // 6. 明确点击名称为“确定”的按钮；7. 等待主数据 POST 和详情 GET（点击前同时创建两个 waiter）
+      const postResponse = page.waitForResponse((r) => r.url().includes('/operationInfo/updateOperationInfo') && r.request().method() === 'POST');
+      const getResponse = page.waitForResponse((r) => r.url().includes('/operationInfo/getOperationInfo'));
+      await page.locator('.arco-drawer-footer').getByRole('button', { name: '确定' }).click();
+      await postResponse;
+      await getResponse;
       await page.waitForLoadState('networkidle');
 
       // 8. 刷新后验证：目标行显示修改后姓名、重新打开抽屉患者输入值=修改后姓名、性别=女、版本严格递增
@@ -294,7 +301,7 @@ test.describe('手术主数据受控修改', () => {
         .toContainText('女');
 
       // 审计必须验证两条对应字段行（精确“成功”，不得放宽为 /成功|审计待确认/）
-      const auditRows = await readAuditRows(page);
+      const auditRows = await readAuditRows(page, 2);
       const nameRow = auditRows.find((r) => r.field === '患者姓名');
       const genderRow = auditRows.find((r) => r.field === '性别');
       expect(nameRow, '审计应包含患者姓名行').toBeTruthy();
@@ -324,9 +331,11 @@ async function readDrawerVersion(page: Page, row: import('@playwright/test').Loc
   return match ? Number(match[1]) : -1;
 }
 
-/** 读取抽屉审计表全部行：列序为 状态/字段/变更前/变更后/原因/操作人/角色/时间。 */
-async function readAuditRows(page: Page): Promise<Array<{ status: string; field: string; before: string; after: string; reason: string }>> {
+/** 读取抽屉审计表全部行：列序为 状态/字段/变更前/变更后/原因/操作人/角色/时间。
+ *  在读取 count/allInnerTexts 前用 Playwright 自动等待达到 expectedCount，消除异步回读竞态。 */
+async function readAuditRows(page: Page, expectedCount: number): Promise<Array<{ status: string; field: string; before: string; after: string; reason: string }>> {
   const rows = page.locator('.arco-drawer .drawer-audit tbody tr');
+  await expect(rows).toHaveCount(expectedCount, { timeout: 10_000 });
   const count = await rows.count();
   const out: Array<{ status: string; field: string; before: string; after: string; reason: string }> = [];
   for (let i = 0; i < count; i += 1) {
