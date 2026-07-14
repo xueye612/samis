@@ -398,14 +398,19 @@ const CASE_BOOL_FIELDS = new Set([
   'isEmergency', 'isTwoStageOperation', 'isLocked', 'isArchived', 'isPrinted', 'hisIsDelete',
 ]);
 
+/** 显式布尔转换：0/'0'/false/'false' → false；1/'1'/true/'true' → true；其余 → null。不得使用 Boolean('0')。 */
+function toNullableBool(value: unknown): boolean | null {
+  if (value === 0 || value === '0' || value === false || value === 'false') return false;
+  if (value === 1 || value === '1' || value === true || value === 'true') return true;
+  return null;
+}
+
 function normalizeCaseScalar(canonical: string, value: unknown): unknown {
   if (CASE_INT_FIELDS.has(canonical)) {
     return value === undefined || value === null || value === '' ? null : Number(value);
   }
   if (CASE_BOOL_FIELDS.has(canonical)) {
-    if (value === undefined || value === null || value === '') return null;
-    if (typeof value === 'boolean') return value;
-    return Boolean(value);
+    return toNullableBool(value);
   }
   return value;
 }
@@ -463,32 +468,39 @@ export const LOCAL_CLINICAL_KEYS = [
   'printedAt', 'locked', 'status', 'recordStatus',
 ] as const;
 
-/** 权威 operationCase 字段 → 页面使用的平铺展示投影：远端 null 表示权威清空，必须覆盖本地旧值。 */
-const AUTHORITATIVE_FLAT_SYNC: ReadonlyArray<readonly [string, string]> = [
-  ['patientName', 'patientName'],
-  ['department', 'departmentName'],
-  ['diagnosis', 'preoperativeDiagnosisName'],
-  ['surgeryName', 'operationName'],
-  ['surgeon', 'surgeonName'],
-  ['anesthesiologist', 'anesthesiologistName'],
-  ['room', 'roomName'],
-  ['circulatingNurses', 'circulatingNurseName'],
-  ['scrubNurses', 'scrubNurseName'],
-];
-
+/** 权威 operationCase 字段 → 页面使用的平铺展示投影：远端 null 表示权威清空，必须覆盖本地/默认旧值。 */
 function syncFlatFromAuthoritative(result: SurgeryCase, oc: OperationCase): void {
-  const toDisplay = (value: unknown): string => (value === null || value === undefined || value === '') ? '' : String(value);
-  for (const [flatKey, caseKey] of AUTHORITATIVE_FLAT_SYNC) {
-    if (Object.prototype.hasOwnProperty.call(oc, caseKey)) {
-      const value = oc[caseKey as keyof OperationCase];
-      if (flatKey === 'circulatingNurses') {
-        result.anesthesiaNurse = toDisplay(value);
-        result.circulatingNurses = toDisplay(value);
-      } else {
-        (result as unknown as Record<string, unknown>)[flatKey] = toDisplay(value);
-      }
-    }
+  const isEmpty = (v: unknown): boolean => v === null || v === undefined || v === '';
+  const toStr = (v: unknown): string => (isEmpty(v) ? '' : String(v));
+  const toNum = (v: unknown): number => (isEmpty(v) ? 0 : Number(v));
+  const toGender = (v: unknown): '男' | '女' | '' => (v === '男' ? '男' : v === '女' ? '女' : '');
+  const has = (k: string): boolean => Object.prototype.hasOwnProperty.call(oc, k);
+  if (has('patientName')) result.patientName = toStr(oc.patientName);
+  if (has('gender')) result.gender = toGender(oc.gender);
+  if (has('age')) result.age = toNum(oc.age);
+  if (has('departmentName')) result.department = toStr(oc.departmentName);
+  if (has('preoperativeDiagnosisName')) result.diagnosis = toStr(oc.preoperativeDiagnosisName);
+  if (has('operationName')) result.surgeryName = toStr(oc.operationName);
+  if (has('surgeonName')) result.surgeon = toStr(oc.surgeonName);
+  if (has('anesthesiologistName')) result.anesthesiologist = toStr(oc.anesthesiologistName);
+  if (has('anesthesiaMethodName')) result.anesthesiaMethod = toStr(oc.anesthesiaMethodName);
+  if (has('roomCode')) result.roomId = toStr(oc.roomCode);
+  if (has('roomName')) {
+    const roomDisplay = toStr(oc.roomName);
+    result.room = roomDisplay;
+    result.roomName = roomDisplay;
   }
+  if (has('sequence')) result.sequence = toNum(oc.sequence);
+  if (has('plannedStartTime')) {
+    result.plannedStart = toStr(oc.plannedStartTime);
+    result.scheduledStart = toStr(oc.plannedStartTime);
+  }
+  if (has('plannedEndTime')) result.scheduledEnd = toStr(oc.plannedEndTime);
+  if (has('circulatingNurseName')) {
+    result.anesthesiaNurse = toStr(oc.circulatingNurseName);
+    result.circulatingNurses = toStr(oc.circulatingNurseName);
+  }
+  if (has('scrubNurseName')) result.scrubNurses = toStr(oc.scrubNurseName);
 }
 
 /**
@@ -528,6 +540,8 @@ export function mapOperationListItem(raw: unknown, index = 0): SurgeryCase {
   const base = emptyClinicalShell(id);
   const merged = mergeOperationIntoCase(base, detail);
   merged.operationCase = buildCanonicalOperationCase(detail);
+  // 构建 canonical 后立即用完整权威投影同步首次列表平铺字段；权威 null 清空默认值
+  syncFlatFromAuthoritative(merged, merged.operationCase);
   return merged;
 }
 

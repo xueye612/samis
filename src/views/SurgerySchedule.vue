@@ -139,6 +139,7 @@
                       :max="99"
                       size="small"
                       style="width: 72px"
+                      :disabled="useRealOperationInfo()"
                       @change="(v) => onStationDraftChange(record.id, Number(v ?? 1))"
                     />
                   </template>
@@ -165,7 +166,7 @@
                 </a-table-column>
               </template>
             </a-table>
-            <div v-if="stationDirtyCount > 0" class="station-batch-bar">
+            <div v-if="stationDirtyCount > 0 && !useRealOperationInfo()" class="station-batch-bar">
               <span>已修改 {{ stationDirtyCount }} 条台次</span>
               <a-button type="primary" size="small" :loading="stationSaving" @click="saveStationBatch">保存台次</a-button>
             </div>
@@ -199,7 +200,7 @@
               <a-col :span="12"><a-form-item label="手术医师"><a-input v-model="editing.surgeon" /></a-form-item></a-col>
               <a-col :span="12"><a-form-item label="麻醉方式"><a-input v-model="editing.anesthesiaMethod" /></a-form-item></a-col>
               <a-col :span="12"><a-form-item label="麻醉医师"><a-select v-model="editing.anesthesiologist" :options="store.doctorOptions.map((d) => ({ label: d, value: d }))" allow-search /></a-form-item></a-col>
-              <a-col :span="12"><a-form-item label="麻醉护士"><a-input v-model="editing.anesthesiaNurse" /></a-form-item></a-col>
+              <a-col :span="12"><a-form-item label="麻醉护士"><a-input v-model="editing.anesthesiaNurse" :disabled="useRealOperationInfo()" /></a-form-item></a-col>
               <a-col :span="12"><a-form-item label="急诊插单"><a-switch v-model="editing.emergencyInserted" :disabled="useRealOperationInfo()" /></a-form-item></a-col>
             </a-row>
           </a-form>
@@ -207,6 +208,9 @@
             <h4>主数据修改审计</h4>
             <a-table :data="masterDataAudit" :pagination="false" size="mini">
               <template #columns>
+                <a-table-column title="状态" :width="90">
+                  <template #cell="{ record }">{{ auditResultLabel(record.result) }}</template>
+                </a-table-column>
                 <a-table-column title="字段" data-index="label" :width="90" />
                 <a-table-column title="变更前" data-index="before" :width="90" />
                 <a-table-column title="变更后" data-index="after" :width="90" />
@@ -263,11 +267,13 @@ import {
   updateOperationStations,
 } from '@/services/anesthesia/scheduleService';
 import {
+  auditResultLabel,
   canEditMasterData,
   MasterDataConflictError,
   MasterDataPermissionError,
   saveScheduleMasterData,
   type MasterDataAuditEntry,
+  type MasterDataAuditResult,
 } from '@/services/anesthesia/operationMasterDataService';
 import { authApi } from '@/api/auth';
 import type { SurgeryCase } from '@/types/anesthesia';
@@ -494,7 +500,9 @@ async function loadMasterDataAudit(operationId: string) {
           actorId: r.actorId != null ? String(r.actorId) : '—',
           actorRole: r.actorRole != null ? String(r.actorRole) : '—',
           occurredAt: r.occurredAt != null ? String(r.occurredAt) : '—',
-          result: r.result != null ? String(r.result) : '',
+          result: (r.result === 'pending' || r.result === 'success' || r.result === 'failure'
+            ? r.result
+            : undefined) as MasterDataAuditResult | undefined,
         };
         return summary.map((change) => {
           const c = (change && typeof change === 'object' ? change : {}) as Record<string, unknown>;
@@ -505,7 +513,7 @@ async function loadMasterDataAudit(operationId: string) {
             after: c.after ?? '—',
             reason: c.reason != null ? String(c.reason) : '—',
             ...base,
-          } as MasterDataAuditEntry & { result: string };
+          } as MasterDataAuditEntry;
         });
       });
   } catch {

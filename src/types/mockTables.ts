@@ -45,7 +45,7 @@ export interface AnesthesiaCaseTable {
 export interface PatientTable {
   patientId: string;
   name: string;
-  gender: '男' | '女';
+  gender: '男' | '女' | '';
   age: number;
   birthDate: string;
   inpatientNo: string;

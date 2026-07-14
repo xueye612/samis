@@ -182,7 +182,7 @@ export interface SurgeryCase {
   roomName?: string;
   sequence: number;
   patientName: string;
-  gender: '男' | '女';
+  gender: '男' | '女' | '';
   age: number;
   department: string;
   diagnosis: string;

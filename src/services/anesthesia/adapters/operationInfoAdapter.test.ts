@@ -373,4 +373,48 @@ describe('operationInfoAdapter', () => {
     expect(merged.vitals).toEqual([{ time: '2026-07-13T08:00:00.000Z', HR: 90 }]);
     expect(merged.medications).toEqual([{ id: 'm1', mode: '单次用药', drug: '丙泊酚', executor: '陈' }]);
   });
+
+  it('clears fabricated flat defaults when authoritative operationCase fields are null', () => {
+    const item = mapOperationListItem({
+      OPERATIONID: 'op-null-flat',
+      operationCase: { operationId: 'op-null-flat', patientName: null, gender: null, version: 2 },
+    });
+    // 权威 null 必须清空首次列表平铺值，不得保留“未命名/男”
+    expect(item.patientName).toBe('');
+    expect(item.gender).toBe('');
+    expect(item.operationCase?.patientName).toBeNull();
+    expect(item.operationCase?.gender).toBeNull();
+  });
+
+  it('parses legacy boolean fields explicitly without Boolean("0") trap', () => {
+    const falseCase = buildCanonicalOperationCase(mapOperationDetail({
+      OPERATIONID: 'op-bool-false',
+      ISLOCKING: '0', ISEMERGENCY: '0', ISTWO_PLAN_OPERATION: '0',
+    }));
+    expect(falseCase.isLocked).toBe(false);
+    expect(falseCase.isEmergency).toBe(false);
+    expect(falseCase.isTwoStageOperation).toBe(false);
+
+    const falseWord = buildCanonicalOperationCase(mapOperationDetail({
+      OPERATIONID: 'op-bool-false-word',
+      ISLOCKING: 'false', ISEMERGENCY: 'false', ISTWO_PLAN_OPERATION: 'false',
+    }));
+    expect(falseWord.isLocked).toBe(false);
+    expect(falseWord.isEmergency).toBe(false);
+
+    const trueNum = buildCanonicalOperationCase(mapOperationDetail({
+      OPERATIONID: 'op-bool-true',
+      ISLOCKING: '1', ISEMERGENCY: 1, ISTWO_PLAN_OPERATION: true,
+    }));
+    expect(trueNum.isLocked).toBe(true);
+    expect(trueNum.isEmergency).toBe(true);
+    expect(trueNum.isTwoStageOperation).toBe(true);
+
+    const trueWord = buildCanonicalOperationCase(mapOperationDetail({
+      OPERATIONID: 'op-bool-true-word',
+      ISLOCKING: 'true', ISEMERGENCY: 'true', ISTWO_PLAN_OPERATION: 'true',
+    }));
+    expect(trueWord.isLocked).toBe(true);
+    expect(trueWord.isEmergency).toBe(true);
+  });
 });

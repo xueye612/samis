@@ -14,6 +14,8 @@ import {
 export const MASTER_DATA_PERMISSION = 'operation.master_data.update';
 export const MASTER_DATA_CONFLICT_CODE = 4091;
 
+export type MasterDataAuditResult = 'pending' | 'success' | 'failure';
+
 export interface MasterDataAuditEntry {
   field: string;
   label?: string;
@@ -23,6 +25,15 @@ export interface MasterDataAuditEntry {
   actorId?: string;
   actorRole?: string;
   occurredAt?: string;
+  result?: MasterDataAuditResult;
+}
+
+/** 审计状态中文标签：pending 不得显示成普通成功记录。 */
+export function auditResultLabel(result: string | undefined): string {
+  if (result === 'pending') return '审计待确认';
+  if (result === 'success') return '成功';
+  if (result === 'failure') return '失败';
+  return '—';
 }
 
 export class MasterDataConflictError extends Error {
@@ -65,6 +76,7 @@ export function formatMasterDataAudit(rawList: unknown): MasterDataAuditEntry[] 
         actorId: record.actorId !== undefined && record.actorId !== null ? String(record.actorId) : undefined,
         actorRole: record.actorRole !== undefined && record.actorRole !== null ? String(record.actorRole) : undefined,
         occurredAt: record.occurredAt !== undefined && record.occurredAt !== null ? String(record.occurredAt) : undefined,
+        result: record.result === 'pending' || record.result === 'success' || record.result === 'failure' ? record.result : undefined,
       });
     });
   });

@@ -22,6 +22,7 @@ import { SamisHttpError } from '@/api/samisHttpClient';
 import {
   MASTER_DATA_PERMISSION,
   MasterDataConflictError,
+  auditResultLabel,
   canEditMasterData,
   formatMasterDataAudit,
   saveMasterDataWithReadback,
@@ -84,5 +85,21 @@ describe('operationMasterDataService', () => {
     vi.mocked(operationInfoApi.updateMasterData).mockRejectedValueOnce(new SamisHttpError('冲突', 4091, 4091, false));
     await expect(saveMasterDataWithReadback({ item: baseItem(), reason: 'x', changes: [{ field: 'patientName', value: '新' }] }))
       .rejects.toBeInstanceOf(MasterDataConflictError);
+  });
+
+  it('formatMasterDataAudit keeps result status for pending/success/failure', () => {
+    const entries = formatMasterDataAudit([
+      { module: 'operation', action: 'masterDataUpdate', result: 'pending', changeSummary: [{ field: 'patientName', before: 'a', after: 'b' }] },
+      { module: 'operation', action: 'masterDataUpdate', result: 'success', changeSummary: [{ field: 'gender', before: '男', after: '女' }] },
+      { module: 'operation', action: 'masterDataUpdate', result: 'failure', changeSummary: [{ field: 'age', before: 1, after: 2 }] },
+    ]);
+    expect(entries.map((e) => e.result)).toEqual(['pending', 'success', 'failure']);
+  });
+
+  it('auditResultLabel distinguishes pending from ordinary success', () => {
+    expect(auditResultLabel('pending')).toBe('审计待确认');
+    expect(auditResultLabel('success')).toBe('成功');
+    expect(auditResultLabel('failure')).toBe('失败');
+    expect(auditResultLabel(undefined)).toBe('—');
   });
 });
