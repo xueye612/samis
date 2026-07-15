@@ -50,3 +50,8 @@ async function archive(){if(!record.value)return;try{record.value=await archiveC
 async function loadPermissions(){try{const result=await authApi.myPermissions();permissions.value=Array.isArray(result?.permissions)?result.permissions.map(String):[];}catch{permissions.value=[];}}
 onMounted(()=>Promise.all([loadPermissions(),reloadCases()]));
 </script>
+
+<style scoped>
+:deep(.section-card .arco-card-header) { min-height: 44px; }
+:deep(.arco-table-cell) { font-size: var(--font-size-sm); }
+</style>

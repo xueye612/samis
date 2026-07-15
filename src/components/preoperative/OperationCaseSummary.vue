@@ -16,3 +16,8 @@
 import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
 defineProps<{ caseData: OperationCase | null }>();
 </script>
+
+<style scoped>
+:deep(.arco-descriptions-item-label) { font-size: var(--font-size-xs); color: var(--text-tertiary); white-space: nowrap; }
+:deep(.arco-descriptions-item-value) { font-size: var(--font-size-sm); color: var(--text-primary); font-weight: 500; }
+</style>

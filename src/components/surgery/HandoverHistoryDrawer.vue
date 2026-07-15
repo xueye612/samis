@@ -18,3 +18,7 @@ import type { AnesthesiaHandoverApi } from '@/api/anesthesiaWorkflow';
 defineProps<{ visible: boolean; history: AnesthesiaHandoverApi[] }>();
 defineEmits<{ 'update:visible': [value: boolean] }>();
 </script>
+
+<style scoped>
+:deep(.arco-timeline-item-content) { font-size: var(--font-size-sm); line-height: 1.6; }
+</style>

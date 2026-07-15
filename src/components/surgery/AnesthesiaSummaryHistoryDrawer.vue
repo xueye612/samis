@@ -19,3 +19,8 @@ defineProps<{ visible: boolean; history: AnesthesiaSummaryApi[] }>();
 defineEmits<{ 'update:visible': [value: boolean] }>();
 const shortHash = (value?: string | null) => value ? `${value.slice(0, 12)}…` : '—';
 </script>
+
+<style scoped>
+:deep(.arco-timeline-item-content) { font-size: var(--font-size-sm); line-height: 1.6; }
+:deep(.arco-descriptions-item-label) { font-size: var(--font-size-xs); color: var(--text-tertiary); }
+</style>

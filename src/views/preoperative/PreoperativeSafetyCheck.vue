@@ -40,3 +40,8 @@ async function confirm(stage:string,confirmed:boolean){if(!operationId.value)ret
 async function loadPermissions(){try{const result=await authApi.myPermissions();permissions.value=Array.isArray(result?.permissions)?result.permissions.map(String):[];}catch{permissions.value=[];}}
 onMounted(async()=>{await loadPermissions();try{cases.value=await loadOperationCases();if(cases.value[0]){operationId.value=caseId(cases.value[0]);await reload();}}catch(e){error.value=e instanceof Error?e.message:'加载病例失败';}});
 </script>
+
+<style scoped>
+:deep(.section-card .arco-card-header) { min-height: 44px; }
+:deep(.arco-table-cell) { font-size: var(--font-size-sm); }
+</style>

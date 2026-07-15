@@ -46,3 +46,8 @@ async function createRevision(){if(!actionReason.value.trim()){Message.warning('
 async function init(){try{const [list,perm]=await Promise.all([loadOperationCases(),authApi.myPermissions()]);cases.value=list;permissions.value=Array.isArray(perm?.permissions)?perm.permissions.map(String):[];selectedId.value=list[0]?.operationId??'';}catch(e){loadError.value=e instanceof Error?e.message:'病例加载失败';}}
 watch(selectedId,loadPlan);onMounted(init);
 </script>
+
+<style scoped>
+:deep(.section-card .arco-card-header) { min-height: 44px; }
+:deep(.arco-form-item) { margin-bottom: var(--form-item-margin); }
+</style>

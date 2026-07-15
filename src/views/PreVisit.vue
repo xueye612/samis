@@ -80,3 +80,8 @@ async function createRevision(){if(!actionReason.value.trim()){Message.warning('
 async function init(){loading.value=true;try{const [list,perm]=await Promise.all([loadOperationCases(),authApi.myPermissions()]);cases.value=list;permissions.value=Array.isArray(perm?.permissions)?perm.permissions.map(String):[];selectedId.value=list[0]?.operationId??'';}catch(e){errorMessage.value=e instanceof Error?e.message:'病例加载失败';}finally{loading.value=false;}}
 watch(selectedId,id=>loadDetail(id));onMounted(init);
 </script>
+
+<style scoped>
+:deep(.section-card .arco-card-header) { min-height: 44px; }
+:deep(.arco-table-cell) { font-size: var(--font-size-sm); }
+</style>
