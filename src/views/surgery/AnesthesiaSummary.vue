@@ -19,7 +19,7 @@
 
         <a-card v-if="!current" class="section-card" :bordered="false" title="尚未生成麻醉小结">
           <EmptyState title="暂无麻醉小结" description="读取页面不会创建记录；请在临床记录完整后主动生成草稿" icon="IconFile" />
-          <div class="center-action"><a-button type="primary" :loading="workflow.saving" @click="generate">生成小结草稿</a-button></div>
+          <div v-if="can('summary.write')" class="center-action"><a-button type="primary" :loading="workflow.saving" @click="generate">生成小结草稿</a-button></div>
         </a-card>
 
         <template v-else>
@@ -73,15 +73,15 @@
             </a-form>
             <div class="form-actions">
               <a-space wrap>
-                <a-button :disabled="readOnly" :loading="workflow.saving" @click="saveDraft">保存医生补充</a-button>
-                <a-button :disabled="readOnly" :loading="workflow.saving" @click="generate">重新聚合自动区</a-button>
-                <a-button v-if="current.status==='draft'" type="primary" :loading="workflow.saving" @click="submit">提交并冻结</a-button>
-                <a-input v-if="current.status!=='draft'" v-model="revisionReason" style="width:220px" placeholder="修订原因" />
-                <a-button v-if="current.status!=='draft'" :loading="workflow.saving" @click="createRevision">创建修订草稿</a-button>
-                <a-input v-if="current.status==='submitted'" v-model="signatureDocumentId" style="width:220px" placeholder="内部签名引用" />
-                <a-button v-if="current.status==='submitted'" :loading="workflow.saving" @click="sign">记录内部签名</a-button>
-                <a-button v-if="['submitted','signed'].includes(current.status)" :loading="workflow.saving" @click="markPrinted">标记已打印</a-button>
-                <a-button v-if="current.status==='signed'" type="primary" :loading="workflow.saving" @click="archive">归档版本</a-button>
+                <a-button v-if="can('summary.write')" :disabled="readOnly" :loading="workflow.saving" @click="saveDraft">保存医生补充</a-button>
+                <a-button v-if="can('summary.write')" :disabled="readOnly" :loading="workflow.saving" @click="generate">重新聚合自动区</a-button>
+                <a-button v-if="current.status==='draft' && can('summary.submit')" type="primary" :loading="workflow.saving" @click="submit">提交并冻结</a-button>
+                <a-input v-if="current.status!=='draft' && can('summary.revise')" v-model="revisionReason" style="width:220px" placeholder="修订原因" />
+                <a-button v-if="current.status!=='draft' && can('summary.revise')" :loading="workflow.saving" @click="createRevision">创建修订草稿</a-button>
+                <a-input v-if="current.status==='submitted' && can('summary.sign')" v-model="signatureDocumentId" style="width:220px" placeholder="内部签名引用" />
+                <a-button v-if="current.status==='submitted' && can('summary.sign')" :loading="workflow.saving" @click="sign">记录内部签名</a-button>
+                <a-button v-if="['submitted','signed'].includes(current.status) && can('document.export')" :loading="workflow.saving" @click="markPrinted">标记已打印</a-button>
+                <a-button v-if="current.status==='signed' && can('summary.archive')" type="primary" :loading="workflow.saving" @click="archive">归档版本</a-button>
               </a-space>
             </div>
           </a-card>
@@ -103,8 +103,10 @@ import AnesthesiaSummaryHistoryDrawer from '@/components/surgery/AnesthesiaSumma
 import { loadOperationCases } from '@/services/preoperative/preoperativeFiveFlowsService';
 import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
 import { useAnesthesiaSummaryStore } from '@/stores/anesthesiaWorkflow';
+import { authApi } from '@/api/auth';
 
 const workflow=useAnesthesiaSummaryStore();const cases=ref<OperationCase[]>([]);const selectedOperationId=ref('');const caseLoading=ref(false);const caseError=ref('');const historyVisible=ref(false);const revisionReason=ref('');const signatureDocumentId=ref('');
+const permissions=ref<string[]>([]);const can=(code:string)=>permissions.value.some(value=>value==='*'||value==='summary.*'||value===code);
 const selectedCase=computed(()=>cases.value.find(v=>v.operationId===selectedOperationId.value)??null);const current=computed(()=>workflow.detail?.currentSummary??null);const payload=computed(()=>current.value?.generatedPayload??({} as NonNullable<typeof current.value>['generatedPayload']));
 const readOnly=computed(()=>current.value?.status!=='draft');const monitorRows=computed(()=>Object.entries(payload.value.monitoring??{}).map(([metric,value])=>({metric,...value})));
 const form=reactive({effectRating:'',intraoperativeNotes:'',recoveryNotes:'',complicationSummary:'',postoperativeDestination:'',otherNotes:''});
@@ -120,7 +122,8 @@ async function createRevision(){try{await workflow.createRevision(revisionReason
 async function sign(){if(!signatureDocumentId.value.trim()){Message.warning('请填写内部签名引用');return;}try{await workflow.sign(signatureDocumentId.value.trim());hydrate();Message.success('内部签名状态已记录');}catch{/* store显示错误 */}}
 async function markPrinted(){try{await workflow.markPrinted();hydrate();Message.success('打印状态已记录');}catch{/* store显示错误 */}}
 async function archive(){try{await workflow.archive();hydrate();Message.success('小结版本已归档');}catch{/* store显示错误 */}}
-watch(selectedOperationId,loadSummary);onMounted(loadCases);
+async function loadPermissions(){try{const result=await authApi.myPermissions();permissions.value=Array.isArray(result?.permissions)?result.permissions.map(String):[];}catch{permissions.value=[];}}
+watch(selectedOperationId,loadSummary);onMounted(()=>Promise.all([loadPermissions(),loadCases()]));
 </script>
 
 <style scoped>

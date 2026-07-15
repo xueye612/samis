@@ -62,11 +62,11 @@
 
           <div class="form-actions">
             <a-space wrap>
-              <a-button :loading="workflow.saving" :disabled="readOnly || current?.status === 'submitted'" @click="saveDraft">保存草稿</a-button>
-              <a-button v-if="!current || current.status === 'draft'" type="primary" :loading="workflow.saving" @click="submit">提交交班</a-button>
-              <a-button v-if="current?.status === 'submitted'" type="primary" :loading="workflow.saving" @click="accept">指定接班人确认</a-button>
-              <a-input v-if="current && ['draft','submitted'].includes(current.status)" v-model="cancelReason" style="width: 220px" placeholder="取消原因" />
-              <a-button v-if="current && ['draft','submitted'].includes(current.status)" status="danger" :loading="workflow.saving" @click="cancel">取消交班</a-button>
+              <a-button v-if="can('handover.write')" :loading="workflow.saving" :disabled="readOnly || current?.status === 'submitted'" @click="saveDraft">保存草稿</a-button>
+              <a-button v-if="(!current || current.status === 'draft') && can('handover.submit')" type="primary" :loading="workflow.saving" @click="submit">提交交班</a-button>
+              <a-button v-if="current?.status === 'submitted' && can('handover.accept')" type="primary" :loading="workflow.saving" @click="accept">指定接班人确认</a-button>
+              <a-input v-if="current && ['draft','submitted'].includes(current.status) && can('handover.cancel')" v-model="cancelReason" style="width: 220px" placeholder="取消原因" />
+              <a-button v-if="current && ['draft','submitted'].includes(current.status) && can('handover.cancel')" status="danger" :loading="workflow.saving" @click="cancel">取消交班</a-button>
             </a-space>
           </div>
         </a-card>
@@ -87,10 +87,12 @@ import HandoverHistoryDrawer from '@/components/surgery/HandoverHistoryDrawer.vu
 import { loadOperationCases } from '@/services/preoperative/preoperativeFiveFlowsService';
 import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
 import { useAnesthesiaHandoverStore } from '@/stores/anesthesiaWorkflow';
+import { authApi } from '@/api/auth';
 
 const workflow = useAnesthesiaHandoverStore();
 const cases = ref<OperationCase[]>([]); const selectedOperationId = ref(''); const caseLoading = ref(false); const caseError = ref('');
 const historyVisible = ref(false); const cancelReason = ref('');
+const permissions = ref<string[]>([]); const can = (code:string) => permissions.value.some((value)=>value==='*'||value==='handover.*'||value===code);
 const selectedCase = computed(() => cases.value.find((item) => item.operationId === selectedOperationId.value) ?? null);
 const current = computed(() => workflow.detail?.activeHandover ?? null);
 const readOnly = computed(() => ['accepted','cancelled'].includes(current.value?.status ?? ''));
@@ -116,7 +118,8 @@ async function saveDraft(){if(!form.incomingDoctorId.trim()){Message.warning('�
 async function submit(){if(form.checks.some(v=>v.result==='exception'&&!v.remark.trim())){Message.warning('异常核查项必须填写说明');return;}try{await workflow.saveDraft(payload());await workflow.submit();hydrate();Message.success('交班已提交');}catch{/* store显示错误 */}}
 async function accept(){try{await workflow.accept();hydrate();Message.success('接班确认完成');}catch{/* store显示错误 */}}
 async function cancel(){try{await workflow.cancel(cancelReason.value);cancelReason.value='';hydrate();Message.success('交班已取消');}catch(e){Message.error(e instanceof Error?e.message:'取消失败');}}
-watch(selectedOperationId,loadHandover);onMounted(loadCases);
+async function loadPermissions(){try{const result=await authApi.myPermissions();permissions.value=Array.isArray(result?.permissions)?result.permissions.map(String):[];}catch{permissions.value=[];}}
+watch(selectedOperationId,loadHandover);onMounted(()=>Promise.all([loadPermissions(),loadCases()]));
 </script>
 
 <style scoped>
