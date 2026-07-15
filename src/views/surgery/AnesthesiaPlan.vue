@@ -1,168 +1,48 @@
 <template>
-  <ModulePageShell title="麻醉计划" description="基于术前评估制定并版本化提交麻醉方案">
-    <template #toolbar>
-      <a-select v-model="selectedId" style="width: 320px" placeholder="选择手术患者">
-        <a-option v-for="item in caseOptions" :key="item.id" :value="item.id">
-          {{ item.room }} · {{ item.patientName }} · {{ item.surgeryName }}
-        </a-option>
-      </a-select>
-    </template>
-
-    <a-alert v-if="workflow.error" type="error" :title="workflow.error" closable>
-      <template #action><a-button size="mini" @click="loadPlan">重试</a-button></template>
-    </a-alert>
-
-    <a-spin :loading="workflow.loading" style="width: 100%">
-      <template v-if="currentCase">
-        <a-card class="section-card" :bordered="false" title="病例与版本">
-          <template #extra>
-            <a-space>
-              <a-tag>版本 {{ currentPlan?.version ?? 1 }}</a-tag>
-              <a-tag :color="statusColor">{{ planStatusLabel(currentPlan?.status) }}</a-tag>
-            </a-space>
-          </template>
-          <a-descriptions :column="4" bordered size="medium">
-            <a-descriptions-item label="患者">{{ currentCase.patientName }}</a-descriptions-item>
-            <a-descriptions-item label="性别/年龄">{{ currentCase.gender }} / {{ currentCase.age }}岁</a-descriptions-item>
-            <a-descriptions-item label="ASA">{{ currentCase.asa }}</a-descriptions-item>
-            <a-descriptions-item label="手术">{{ currentCase.surgeryName }}</a-descriptions-item>
-          </a-descriptions>
-        </a-card>
-
-        <a-card class="section-card" :bordered="false" title="麻醉方法与气道计划">
-          <a-form :model="form" layout="vertical" :disabled="readOnly">
-            <a-row :gutter="16">
-              <a-col :span="8">
-                <a-form-item label="主要麻醉方式" required>
-                  <a-select v-model="form.primaryMethodCode">
-                    <a-option value="general">全身麻醉</a-option>
-                    <a-option value="neuraxial">椎管内麻醉</a-option>
-                    <a-option value="nerve_block">神经阻滞</a-option>
-                    <a-option value="combined">复合麻醉</a-option>
-                    <a-option value="sedation">镇静麻醉</a-option>
-                  </a-select>
-                </a-form-item>
-              </a-col>
-              <a-col :span="8"><a-form-item label="气道策略" required><a-select v-model="form.airwayStrategy" :options="airwayOptions" /></a-form-item></a-col>
-              <a-col :span="8"><a-form-item label="术后去向" required><a-select v-model="form.postoperativeDestination" :options="destinationOptions" /></a-form-item></a-col>
-              <a-col :span="12"><a-form-item label="备选麻醉方式"><a-input v-model="form.alternativeMethods" placeholder="多个方式用逗号分隔" /></a-form-item></a-col>
-              <a-col :span="12"><a-form-item label="特殊风险"><a-input v-model="form.specialRisks" placeholder="多个风险用逗号分隔" /></a-form-item></a-col>
-            </a-row>
-          </a-form>
-        </a-card>
-
-        <a-card class="section-card" :bordered="false" title="监测与围术期策略">
-          <a-form :model="form" layout="vertical" :disabled="readOnly">
-            <a-form-item label="监测计划" required>
-              <a-checkbox-group v-model="form.monitoringItems" :options="monitoringOptions" />
-            </a-form-item>
-            <a-row :gutter="16">
-              <a-col :span="12"><a-form-item label="诱导计划"><a-textarea v-model="form.inductionPlan" :auto-size="{ minRows: 2 }" /></a-form-item></a-col>
-              <a-col :span="12"><a-form-item label="维持计划"><a-textarea v-model="form.maintenancePlan" :auto-size="{ minRows: 2 }" /></a-form-item></a-col>
-              <a-col :span="12"><a-form-item label="镇痛计划"><a-textarea v-model="form.analgesiaPlan" :auto-size="{ minRows: 2 }" /></a-form-item></a-col>
-              <a-col :span="12"><a-form-item label="液体与备血"><a-textarea v-model="form.fluidAndBloodPlan" :auto-size="{ minRows: 2 }" /></a-form-item></a-col>
-            </a-row>
-            <a-form-item label="补充说明"><a-textarea v-model="form.notes" :auto-size="{ minRows: 2 }" /></a-form-item>
-          </a-form>
-          <div class="form-actions">
-            <a-space>
-              <a-button :loading="workflow.saving" :disabled="readOnly" @click="saveDraft">保存草稿</a-button>
-              <a-button type="primary" :loading="workflow.saving" :disabled="readOnly" @click="submitPlan">提交计划</a-button>
-              <a-button @click="router.push(buildRecordRoute(currentCase.id, 'plan'))">进入记录单</a-button>
-            </a-space>
-          </div>
-        </a-card>
-      </template>
-      <EmptyState v-else title="请选择患者" description="从上方选择需要制定麻醉计划的患者" icon="IconFile" />
+  <ModulePageShell title="麻醉计划" description="基于 OperationCase 与术前评估制定结构化、可追溯的版本化计划">
+    <template #chips><a-tag :color="statusColor">{{ planStatusLabel(currentPlan?.status) }} · v{{ currentPlan?.version??0 }}</a-tag><a-tag v-if="currentPlan?.templateCode">模板 {{ currentPlan.templateCode }} / v{{ currentPlan.templateVersion }}</a-tag></template>
+    <template #toolbar><a-space wrap>
+      <a-select v-model="selectedId" style="width:360px" placeholder="选择真实手术病例"><a-option v-for="item in cases" :key="item.operationId||''" :value="item.operationId||''">{{ item.roomName||'未排房' }} · {{ item.patientName||'未提供姓名' }} · {{ item.operationName||'未提供手术' }}</a-option></a-select>
+      <a-input v-model="actionReason" style="width:220px" placeholder="取消/修订原因" allow-clear />
+      <a-button :loading="workflow.saving" :disabled="!canEdit" @click="saveDraft">保存草稿</a-button><a-button type="primary" :loading="workflow.saving" :disabled="!canSubmit" @click="submitPlan">提交计划</a-button>
+      <a-button :loading="workflow.saving" :disabled="!canReviseAction" @click="cancelPlan">取消计划</a-button><a-button :loading="workflow.saving" :disabled="!canCreateRevision" @click="createRevision">创建修订</a-button>
+    </a-space></template>
+    <a-alert v-if="workflow.error||loadError" type="error" show-icon>{{ workflow.error||loadError }} <a-button size="mini" type="text" @click="loadPlan">重试</a-button></a-alert>
+    <EmptyState v-if="!selectedId&&!workflow.loading" title="暂无真实手术病例" description="未从手术申请读取到 OperationCase，不使用模拟患者补位" icon="IconFile" />
+    <a-spin v-else :loading="workflow.loading" style="width:100%">
+      <a-card v-if="currentCase" class="section-card" :bordered="false" title="病例真值与计划人">
+        <a-descriptions :column="4" bordered><a-descriptions-item label="患者">{{ currentCase.patientName||'—' }}</a-descriptions-item><a-descriptions-item label="性别/年龄">{{ currentCase.gender||'—' }} / {{ currentCase.age??'—' }}</a-descriptions-item><a-descriptions-item label="术前诊断">{{ currentCase.preoperativeDiagnosisName||'—' }}</a-descriptions-item><a-descriptions-item label="拟行手术">{{ currentCase.operationName||'—' }}</a-descriptions-item><a-descriptions-item label="计划时间">{{ currentCase.plannedStartTime||'—' }}</a-descriptions-item><a-descriptions-item label="计划医师">{{ currentPlan?.plannerName||'保存后由服务端记录' }}</a-descriptions-item><a-descriptions-item label="提交时间">{{ currentPlan?.submittedAt||'—' }}</a-descriptions-item><a-descriptions-item label="取消时间">{{ currentPlan?.cancelledAt||'—' }}</a-descriptions-item></a-descriptions>
+      </a-card>
+      <a-tabs v-if="currentCase" default-active-key="method">
+        <a-tab-pane key="method" title="麻醉方式与气道"><a-card class="section-card" :bordered="false"><a-form :model="form" layout="vertical" :disabled="!canEdit"><a-row :gutter="16">
+          <a-col :span="8"><a-form-item label="首次初始化模板编码"><a-input v-model="form.templateCode" :disabled="Boolean(currentPlan)" placeholder="仅无计划时可显式选择" /></a-form-item></a-col><a-col :span="8"><a-form-item label="主要麻醉方式" required><a-select v-model="form.primaryMethodCode" allow-clear :options="methodOptions" /></a-form-item></a-col><a-col :span="8"><a-form-item label="术后去向" required><a-select v-model="form.postoperativeDestination" allow-clear :options="destinationOptions" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="备选麻醉方式（每行一项）"><a-textarea v-model="form.alternativeMethods" :auto-size="{minRows:3}" /></a-form-item></a-col><a-col :span="12"><a-form-item label="气道策略" required><a-input v-model="form.airwayStrategy" placeholder="如：气管插管" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="备用方案"><a-textarea v-model="form.backupPlan" :auto-size="{minRows:3}" /></a-form-item></a-col><a-col :span="12"><a-form-item label="特殊风险（每行一项）"><a-textarea v-model="form.specialRisks" :auto-size="{minRows:3}" /></a-form-item></a-col>
+        </a-row></a-form></a-card></a-tab-pane>
+        <a-tab-pane key="monitor" title="监测与通路"><a-card class="section-card" :bordered="false"><a-form :model="form" layout="vertical" :disabled="!canEdit"><a-form-item label="监测计划" required><a-checkbox-group v-model="form.monitoringItems" :options="monitoringOptions" /></a-form-item><a-row :gutter="16"><a-col :span="12"><a-form-item label="血管通路（每行一项）"><a-textarea v-model="form.vascularAccess" :auto-size="{minRows:4}" placeholder="如：左手/PIV" /></a-form-item></a-col><a-col :span="12"><a-form-item label="风险处置（每行一项）"><a-textarea v-model="form.riskResponses" :auto-size="{minRows:4}" placeholder="如：PONV/预防性用药" /></a-form-item></a-col></a-row></a-form></a-card></a-tab-pane>
+        <a-tab-pane key="medication" title="诱导、维持与镇痛"><a-card class="section-card" :bordered="false"><a-form :model="form" layout="vertical" :disabled="!canEdit"><a-row :gutter="16"><a-col :span="8"><a-form-item label="诱导计划"><a-textarea v-model="form.inductionPlan" :auto-size="{minRows:5}" /></a-form-item></a-col><a-col :span="8"><a-form-item label="维持计划"><a-textarea v-model="form.maintenancePlan" :auto-size="{minRows:5}" /></a-form-item></a-col><a-col :span="8"><a-form-item label="镇痛计划"><a-textarea v-model="form.analgesiaPlan" :auto-size="{minRows:5}" /></a-form-item></a-col></a-row></a-form></a-card></a-tab-pane>
+        <a-tab-pane key="fluid" title="液体与输血"><a-card class="section-card" :bordered="false"><a-form :model="form" layout="vertical" :disabled="!canEdit"><a-row :gutter="16"><a-col :span="12"><a-form-item label="液体计划（每行：液体/容量ml）"><a-textarea v-model="form.fluidItems" :auto-size="{minRows:5}" /></a-form-item></a-col><a-col :span="12"><a-form-item label="输血计划"><a-switch v-model="form.transfusionRequired" /> 需要输血<a-textarea v-model="form.transfusionNotes" style="margin-top:12px" :auto-size="{minRows:3}" placeholder="血制品、血型要求、备血量" /></a-form-item></a-col><a-col :span="24"><a-form-item label="备注"><a-textarea v-model="form.notes" /></a-form-item></a-col></a-row></a-form></a-card></a-tab-pane>
+        <a-tab-pane key="history" title="版本历史"><a-card class="section-card" :bordered="false"><a-table :data="workflow.detail?.historyMeta.versions??[]" :pagination="false"><template #columns><a-table-column title="版本" data-index="version"/><a-table-column title="状态"><template #cell="{record}">{{ planStatusLabel(record.status) }}</template></a-table-column><a-table-column title="计划人" data-index="plannerName"/><a-table-column title="修订原因" data-index="revisionReason"/><a-table-column title="创建时间" data-index="createdAt"/></template></a-table></a-card></a-tab-pane>
+      </a-tabs>
     </a-spin>
   </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
-import { Message } from '@arco-design/web-vue';
-import { useRouter } from 'vue-router';
-import EmptyState from '@/components/shared/EmptyState.vue';
-import ModulePageShell from '@/components/shared/ModulePageShell.vue';
-import { buildRecordRoute } from '@/services/recordNavigation';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
-import { useAnesthesiaPlanStore } from '@/stores/anesthesiaWorkflow';
-
-const store = useAnesthesiaStore();
-const workflow = useAnesthesiaPlanStore();
-const router = useRouter();
-const caseOptions = computed(() => store.cases.filter((item) => item.status !== '已取消'));
-const selectedId = ref(caseOptions.value[0]?.id ?? '');
-const currentCase = computed(() => caseOptions.value.find((item) => item.id === selectedId.value));
-const currentPlan = computed(() => workflow.detail?.currentPlan ?? null);
-const readOnly = computed(() => ['submitted', 'cancelled'].includes(currentPlan.value?.status ?? ''));
-const statusColor = computed(() => currentPlan.value?.status === 'submitted' ? 'green' : currentPlan.value?.status === 'cancelled' ? 'gray' : 'orange');
-const planStatusLabel = (status?: string) => ({ draft: '草稿', submitted: '已提交', cancelled: '已取消' }[status ?? 'draft']);
-
-const airwayOptions = ['气管插管', '喉罩', '保留自主呼吸', '区域阻滞无需气道'].map((label) => ({ label, value: label }));
-const destinationOptions = ['PACU', 'ICU', '病房', '日间观察'].map((label) => ({ label, value: label }));
-const monitoringOptions = ['ECG', 'NIBP', 'SpO2', 'EtCO2', '体温', 'BIS', '有创动脉压', '中心静脉压'];
-
-const form = reactive({
-  primaryMethodCode: 'general', alternativeMethods: '', airwayStrategy: '气管插管', monitoringItems: ['ECG', 'NIBP', 'SpO2', 'EtCO2'],
-  inductionPlan: '', maintenancePlan: '', analgesiaPlan: '', fluidAndBloodPlan: '', postoperativeDestination: 'PACU', specialRisks: '', notes: '',
-});
-
-function hydrateForm() {
-  const plan = currentPlan.value;
-  if (!plan) return;
-  Object.assign(form, {
-    primaryMethodCode: plan.primaryMethodCode ?? 'general',
-    alternativeMethods: (plan.alternativeMethods ?? []).join(','),
-    airwayStrategy: String(plan.airwayPlan?.strategy ?? '气管插管'),
-    monitoringItems: Array.isArray(plan.monitoringPlan?.items) ? plan.monitoringPlan.items : ['ECG', 'NIBP', 'SpO2', 'EtCO2'],
-    inductionPlan: plan.inductionPlan ?? '', maintenancePlan: plan.maintenancePlan ?? '', analgesiaPlan: plan.analgesiaPlan ?? '',
-    fluidAndBloodPlan: [plan.fluidPlan, plan.bloodPreparation].filter(Boolean).join('\n'),
-    postoperativeDestination: plan.postoperativeDestination ?? 'PACU',
-    specialRisks: (plan.specialRisks ?? []).join(','), notes: plan.notes ?? '',
-  });
-}
-
-function payload() {
-  return {
-    primaryMethodCode: form.primaryMethodCode,
-    primaryMethodName: ({ general: '全身麻醉', neuraxial: '椎管内麻醉', nerve_block: '神经阻滞', combined: '复合麻醉', sedation: '镇静麻醉' } as Record<string, string>)[form.primaryMethodCode],
-    alternativeMethods: form.alternativeMethods.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
-    airwayPlan: { strategy: form.airwayStrategy }, monitoringPlan: { items: form.monitoringItems },
-    inductionPlan: form.inductionPlan, maintenancePlan: form.maintenancePlan, analgesiaPlan: form.analgesiaPlan,
-    fluidPlan: form.fluidAndBloodPlan, bloodPreparation: form.fluidAndBloodPlan,
-    postoperativeDestination: form.postoperativeDestination,
-    specialRisks: form.specialRisks.split(/[,，]/).map((item) => item.trim()).filter(Boolean), notes: form.notes,
-  };
-}
-
-async function loadPlan() {
-  if (!selectedId.value) return;
-  try { await workflow.load(selectedId.value); hydrateForm(); } catch { /* store exposes the error */ }
-}
-
-async function saveDraft() {
-  try { await workflow.saveDraft(payload()); hydrateForm(); Message.success('麻醉计划草稿已保存'); } catch { /* store exposes the error */ }
-}
-
-async function submitPlan() {
-  if (!form.primaryMethodCode || !form.airwayStrategy || !form.monitoringItems.length || !form.postoperativeDestination) {
-    Message.warning('请完整填写麻醉方式、气道、监测和术后去向');
-    return;
-  }
-  try {
-    if (!currentPlan.value) await workflow.saveDraft(payload());
-    else await workflow.saveDraft(payload());
-    await workflow.submit();
-    await workflow.load(selectedId.value);
-    hydrateForm();
-    Message.success('麻醉计划已提交并锁定当前版本');
-  } catch { /* store exposes the error */ }
-}
-
-watch(selectedId, loadPlan, { immediate: true });
+import { computed,onMounted,reactive,ref,watch } from 'vue'; import { Message } from '@arco-design/web-vue';
+import { authApi } from '@/api/auth'; import type { AnesthesiaPlanApi } from '@/api/anesthesiaWorkflow'; import ModulePageShell from '@/components/shared/ModulePageShell.vue'; import EmptyState from '@/components/shared/EmptyState.vue'; import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter'; import { loadOperationCases } from '@/services/preoperative/preoperativeFiveFlowsService'; import { useAnesthesiaPlanStore } from '@/stores/anesthesiaWorkflow';
+const workflow=useAnesthesiaPlanStore();const cases=ref<OperationCase[]>([]);const selectedId=ref('');const permissions=ref<string[]>([]);const loadError=ref('');const actionReason=ref('');
+const currentCase=computed(()=>cases.value.find(item=>item.operationId===selectedId.value));const currentPlan=computed(()=>workflow.detail?.currentPlan??null);const has=(code:string)=>permissions.value.some(p=>p==='*'||p==='plan.*'||p===code);const canEdit=computed(()=>has('plan.create')&&(!currentPlan.value||currentPlan.value.status==='draft'));const canSubmit=computed(()=>canEdit.value&&has('plan.submit'));const canReviseAction=computed(()=>has('plan.revise')&&Boolean(currentPlan.value)&&currentPlan.value?.status!=='cancelled');const canCreateRevision=computed(()=>has('plan.revise')&&['submitted','cancelled'].includes(currentPlan.value?.status??''));const statusColor=computed(()=>currentPlan.value?.status==='submitted'?'green':currentPlan.value?.status==='cancelled'?'gray':'orange');const planStatusLabel=(s?:string)=>({draft:'草稿',submitted:'已提交',cancelled:'已取消'}[s??'draft']??s);
+const methodOptions=[{label:'全身麻醉',value:'GA'},{label:'椎管内麻醉',value:'NEURAXIAL'},{label:'神经阻滞',value:'NERVE_BLOCK'},{label:'复合麻醉',value:'COMBINED'},{label:'镇静麻醉',value:'SEDATION'}];const destinationOptions=['PACU','ICU','病房','日间观察'];const monitoringOptions=['ECG','NIBP','SpO2','EtCO2','体温','BIS','有创动脉压','中心静脉压'];
+const form=reactive({templateCode:'',primaryMethodCode:'',postoperativeDestination:'',alternativeMethods:'',airwayStrategy:'',backupPlan:'',specialRisks:'',monitoringItems:[] as string[],vascularAccess:'',riskResponses:'',inductionPlan:'',maintenancePlan:'',analgesiaPlan:'',fluidItems:'',transfusionRequired:false,transfusionNotes:'',notes:''});
+const lines=(v:string)=>v.split('\n').map(x=>x.trim()).filter(Boolean);const summaries=(v:unknown)=>Array.isArray(v)?v.map(x=>String((x as Record<string,unknown>)?.summary??(x as Record<string,unknown>)?.name??x)).join('\n'):'';
+function hydrate(p:AnesthesiaPlanApi|null){Object.assign(form,{templateCode:p?.templateCode??'',primaryMethodCode:p?.primaryMethodCode??'',postoperativeDestination:p?.postoperativeDestination??'',alternativeMethods:summaries(p?.alternativeMethods),airwayStrategy:String(p?.airwayPlan?.strategy??''),backupPlan:String(p?.backupPlan?.summary??''),specialRisks:summaries(p?.specialRisks),monitoringItems:Array.isArray(p?.monitoringPlan?.items)?p?.monitoringPlan?.items.map(String):[],vascularAccess:summaries(p?.vascularAccessPlan),riskResponses:summaries(p?.riskResponsePlan),inductionPlan:p?.inductionPlan??'',maintenancePlan:p?.maintenancePlan??'',analgesiaPlan:p?.analgesiaPlan??'',fluidItems:summaries(p?.fluidPlanDetail),transfusionRequired:Boolean(p?.transfusionPlan?.required),transfusionNotes:String(p?.transfusionPlan?.notes??''),notes:p?.notes??''});}
+function payload(){const label=methodOptions.find(x=>x.value===form.primaryMethodCode)?.label??null;return {templateCode:currentPlan.value?undefined:(form.templateCode||undefined),primaryMethodCode:form.primaryMethodCode||null,primaryMethodName:label,alternativeMethods:lines(form.alternativeMethods).map(summary=>({summary})),airwayPlan:{strategy:form.airwayStrategy},monitoringPlan:{items:form.monitoringItems},vascularAccessPlan:lines(form.vascularAccess).map(summary=>({summary})),fluidPlanDetail:lines(form.fluidItems).map(summary=>({summary})),transfusionPlan:{required:form.transfusionRequired,notes:form.transfusionNotes},backupPlan:{summary:form.backupPlan},riskResponsePlan:lines(form.riskResponses).map(summary=>({summary})),inductionPlan:form.inductionPlan,maintenancePlan:form.maintenancePlan,analgesiaPlan:form.analgesiaPlan,postoperativeDestination:form.postoperativeDestination,specialRisks:lines(form.specialRisks).map(summary=>({summary})),notes:form.notes};}
+async function loadPlan(){if(!selectedId.value)return;try{await workflow.load(selectedId.value);hydrate(currentPlan.value);}catch{/* store exposes error */}}
+async function saveDraft(){try{await workflow.saveDraft(payload());hydrate(currentPlan.value);Message.success('草稿已保存并回读');}catch{/* store exposes error */}}
+async function submitPlan(){if(!form.primaryMethodCode||!form.airwayStrategy||!form.monitoringItems.length||!form.postoperativeDestination){Message.warning('请完整填写麻醉方式、气道、监测和术后去向');return;}try{await workflow.saveDraft(payload());await workflow.submit();await loadPlan();Message.success('计划已提交');}catch{/* store exposes error */}}
+async function cancelPlan(){if(!actionReason.value.trim()){Message.warning('请填写取消原因');return;}try{await workflow.cancel(actionReason.value);actionReason.value='';await loadPlan();Message.success('计划已取消');}catch{/* store exposes error */}}
+async function createRevision(){if(!actionReason.value.trim()){Message.warning('请填写修订原因');return;}try{await workflow.createRevision(actionReason.value);actionReason.value='';await loadPlan();Message.success('修订草稿已创建');}catch{/* store exposes error */}}
+async function init(){try{const [list,perm]=await Promise.all([loadOperationCases(),authApi.myPermissions()]);cases.value=list;permissions.value=Array.isArray(perm?.permissions)?perm.permissions.map(String):[];selectedId.value=list[0]?.operationId??'';}catch(e){loadError.value=e instanceof Error?e.message:'病例加载失败';}}
+watch(selectedId,loadPlan);onMounted(init);
 </script>
-
-<style scoped>
-.form-actions { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); }
-</style>

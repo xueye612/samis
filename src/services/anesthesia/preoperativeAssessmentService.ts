@@ -14,15 +14,16 @@ const DRAFT_FIELDS = [
   'abnormalExamSummary',
   'riskSummary',
   'preMedicationAdvice',
-  'evaluatorId',
-  'evaluatorName',
-  'evaluatedAt',
+  'riskLevel', 'cardiopulmonaryJson', 'airwayJson', 'fastingJson', 'dentitionJson',
+  'medicalHistoryJson', 'surgicalHistoryJson', 'medicationHistoryJson', 'systemAssessmentJson',
+  'examAbnormalitiesJson', 'riskFactorsJson', 'recommendationsJson',
 ] as const;
 
 export function emptyPreoperativeAssessment(operationId: string): PreoperativeAssessmentApi {
   return {
     operationId,
     assessmentId: null,
+    version: 0,
     asaGrade: null,
     anesthesiaPlan: null,
     airwayAssessment: null,
@@ -31,6 +32,9 @@ export function emptyPreoperativeAssessment(operationId: string): PreoperativeAs
     abnormalExamSummary: null,
     riskSummary: null,
     preMedicationAdvice: null,
+    riskLevel: null, cardiopulmonaryJson: null, airwayJson: null, fastingJson: null, dentitionJson: null,
+    medicalHistoryJson: null, surgicalHistoryJson: null, medicationHistoryJson: null, systemAssessmentJson: null,
+    examAbnormalitiesJson: null, riskFactorsJson: null, recommendationsJson: null,
     status: 'draft',
     evaluatorId: null,
     evaluatorName: null,
@@ -44,7 +48,7 @@ export function buildPreoperativeAssessmentDraftPayload(
   operationId: string,
   source: Partial<PreoperativeAssessmentApi> & Record<string, unknown>,
 ): PreoperativeAssessmentDraftPayload {
-  const payload = { operationId } as PreoperativeAssessmentDraftPayload;
+  const payload = { operationId, expectedVersion: Number(source.version ?? 0) } as PreoperativeAssessmentDraftPayload;
   DRAFT_FIELDS.forEach((field) => {
     payload[field] = (source[field] ?? null) as never;
   });
@@ -62,10 +66,14 @@ export function savePreoperativeAssessmentDraft(
   return preoperativeApi.assessmentSaveDraft(buildPreoperativeAssessmentDraftPayload(operationId, source));
 }
 
-export function submitPreoperativeAssessment(operationId: string): Promise<PreoperativeAssessmentApi> {
-  return preoperativeApi.assessmentSubmit(operationId);
+export function submitPreoperativeAssessment(record: Pick<PreoperativeAssessmentApi, 'operationId' | 'version'>): Promise<PreoperativeAssessmentApi> {
+  return preoperativeApi.assessmentSubmit({ operationId: record.operationId, expectedVersion: record.version });
 }
 
-export function cancelPreoperativeAssessmentSubmit(operationId: string): Promise<PreoperativeAssessmentApi> {
-  return preoperativeApi.assessmentCancelSubmit(operationId);
+export function cancelPreoperativeAssessmentSubmit(record: Pick<PreoperativeAssessmentApi, 'operationId' | 'version'>, reason: string): Promise<PreoperativeAssessmentApi> {
+  return preoperativeApi.assessmentCancelSubmit({ operationId: record.operationId, expectedVersion: record.version, reason });
+}
+
+export function createPreoperativeAssessmentRevision(record: Pick<PreoperativeAssessmentApi, 'operationId' | 'version'>, reason: string): Promise<PreoperativeAssessmentApi> {
+  return preoperativeApi.assessmentCreateRevision({ operationId: record.operationId, expectedVersion: record.version, reason });
 }

@@ -70,6 +70,7 @@ describe.runIf(SHOULD_RUN)('preoperative assessment real integration', () => {
 
     const payload: PreoperativeAssessmentDraftPayload = {
       operationId: OPERATION_ID,
+      expectedVersion: 0,
       asaGrade: 'II',
       anesthesiaPlan: 'OP-E2E-PREOP 前端真实联调计划',
       airwayAssessment: 'Mallampati II',
@@ -78,24 +79,23 @@ describe.runIf(SHOULD_RUN)('preoperative assessment real integration', () => {
       abnormalExamSummary: '无',
       riskSummary: 'OP-E2E-PREOP 前端联调风险',
       preMedicationAdvice: '禁食禁饮',
-      evaluatorId: 'quality_admin',
-      evaluatorName: '联调账号',
-      evaluatedAt: '2026-07-10 19:10:00',
+      medicalHistoryJson: [{ summary: '无特殊病史' }],
     };
     expect(Object.keys(payload)).not.toEqual(expect.arrayContaining([
       'patientName', 'patientId', 'patientNo', 'departmentName',
       'operationName', 'operationDate', 'roomName', 'surgeonName',
     ]));
 
-    expect((await preoperativeApi.assessmentSaveDraft(payload)).status).toBe('draft');
+    const draft = await preoperativeApi.assessmentSaveDraft(payload);
+    expect(draft.status).toBe('draft');
     expect((await preoperativeApi.assessmentDetail(OPERATION_ID)).assessment).toEqual(expect.objectContaining({
       status: 'draft', asaGrade: 'II', anesthesiaPlan: payload.anesthesiaPlan,
     }));
-    expect((await preoperativeApi.assessmentSubmit(OPERATION_ID)).status).toBe('submitted');
+    expect((await preoperativeApi.assessmentSubmit({ operationId: OPERATION_ID, expectedVersion: draft.version })).status).toBe('submitted');
     const submitted = (await preoperativeApi.assessmentDetail(OPERATION_ID)).assessment;
     expect(submitted).toEqual(expect.objectContaining({ status: 'submitted' }));
     expect(submitted?.submittedAt).toEqual(expect.any(String));
-    expect((await preoperativeApi.assessmentCancelSubmit(OPERATION_ID)).status).toBe('draft');
+    expect((await preoperativeApi.assessmentCancelSubmit({ operationId: OPERATION_ID, expectedVersion: submitted!.version, reason: '联调撤回' })).status).toBe('draft');
     expect((await preoperativeApi.assessmentDetail(OPERATION_ID)).assessment).toEqual(expect.objectContaining({
       status: 'draft', submittedAt: null,
     }));

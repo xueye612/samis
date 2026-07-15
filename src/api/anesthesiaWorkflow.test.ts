@@ -23,6 +23,11 @@ describe('anesthesia workflow api payloads', () => {
       airwayPlan: { strategy: 'endotracheal' },
       monitoringPlan: { items: ['ECG', 'SpO2'] },
       specialRisks: ['difficult_airway'],
+      vascularAccessPlan: [{ site: '左手', type: 'PIV' }],
+      fluidPlanDetail: [{ fluidCode: 'NS', volumeMl: 500 }],
+      transfusionPlan: { required: false },
+      backupPlan: { method: 'LMA' },
+      riskResponsePlan: [{ risk: 'PONV', action: '预防' }],
     });
 
     const body = bodyOfCall();
@@ -30,6 +35,11 @@ describe('anesthesia workflow api payloads', () => {
     expect(JSON.parse(body.get('airwayPlan') ?? '')).toEqual({ strategy: 'endotracheal' });
     expect(JSON.parse(body.get('monitoringPlan') ?? '')).toEqual({ items: ['ECG', 'SpO2'] });
     expect(JSON.parse(body.get('specialRisks') ?? '')).toEqual(['difficult_airway']);
+    expect(JSON.parse(body.get('vascularAccessPlan') ?? '')).toEqual([{ site: '左手', type: 'PIV' }]);
+    expect(JSON.parse(body.get('fluidPlanDetail') ?? '')).toEqual([{ fluidCode: 'NS', volumeMl: 500 }]);
+    expect(JSON.parse(body.get('transfusionPlan') ?? '')).toEqual({ required: false });
+    expect(JSON.parse(body.get('backupPlan') ?? '')).toEqual({ method: 'LMA' });
+    expect(JSON.parse(body.get('riskResponsePlan') ?? '')).toEqual([{ risk: 'PONV', action: '预防' }]);
   });
 
   it('serializes handover checks and pending tasks', async () => {

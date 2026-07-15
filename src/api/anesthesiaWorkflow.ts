@@ -29,6 +29,16 @@ export interface AnesthesiaPlanApi {
   bloodPreparation: string | null;
   postoperativeDestination: string | null;
   specialRisks: unknown[] | null;
+  vascularAccessPlan: unknown[] | null;
+  fluidPlanDetail: unknown[] | null;
+  transfusionPlan: Record<string, unknown> | null;
+  backupPlan: Record<string, unknown> | null;
+  riskResponsePlan: unknown[] | null;
+  templateCode: string | null;
+  templateVersion: number | null;
+  templateSnapshot: Record<string, unknown> | null;
+  plannerId: string | null;
+  plannerName: string | null;
   notes: string | null;
   revisionReason: string | null;
   submittedAt: string | null;
@@ -39,8 +49,9 @@ export interface AnesthesiaPlanApi {
 
 export interface AnesthesiaPlanDetailApi {
   operationId: string;
+  operationCase: Record<string, unknown>;
   currentPlan: AnesthesiaPlanApi | null;
-  historyMeta: { total: number; versions: Array<{ planVersionId: string; version: number; status: string; createdAt: string | null }> };
+  historyMeta: { total: number; versions: AnesthesiaPlanApi[] };
 }
 
 export const anesthesiaPlanApi = {

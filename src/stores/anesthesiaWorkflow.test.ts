@@ -5,6 +5,8 @@ const api = vi.hoisted(() => ({
   planDetail: vi.fn(),
   planSaveDraft: vi.fn(),
   planSubmit: vi.fn(),
+  planCancel: vi.fn(),
+  planCreateRevision: vi.fn(),
   handoverDetail: vi.fn(),
   handoverSaveDraft: vi.fn(),
   handoverSubmit: vi.fn(),
@@ -19,6 +21,8 @@ vi.mock('@/api/anesthesiaWorkflow', () => ({
     detail: api.planDetail,
     saveDraft: api.planSaveDraft,
     submit: api.planSubmit,
+    cancel: api.planCancel,
+    createRevision: api.planCreateRevision,
   },
   anesthesiaHandoverApi: {
     detail: api.handoverDetail,
@@ -45,6 +49,8 @@ const plan = {
   alternativeMethods: [], airwayPlan: { strategy: 'endotracheal' }, monitoringPlan: { ecg: true },
   inductionPlan: '静脉诱导', maintenancePlan: '静吸复合', analgesiaPlan: '多模式镇痛', fluidPlan: '',
   bloodPreparation: '', postoperativeDestination: 'PACU', specialRisks: [], notes: '', revisionReason: null,
+  vascularAccessPlan: [], fluidPlanDetail: [], transfusionPlan: null, backupPlan: null, riskResponsePlan: [],
+  templateCode: null, templateVersion: null, templateSnapshot: null, plannerId: 'D1', plannerName: '甲医生',
   submittedAt: null, cancelledAt: null, createdAt: '2026-07-11 09:00:00', updatedAt: '2026-07-11 09:00:00',
 };
 
@@ -71,7 +77,7 @@ describe('anesthesia workflow stores', () => {
   });
 
   it('loads and saves an anesthesia plan using the server version contract', async () => {
-    api.planDetail.mockResolvedValue({ operationId: 'OP-1', currentPlan: plan, historyMeta: { total: 1, versions: [] } });
+    api.planDetail.mockResolvedValue({ operationId: 'OP-1', operationCase: {}, currentPlan: plan, historyMeta: { total: 1, versions: [] } });
     api.planSaveDraft.mockResolvedValue({ ...plan, notes: '高风险病例' });
     api.planSubmit.mockResolvedValue({ ...plan, notes: '高风险病例', status: 'submitted' });
     const store = useAnesthesiaPlanStore();
@@ -86,6 +92,16 @@ describe('anesthesia workflow stores', () => {
       operationId: 'OP-1', planVersionId: 'PLANV-1', expectedVersion: 1, notes: '高风险病例',
     }));
     expect(store.detail?.currentPlan).toMatchObject({ notes: '高风险病例', status: 'submitted' });
+  });
+
+  it('uses current server version for cancel and revision', async () => {
+    api.planDetail.mockResolvedValue({ operationId: 'OP-1', operationCase: {}, currentPlan: { ...plan, status: 'submitted', version: 3 }, historyMeta: { total: 1, versions: [] } });
+    api.planCancel.mockResolvedValue({ ...plan, status: 'cancelled', version: 4, revisionReason: '改期' });
+    api.planCreateRevision.mockResolvedValue({ ...plan, planVersionId: 'PLANV-2', status: 'draft', version: 5, revisionReason: '重拟' });
+    const store = useAnesthesiaPlanStore(); await store.load('OP-1'); await store.cancel('改期'); await store.createRevision('重拟');
+    expect(api.planCancel).toHaveBeenCalledWith({ planVersionId: 'PLANV-1', expectedVersion: 3, reason: '改期' });
+    expect(api.planCreateRevision).toHaveBeenCalledWith({ planVersionId: 'PLANV-1', expectedVersion: 4, reason: '重拟' });
+    expect(store.detail?.currentPlan?.version).toBe(5);
   });
 
   it('keeps a real request failure visible instead of replacing it with mock success', async () => {

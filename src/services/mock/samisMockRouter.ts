@@ -30,6 +30,7 @@ const mockAnesthesiaSummaries = new Map<string, Record<string, unknown>>();
 interface MockPreoperativeAssessment {
   operationId: string;
   assessmentId: string;
+  version: number;
   asaGrade: string | null;
   anesthesiaPlan: string | null;
   airwayAssessment: string | null;
@@ -38,6 +39,18 @@ interface MockPreoperativeAssessment {
   abnormalExamSummary: string | null;
   riskSummary: string | null;
   preMedicationAdvice: string | null;
+  riskLevel: string | null;
+  cardiopulmonaryJson: Record<string, unknown> | null;
+  airwayJson: Record<string, unknown> | null;
+  fastingJson: Record<string, unknown> | null;
+  dentitionJson: Record<string, unknown> | null;
+  medicalHistoryJson: unknown[] | Record<string, unknown> | null;
+  surgicalHistoryJson: unknown[] | null;
+  medicationHistoryJson: unknown[] | null;
+  systemAssessmentJson: Record<string, unknown> | null;
+  examAbnormalitiesJson: unknown[] | null;
+  riskFactorsJson: unknown[] | null;
+  recommendationsJson: unknown[] | null;
   status: 'draft' | 'submitted' | 'cancelled';
   evaluatorId: string | null;
   evaluatorName: string | null;
@@ -725,8 +738,10 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
   if (path.includes('/anesthesiaPlan/detail')) {
     const operationId = getSearchParams(path).get('operationId') ?? '';
     const currentPlan = mockAnesthesiaPlans.get(operationId) ?? null;
+    const item = anesthesiaCases.find((row) => row.id === operationId);
     return buildSamisSuccess({
       operationId,
+      operationCase: item ? { operationId: item.id, patientName: item.patientName, gender: item.gender, age: item.age, operationName: item.surgeryName, plannedStartTime: item.plannedStart } : { operationId },
       currentPlan,
       historyMeta: { total: currentPlan ? 1 : 0, versions: currentPlan ? [currentPlan] : [] },
     }) as T;
@@ -740,7 +755,7 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
       planId: current?.planId ?? `PLAN-MOCK-${operationId}`,
       planVersionId: current?.planVersionId ?? `PLANV-MOCK-${operationId}`,
       operationId,
-      version: Number(current?.version ?? 1),
+      version: current ? Number(current.version) + 1 : 1,
       status: 'draft',
       primaryMethodCode: null,
       primaryMethodName: null,
@@ -754,6 +769,8 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
       bloodPreparation: null,
       postoperativeDestination: null,
       specialRisks: [],
+      vascularAccessPlan: [], fluidPlanDetail: [], transfusionPlan: null, backupPlan: null, riskResponsePlan: [],
+      templateCode: null, templateVersion: null, templateSnapshot: null, plannerId: 'MOCK-DOCTOR', plannerName: '模拟计划医师',
       notes: null,
       revisionReason: null,
       submittedAt: null,
@@ -773,8 +790,18 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
     if (!current.primaryMethodCode || !current.airwayPlan || !current.monitoringPlan || !current.postoperativeDestination) {
       return buildSamisError('麻醉计划必填项不完整', 2001) as T;
     }
-    Object.assign(current, { status: 'submitted', submittedAt: dayjs().format('YYYY-MM-DD HH:mm:ss') });
+    Object.assign(current, { status: 'submitted', version: Number(current.version) + 1, submittedAt: dayjs().format('YYYY-MM-DD HH:mm:ss') });
     return buildSamisSuccess(current) as T;
+  }
+  if (path.endsWith('/anesthesiaPlan/cancel') && init?.method === 'POST') {
+    const body=parseBody<Record<string,unknown>>(init); const current=[...mockAnesthesiaPlans.values()].find(item=>item.planVersionId===body.planVersionId);
+    if(!current)return buildSamisError('计划版本不存在',3003) as T;
+    Object.assign(current,{status:'cancelled',version:Number(current.version)+1,revisionReason:String(body.reason??''),cancelledAt:dayjs().format('YYYY-MM-DD HH:mm:ss')}); return buildSamisSuccess(current) as T;
+  }
+  if (path.endsWith('/anesthesiaPlan/createRevision') && init?.method === 'POST') {
+    const body=parseBody<Record<string,unknown>>(init); const source=[...mockAnesthesiaPlans.values()].find(item=>item.planVersionId===body.planVersionId);
+    if(!source)return buildSamisError('计划版本不存在',3003) as T;
+    const revised={...source,planVersionId:`${source.planVersionId}-R`,status:'draft',version:Number(source.version)+1,revisionReason:String(body.reason??''),submittedAt:null,cancelledAt:null}; mockAnesthesiaPlans.set(String(source.operationId),revised); return buildSamisSuccess(revised) as T;
   }
 
   if (path.includes('/anesthesiaHandover/detail')) {
@@ -886,6 +913,7 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
     return buildSamisSuccess({
       operationCase,
       assessment: mockPreoperativeAssessmentState.get(operationId) ?? null,
+      history: [],
       persistence: { available: true, reason: null },
     }) as T;
   }
@@ -897,6 +925,7 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
     const assessment: MockPreoperativeAssessment = {
       operationId,
       assessmentId: previous?.assessmentId ?? `PA-MOCK-${mockPreoperativeAssessmentSequence++}`,
+      version: previous ? previous.version + 1 : 1,
       asaGrade: String(body.asaGrade ?? '') || null,
       anesthesiaPlan: String(body.anesthesiaPlan ?? '') || null,
       airwayAssessment: String(body.airwayAssessment ?? '') || null,
@@ -905,10 +934,22 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
       abnormalExamSummary: String(body.abnormalExamSummary ?? '') || null,
       riskSummary: String(body.riskSummary ?? '') || null,
       preMedicationAdvice: String(body.preMedicationAdvice ?? '') || null,
+      riskLevel: String(body.riskLevel ?? '') || null,
+      cardiopulmonaryJson: (body.cardiopulmonaryJson as Record<string, unknown>) ?? null,
+      airwayJson: (body.airwayJson as Record<string, unknown>) ?? null,
+      fastingJson: (body.fastingJson as Record<string, unknown>) ?? null,
+      dentitionJson: (body.dentitionJson as Record<string, unknown>) ?? null,
+      medicalHistoryJson: (body.medicalHistoryJson as unknown[] | Record<string, unknown>) ?? null,
+      surgicalHistoryJson: (body.surgicalHistoryJson as unknown[]) ?? null,
+      medicationHistoryJson: (body.medicationHistoryJson as unknown[]) ?? null,
+      systemAssessmentJson: (body.systemAssessmentJson as Record<string, unknown>) ?? null,
+      examAbnormalitiesJson: (body.examAbnormalitiesJson as unknown[]) ?? null,
+      riskFactorsJson: (body.riskFactorsJson as unknown[]) ?? null,
+      recommendationsJson: (body.recommendationsJson as unknown[]) ?? null,
       status: 'draft',
-      evaluatorId: String(body.evaluatorId ?? '') || null,
-      evaluatorName: String(body.evaluatorName ?? '') || null,
-      evaluatedAt: String(body.evaluatedAt ?? '') || null,
+      evaluatorId: 'MOCK-DOCTOR',
+      evaluatorName: '模拟评估医师',
+      evaluatedAt: now,
       submittedAt: null,
       updatedAt: now,
     };
@@ -920,6 +961,7 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
     const assessment = mockPreoperativeAssessmentState.get(operationId);
     if (!assessment) return buildSamisError('评估不存在', 404) as T;
     assessment.status = 'submitted';
+    assessment.version += 1;
     assessment.submittedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
     assessment.updatedAt = assessment.submittedAt;
     return buildSamisSuccess(assessment) as T;
@@ -929,10 +971,17 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
     const assessment = mockPreoperativeAssessmentState.get(operationId);
     if (!assessment) return buildSamisError('评估不存在', 404) as T;
     assessment.status = 'draft';
+    assessment.version += 1;
     assessment.submittedAt = null;
     assessment.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss');
     return buildSamisSuccess(assessment) as T;
   }
+  if (path.endsWith('/preoperative/assessmentCreateRevision') && init?.method === 'POST') {
+    const body=parseBody<Record<string,unknown>>(init); const assessment=mockPreoperativeAssessmentState.get(String(body.operationId??''));
+    if(!assessment)return buildSamisError('评估不存在',404) as T;
+    assessment.status='draft'; assessment.version+=1; assessment.submittedAt=null; assessment.updatedAt=dayjs().format('YYYY-MM-DD HH:mm:ss'); return buildSamisSuccess(assessment) as T;
+  }
+  if (path.includes('/preoperative/assessmentHistory')) return buildSamisSuccess([]) as T;
 
   if (path.endsWith('/anesthesiaSync/pushBatch') && init?.method === 'POST') {
     return handleSamisSyncPushBatch(parseBody<PushBatchRequest>(init)) as T;

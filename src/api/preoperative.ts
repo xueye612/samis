@@ -7,6 +7,7 @@ export type PreoperativeAssessmentStatus = 'draft' | 'submitted' | 'cancelled';
 export interface PreoperativeAssessmentApi {
   operationId: string;
   assessmentId: string | null;
+  version: number;
   asaGrade: string | null;
   anesthesiaPlan: string | null;
   airwayAssessment: string | null;
@@ -15,6 +16,18 @@ export interface PreoperativeAssessmentApi {
   abnormalExamSummary: string | null;
   riskSummary: string | null;
   preMedicationAdvice: string | null;
+  riskLevel: 'low' | 'moderate' | 'high' | null;
+  cardiopulmonaryJson: Record<string, unknown> | null;
+  airwayJson: Record<string, unknown> | null;
+  fastingJson: Record<string, unknown> | null;
+  dentitionJson: Record<string, unknown> | null;
+  medicalHistoryJson: unknown[] | Record<string, unknown> | null;
+  surgicalHistoryJson: unknown[] | null;
+  medicationHistoryJson: unknown[] | null;
+  systemAssessmentJson: Record<string, unknown> | null;
+  examAbnormalitiesJson: unknown[] | null;
+  riskFactorsJson: unknown[] | null;
+  recommendationsJson: unknown[] | null;
   status: PreoperativeAssessmentStatus;
   evaluatorId: string | null;
   evaluatorName: string | null;
@@ -26,26 +39,14 @@ export interface PreoperativeAssessmentApi {
 export interface PreoperativeAssessmentDetailApi {
   operationCase: OperationCase;
   assessment: PreoperativeAssessmentApi | null;
+  history: Array<{ revisionId: string; version: number; submittedAt: string | null; submittedBy: string; revisionReason: string | null }>;
   persistence: {
     available: boolean;
     reason: string | null;
   };
 }
 
-export type PreoperativeAssessmentDraftPayload = Pick<PreoperativeAssessmentApi,
-  | 'operationId'
-  | 'asaGrade'
-  | 'anesthesiaPlan'
-  | 'airwayAssessment'
-  | 'allergyHistory'
-  | 'pastAnesthesiaHistory'
-  | 'abnormalExamSummary'
-  | 'riskSummary'
-  | 'preMedicationAdvice'
-  | 'evaluatorId'
-  | 'evaluatorName'
-  | 'evaluatedAt'
->;
+export type PreoperativeAssessmentDraftPayload = Record<string, unknown> & { operationId: string; expectedVersion: number };
 
 /** 后端 anes_preop_request 行（camelCase，由 PreoperativeService.formatRequestItem 输出） */
 export interface PreopRequestApi {
@@ -269,11 +270,17 @@ export const preoperativeApi = {
   assessmentSaveDraft(data: PreoperativeAssessmentDraftPayload) {
     return postForm<PreoperativeAssessmentApi>('/assessmentSaveDraft', data);
   },
-  assessmentSubmit(operationId: string) {
-    return postForm<PreoperativeAssessmentApi>('/assessmentSubmit', { operationId });
+  assessmentSubmit(data: { operationId: string; expectedVersion: number }) {
+    return postForm<PreoperativeAssessmentApi>('/assessmentSubmit', data);
   },
-  assessmentCancelSubmit(operationId: string) {
-    return postForm<PreoperativeAssessmentApi>('/assessmentCancelSubmit', { operationId });
+  assessmentCancelSubmit(data: { operationId: string; expectedVersion: number; reason: string }) {
+    return postForm<PreoperativeAssessmentApi>('/assessmentCancelSubmit', data);
+  },
+  assessmentCreateRevision(data: { operationId: string; expectedVersion: number; reason: string }) {
+    return postForm<PreoperativeAssessmentApi>('/assessmentCreateRevision', data);
+  },
+  assessmentHistory(operationId: string) {
+    return samisRequest<PreoperativeAssessmentDetailApi['history']>(`/preoperative/assessmentHistory?operationId=${encodeURIComponent(operationId)}`, undefined, { module: 'preoperative' });
   },
 
   // ---- 申请接收 ----
@@ -443,17 +450,6 @@ export const preoperativeApi = {
     return postForm<unknown>('/safetyConfirmRole', data);
   },
 
-  // ---- 术前评估修订 ----
-  assessmentCreateRevision(data: { operationId: string; reason: string }) {
-    return postForm<PreoperativeAssessmentApi>('/assessmentCreateRevision', data);
-  },
-  assessmentHistory(operationId: string) {
-    return samisRequest<{ list: unknown[] }>(
-      `/preoperative/assessmentHistory?operationId=${encodeURIComponent(operationId)}`,
-      undefined,
-      { module: 'preoperative' },
-    );
-  },
 };
 
 // P07 五流程扩展 API

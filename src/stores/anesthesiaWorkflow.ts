@@ -75,10 +75,22 @@ export const useAnesthesiaPlanStore = defineStore('anesthesia-plan-workflow', {
         this.saving = false;
       }
     },
+    async cancel(reason: string) {
+      const current = this.requireCurrent();
+      this.saving = true; this.error = null;
+      try { const saved = await anesthesiaPlanApi.cancel({ planVersionId: current.planVersionId, expectedVersion: current.version, reason }); this.replaceCurrent(saved); return saved; }
+      catch (error) { this.error = errorMessage(error); throw error; } finally { this.saving = false; }
+    },
+    async createRevision(reason: string) {
+      const current = this.requireCurrent();
+      this.saving = true; this.error = null;
+      try { const saved = await anesthesiaPlanApi.createRevision({ planVersionId: current.planVersionId, expectedVersion: current.version, reason }); this.replaceCurrent(saved); return saved; }
+      catch (error) { this.error = errorMessage(error); throw error; } finally { this.saving = false; }
+    },
     replaceCurrent(currentPlan: AnesthesiaPlanApi) {
       this.detail = this.detail
         ? { ...this.detail, currentPlan }
-        : { operationId: currentPlan.operationId, currentPlan, historyMeta: { total: 1, versions: [] } };
+        : { operationId: currentPlan.operationId, operationCase: {}, currentPlan, historyMeta: { total: 1, versions: [] } };
     },
     requireCurrent(): AnesthesiaPlanApi {
       if (!this.detail?.currentPlan) throw new Error('请先保存麻醉计划草稿');
