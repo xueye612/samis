@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto';
 import { getAnesthesiaLocalDb, resetAnesthesiaLocalDbForTests } from '@/services/anesthesia/localDb';
 import {
   deleteStructuredRecord,
+  hydrateStructuredRecordFromServer,
   listStructuredRecords,
   saveStructuredRecord,
   type StructuredRecordEntityType,
@@ -78,5 +79,28 @@ describe('structured anesthesia record repository', () => {
     );
     const queued = await listPendingSyncItems(50, recordLocalId);
     expect(queued[queued.length - 1]).toEqual(expect.objectContaining({ entity_type: 'airway_record', operation_type: 'delete' }));
+  });
+
+  it('hydrates server identity/version without queuing and preserves a pending local edit', async () => {
+    await hydrateStructuredRecordFromServer({
+      ...samples[0], operationId, recordLocalId, serverId: 91, syncVersion: 4,
+      occurredAt: '2026-07-11T01:00:00.000Z',
+    });
+    expect(await getAnesthesiaLocalDb().airway_records.get('airway-1')).toEqual(
+      expect.objectContaining({ server_id: 91, sync_version: 4, sync_status: 'success' }),
+    );
+    expect(await listPendingSyncItems(50, recordLocalId)).toEqual([]);
+
+    await saveStructuredRecord({
+      ...samples[0], operationId, recordLocalId, occurredAt: '2026-07-11T01:00:00.000Z',
+      payload: { ...samples[0].payload, result: 'success' },
+    });
+    await hydrateStructuredRecordFromServer({
+      ...samples[0], operationId, recordLocalId, serverId: 91, syncVersion: 5,
+      occurredAt: '2026-07-11T01:00:00.000Z', payload: { result: 'stale-server-value' },
+    });
+    const pending = await getAnesthesiaLocalDb().airway_records.get('airway-1');
+    expect(pending).toEqual(expect.objectContaining({ sync_version: 4, sync_status: 'local_only' }));
+    expect(JSON.parse(pending?.payload ?? '{}')).toEqual(expect.objectContaining({ result: 'success' }));
   });
 });

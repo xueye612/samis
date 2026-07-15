@@ -107,15 +107,68 @@ export interface RecordDetailLab {
   measureTime?: string; abnormalFlag?: string; refRange?: string; status?: string;
 }
 export interface RecordDetailStructuredEntity {
+  id?: number | string;
   localId?: string;
+  serverId?: number | string;
+  syncVersion?: number;
+  recordLocalId?: string;
+  airwayType?: string;
+  insertedAt?: string;
   status?: string;
   occurredAt?: string;
+  effectiveAt?: string;
+  endedAt?: string;
+  startedAt?: string;
+  startTime?: string;
   triggeredAt?: string;
+  closedAt?: string;
+  closedBy?: string;
   action?: string;
   actionType?: string;
   level?: string;
   outcome?: string;
+  deviceCode?: string;
+  deviceName?: string;
+  deviceSize?: string;
+  attemptNo?: number;
+  airwayGrade?: string;
+  result?: string;
+  difficultyReason?: string;
+  extubationCondition?: string;
+  operatorId?: string;
+  operatorName?: string;
+  mode?: string;
+  tidalVolumeMl?: number;
+  ratePerMin?: number;
+  peepCmh2o?: number;
+  fio2Percent?: number;
+  peakPressureCmh2o?: number;
+  etco2Mmhg?: number;
+  drugCode?: string;
+  medicationLocalId?: string;
+  drugName?: string;
+  concentrationValue?: number;
+  concentrationUnit?: string;
+  rateValue?: number;
+  rateUnit?: string;
+  verificationStatus?: string;
+  bloodBagNo?: string;
+  productCode?: string;
+  productName?: string;
+  aboType?: string;
+  rhType?: string;
+  volume?: number;
+  volumeUnit?: string;
+  verifierOneId?: string;
+  verifierTwoId?: string;
+  reactionDescription?: string;
+  treatment?: string;
+  triggerCode?: string;
+  eventType?: string;
   triggerDescription?: string;
+  rescueEventLocalId?: string;
+  payloadJson?: string;
+  [key: string]: unknown;
 }
 
 const MED_MODE_REVERSE: Record<string, MedicationRecord['mode']> = {

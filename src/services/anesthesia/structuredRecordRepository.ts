@@ -38,6 +38,37 @@ export interface SaveStructuredRecordInput {
   payload: Record<string, unknown>;
 }
 
+export interface HydrateStructuredRecordInput extends SaveStructuredRecordInput {
+  serverId: number;
+  syncVersion: number;
+}
+
+/**
+ * 将 GET 聚合返回的服务端实体写入本地只读镜像，使后续编辑携带真实 serverId/version。
+ * 本地仍有未同步改动时不得用服务端快照覆盖。
+ */
+export async function hydrateStructuredRecordFromServer(input: HydrateStructuredRecordInput): Promise<LocalStructuredRecordRow> {
+  const table = tableFor(input.entityType);
+  const existing = await table.get(input.localId);
+  if (existing && existing.sync_status !== 'success') return existing;
+  const now = dayjs().toISOString();
+  const row: LocalStructuredRecordRow = {
+    local_id: input.localId,
+    server_id: input.serverId,
+    sync_version: input.syncVersion,
+    sync_status: 'success',
+    record_local_id: input.recordLocalId,
+    record_server_id: input.recordServerId ?? existing?.record_server_id ?? null,
+    operation_id: input.operationId,
+    occurred_at: input.occurredAt,
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
+    payload: JSON.stringify(input.payload),
+  };
+  await table.put(row);
+  return row;
+}
+
 export async function saveStructuredRecord(input: SaveStructuredRecordInput): Promise<LocalStructuredRecordRow> {
   const table = tableFor(input.entityType);
   const existing = await table.get(input.localId);

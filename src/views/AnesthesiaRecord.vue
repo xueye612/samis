@@ -190,7 +190,7 @@
               :monitor-running="syncState.monitorRunning"
               :ventilator-running="syncState.ventilatorRunning"
               :conflict-count="syncState.conflictCount"
-              :show-device="recordActions.showDeviceControls"
+              :show-device="recordActions.showDeviceControls && showDeviceSimulationControls"
               @entry="handleSheetEntry"
               @stop-pump="stopPump"
               @open-data="openDataList"
@@ -261,6 +261,7 @@
 
             <a-collapse v-model:active-key="toolboxCollapseKeys" :bordered="false" class="toolbox-collapse">
               <RecordDeviceWorkbenchPanel
+                v-if="showDeviceSimulationControls"
                 :sync-state="syncState"
                 :monitor-display-interval-minutes="monitorDisplayIntervalMinutes"
                 :effective-interval-minutes="effectiveMonitorIntervalMinutes"
@@ -324,6 +325,13 @@
               @event="addEvent"
               @drug="addDrug"
               @fluid="addFluid"
+            />
+          </a-collapse-item>
+          <a-collapse-item key="structured" header="结构化术中记录（气道/通气/输注/输血/抢救）">
+            <StructuredClinicalEntitiesPanel
+              :operation-id="current.id"
+              :record-local-id="current.id"
+              :read-only="current.locked || !canWriteStructuredRecord"
             />
           </a-collapse-item>
         </a-collapse>
@@ -464,6 +472,7 @@
 <script setup lang="ts">
 import { Message, Modal } from '@arco-design/web-vue';
 import { ANESTHESIA_USE_MOCK } from '@/api/samisResponse';
+import { authApi } from '@/api/auth';
 import { useRealAnesthesiaRecord, useRealAnesthesiaSync, useRealOperationInfo } from '@/config/apiFlags';
 import dayjs from 'dayjs';
 import { persistCaseNow, restoreCasePageNo } from '@/services/anesthesia/anesthesiaPersistenceBridge';
@@ -490,6 +499,7 @@ import RecordRecentEntries from '@/components/anesthesia/record/RecordRecentEntr
 import RecordQuickToolbar from '@/components/anesthesia/record/RecordQuickToolbar.vue';
 import RecordQualityPanel from '@/components/anesthesia/record/RecordQualityPanel.vue';
 import RecordDeviceWorkbenchPanel from '@/components/anesthesia/record/RecordDeviceWorkbenchPanel.vue';
+import StructuredClinicalEntitiesPanel from '@/components/anesthesia/record/StructuredClinicalEntitiesPanel.vue';
 import RecordWorkstationTopbar from '@/components/anesthesia/record/RecordWorkstationTopbar.vue';
 import RecordSheetQuickStrip from '@/components/anesthesia/record/RecordSheetQuickStrip.vue';
 import { buildRecordActionVisibility, buildRecordEntryVisibility } from '@/services/anesthesia/recordActionRules';
@@ -585,6 +595,19 @@ const deviceSimulationMode = ref<DeviceSimulationMode>(readDeviceSimulationMode(
 const abnormalSimulationTypes = ref<AbnormalSimulationType[]>(readAbnormalSimulationTypes());
 const showE2eActions = computed(() => import.meta.env.DEV || (typeof localStorage !== 'undefined' && localStorage.getItem('samis.e2e') === '1'));
 const showDevConflictButton = computed(() => import.meta.env.DEV && ANESTHESIA_USE_MOCK);
+const recordPermissions = ref<string[]>([]);
+const canWriteStructuredRecord = computed(() => recordPermissions.value.some((code) => code === '*' || code === 'record.*' || code === 'record.write'));
+const loadRecordPermissions = async () => {
+  try {
+    const result = await authApi.myPermissions();
+    recordPermissions.value = Array.isArray(result?.permissions) ? result.permissions.map(String) : [];
+  } catch {
+    recordPermissions.value = [];
+  }
+};
+const showDeviceSimulationControls = computed(() => (!useRealAnesthesiaRecord() && ANESTHESIA_USE_MOCK) || (
+  import.meta.env.DEV && import.meta.env.VITE_SAMIS_DEVICE_SIMULATION === '1'
+));
 const monitorIntervalOptions = [1, 2, 3, 4, 5].map((value) => ({ label: `${value} 分钟/条`, value }));
 watch(monitorDisplayIntervalMinutes, (value) => {
   const minutes = clampMonitorDisplayIntervalMinutes(value);
@@ -1191,6 +1214,7 @@ const selectCase = (id: string) => {
 };
 
 onMounted(async () => {
+  await loadRecordPermissions();
   if (showE2eActions.value) {
     (window as Window & { __samisAnesthesiaE2E?: Record<string, unknown> }).__samisAnesthesiaE2E = {
       injectConflict: async (caseId = selectedId.value) => {
