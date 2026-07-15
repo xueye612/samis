@@ -1,121 +1,42 @@
 <template>
-  <ModulePageShell title="手术安全核查" description="WHO 三阶段安全核查：Sign In · Time Out · Sign Out">
-    <template #toolbar>
-      <a-select v-model="selectedCaseId" style="width: 280px" placeholder="选择患者" @change="(value) => onCaseChange(String(value))">
-        <a-option v-for="item in store.cases" :key="item.id" :value="item.id">{{ item.patientName }}</a-option>
-      </a-select>
-    </template>
-    <a-card v-if="record" class="section-card" :bordered="false">
-      <template #title>
-        {{ record.patientName }} · 安全核查
-        <a-tag :color="record.status === '已完成' ? 'green' : 'orangered'" style="margin-left: 8px">{{ record.status }}</a-tag>
-      </template>
-      <a-descriptions :column="3" bordered size="small" style="margin-bottom: 16px">
-        <a-descriptions-item label="核查人">{{ record.checker }}</a-descriptions-item>
-        <a-descriptions-item label="核查日期">{{ record.checkDate }}</a-descriptions-item>
-        <a-descriptions-item label="完成进度">{{ completedPhases }}/3 阶段</a-descriptions-item>
-      </a-descriptions>
-      <a-form :model="form" layout="vertical">
-        <a-divider orientation="left">Sign In · 麻醉诱导前</a-divider>
-        <a-checkbox v-model="form.signInComplete">患者身份、手术部位、知情同意、设备检查已完成</a-checkbox>
-        <a-divider orientation="left">Time Out · 切皮前</a-divider>
-        <a-checkbox v-model="form.timeOutComplete">团队介绍、关键步骤、预计时长、备血/影像确认已完成</a-checkbox>
-        <a-divider orientation="left">Sign Out · 离室前</a-divider>
-        <a-checkbox v-model="form.signOutComplete">器械清点、标本标记、术后注意事项确认已完成</a-checkbox>
-      </a-form>
-      <div class="form-actions">
-        <a-button type="primary" :loading="saving" @click="save">保存核查</a-button>
-      </div>
+  <ModulePageShell title="手术安全核查" description="只读 HULI 护理原单；SAMIS 仅确认麻醉角色">
+    <template #toolbar><a-space><a-select v-model="operationId" style="width:360px" placeholder="选择真实手术病例" @change="reload"><a-option v-for="item in cases" :key="caseId(item)" :value="caseId(item)">{{item.patientName}} · {{item.plannedOperationName||item.operationName}} · {{item.plannedStartTime||item.operationDate}}</a-option></a-select><a-button :loading="loading" @click="reload">刷新</a-button></a-space></template>
+    <a-alert v-if="error" type="error" show-icon style="margin-bottom:12px">护理安全核查读取失败：{{error}} <a-button size="mini" type="text" @click="reload">重试</a-button></a-alert>
+    <a-card v-if="caseData" class="section-card" :bordered="false" title="患者与手术信息"><OperationCaseSummary :case-data="caseData" /></a-card>
+    <a-card v-if="summary" class="section-card" :bordered="false">
+      <template #title>HULI 护理安全核查 <a-tag color="purple">来源：{{summary.source}}</a-tag> <a-tag>{{summary.status}}</a-tag></template>
+      <a-alert v-if="summary.status==='missing'" type="warning" show-icon>护理系统尚无该手术的安全核查原单。</a-alert>
+      <a-table v-else :data="summary.stages || []" :pagination="false" row-key="code">
+        <template #columns>
+          <a-table-column title="阶段"><template #cell="{record}">{{stageLabel(record.code)}}</template></a-table-column>
+          <a-table-column title="手术医师"><template #cell="{record}">{{roleText(record.roles.surgeon)}}</template></a-table-column>
+          <a-table-column title="麻醉医师"><template #cell="{record}"><a-tag :color="record.roles.anesthesiologist.confirmed?'green':'orangered'">{{roleText(record.roles.anesthesiologist)}}</a-tag></template></a-table-column>
+          <a-table-column title="护士"><template #cell="{record}">{{roleText(record.roles.nurse)}}</template></a-table-column>
+          <a-table-column title="护理核查内容" :width="260"><template #cell="{record}"><a-space wrap><a-tag v-for="item in checkedItems(record)" :key="item.code" :color="item.value?'orangered':'green'">{{item.label}}{{item.value?`：${item.value}`:''}}</a-tag><span v-if="!checkedItems(record).length">尚未填写</span></a-space></template></a-table-column>
+          <a-table-column title="护理异常"><template #cell="{record}">{{record.exceptions?.length?record.exceptions.join('；'):'无'}}</template></a-table-column>
+          <a-table-column title="麻醉确认"><template #cell="{record}"><a-button v-if="canConfirm" size="mini" type="primary" :loading="acting===record.code" @click="confirm(record.code,!record.roles.anesthesiologist.confirmed)">{{record.roles.anesthesiologist.confirmed?'撤销确认':'确认'}}</a-button><span v-else>无确认权限</span></template></a-table-column>
+        </template>
+      </a-table>
+      <div style="margin-top:12px;color:var(--text-secondary)">护理原单更新时间：{{summary.updatedAt||'—'}}</div>
     </a-card>
-    <a-card v-else-if="loading" class="section-card" :bordered="false" title="安全核查">
-      <a-skeleton :rows="3" />
-    </a-card>
-    <EmptyState v-else title="请选择患者" description="从上方下拉框选择需要核查的手术" icon="IconCheckCircle" />
+    <EmptyState v-else-if="!loading&&!error" title="请选择手术病例" description="选择后直接读取 HULI 护理安全核查内容" icon="IconCheckCircle" />
   </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import dayjs from 'dayjs';
-import { computed, reactive, ref, watch } from 'vue';
-import { Message } from '@arco-design/web-vue';
-import ModulePageShell from '@/components/shared/ModulePageShell.vue';
-import EmptyState from '@/components/shared/EmptyState.vue';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
-import type { SafetyCheckRecord } from '@/types/clinicalModules';
-
-const store = useAnesthesiaStore();
-const selectedCaseId = ref(store.cases[0]?.id ?? '');
-const loading = ref(false);
-const saving = ref(false);
-
-const record = computed(() => store.safetyChecks.find((item) => item.caseId === selectedCaseId.value));
-const currentCase = computed(() => store.cases.find((item) => item.id === selectedCaseId.value));
-
-const form = reactive({
-  signInComplete: false,
-  timeOutComplete: false,
-  signOutComplete: false,
-});
-
-const completedPhases = computed(() => [form.signInComplete, form.timeOutComplete, form.signOutComplete].filter(Boolean).length);
-
-function syncForm(value?: SafetyCheckRecord) {
-  if (!value) return;
-  form.signInComplete = value.signInComplete;
-  form.timeOutComplete = value.timeOutComplete;
-  form.signOutComplete = value.signOutComplete;
-}
-
-watch(record, (value) => syncForm(value), { immediate: true });
-
-/** 切换病例：按 caseId 读唯一核查，无则创建（未完成）。 */
-async function onCaseChange(caseId: string) {
-  if (!caseId) return;
-  loading.value = true;
-  try {
-    const existing = await store.fetchPreopSafetyCheckByCaseId(caseId);
-    if (!existing && currentCase.value) {
-      const draft: SafetyCheckRecord = {
-        id: `tmp-${Date.now()}`,
-        caseId,
-        patientName: currentCase.value.patientName,
-        signInComplete: false,
-        timeOutComplete: false,
-        signOutComplete: false,
-        checker: '',
-        checkDate: dayjs().format('YYYY-MM-DD'),
-        status: '未完成',
-      };
-      await store.upsertPreopSafetyCheck(draft);
-    }
-  } catch (error) {
-    Message.error(error instanceof Error ? error.message : '加载安全核查失败');
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function save() {
-  if (!record.value) return;
-  saving.value = true;
-  try {
-    await store.upsertPreopSafetyCheck({
-      ...record.value,
-      ...form,
-    });
-    Message.success('安全核查已保存');
-  } catch (error) {
-    Message.error(error instanceof Error ? error.message : '保存失败');
-  } finally {
-    saving.value = false;
-  }
-}
+import { computed, onMounted, ref } from 'vue';import { Message } from '@arco-design/web-vue';
+import ModulePageShell from '@/components/shared/ModulePageShell.vue';import EmptyState from '@/components/shared/EmptyState.vue';import OperationCaseSummary from '@/components/preoperative/OperationCaseSummary.vue';
+import type { PreopSafetyStage, PreopSafetySummary } from '@/api/preoperative';import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
+import { authApi } from '@/api/auth';import { confirmSafetyRole, hasPreopPermission, loadOperationCases, loadSafetySummary } from '@/services/preoperative/preoperativeFiveFlowsService';
+const cases=ref<OperationCase[]>([]);const operationId=ref('');const summary=ref<PreopSafetySummary|null>(null);const loading=ref(false);const error=ref('');const acting=ref('');
+const permissions=ref<string[]>([]);const canConfirm=computed(()=>hasPreopPermission(permissions.value,'preop.safety.confirm'));
+const caseData=computed(()=>cases.value.find(x=>x.operationId===operationId.value)??null);
+const caseId=(item:OperationCase)=>String(item.operationId??'');
+const stageLabel=(code:string)=>({sign_in:'Sign In · 麻醉诱导前',time_out:'Time Out · 切皮前',sign_out:'Sign Out · 离室前'}[code]??code);
+const roleText=(role:{confirmed:boolean;staffGh:string|null;confirmedAt:string|null})=>role.confirmed?`已确认 · ${role.staffGh||'—'} · ${role.confirmedAt||'—'}`:'未确认';
+const checkedItems=(stage:PreopSafetyStage)=>stage.items?.filter((item)=>item.checked)||[];
+async function reload(){if(!operationId.value){summary.value=null;return;}loading.value=true;error.value='';try{summary.value=await loadSafetySummary(operationId.value);}catch(e){summary.value=null;error.value=e instanceof Error?e.message:'未知错误';}finally{loading.value=false;}}
+async function confirm(stage:string,confirmed:boolean){if(!operationId.value)return;acting.value=stage;try{summary.value=await confirmSafetyRole(operationId.value,stage,confirmed,confirmed?'麻醉角色确认':'撤销麻醉角色确认');await reload();Message.success('麻醉角色确认已保存');}catch(e){Message.error(e instanceof Error?e.message:'确认失败');}finally{acting.value='';}}
+async function loadPermissions(){try{const result=await authApi.myPermissions();permissions.value=Array.isArray(result?.permissions)?result.permissions.map(String):[];}catch{permissions.value=[];}}
+onMounted(async()=>{await loadPermissions();try{cases.value=await loadOperationCases();if(cases.value[0]){operationId.value=caseId(cases.value[0]);await reload();}}catch(e){error.value=e instanceof Error?e.message:'加载病例失败';}});
 </script>
-
-<style scoped>
-.form-actions {
-  margin-top: var(--space-5);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border);
-}
-</style>

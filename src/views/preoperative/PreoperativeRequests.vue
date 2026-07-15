@@ -1,118 +1,99 @@
 <template>
-  <ModulePageShell title="手术申请接收" description="接收手术申请、核对基本信息并安排排班">
+  <ModulePageShell title="手术申请接收" description="病例来自 HULI 手术通知单，SAMIS 仅保存接收状态">
     <template #chips>
-      <a-tag color="arcoblue">待接收 {{ statusCount('待接收') }}</a-tag>
-      <a-tag color="green">已排班 {{ statusCount('已排班') }}</a-tag>
-      <a-tag color="red">已取消 {{ statusCount('已取消') }}</a-tag>
+      <a-tag color="arcoblue">待接收 {{ count('待接收') }}</a-tag>
+      <a-tag color="green">已排班 {{ count('已排班') }}</a-tag>
+      <a-tag color="red">已取消 {{ count('已取消') }}</a-tag>
     </template>
     <template #toolbar>
-      <a-input-search v-model="keyword" placeholder="搜索患者/手术/科室" allow-clear style="width: 280px" />
-      <a-button status="success" :loading="loading" style="margin-left: 8px" @click="reload">
-        <template #icon><IconRefresh /></template>
-        刷新
-      </a-button>
+      <a-input-search v-model="keyword" placeholder="搜索患者/住院号/手术/科室" allow-clear style="width: 300px" />
+      <a-button :loading="loading" style="margin-left: 8px" @click="reload">刷新</a-button>
     </template>
+
+    <a-alert v-if="error" type="error" show-icon style="margin-bottom: 12px">
+      {{ error }} <a-button size="mini" type="text" @click="reload">重试</a-button>
+    </a-alert>
     <a-card class="section-card" :bordered="false" title="手术申请列表">
-      <a-table :data="filtered" :pagination="{ pageSize: 8 }" :loading="loading" row-key="id">
+      <a-table v-if="filtered.length || loading" :data="filtered" :loading="loading" :pagination="{ pageSize: 8 }" row-key="operationId">
         <template #columns>
           <a-table-column title="患者" data-index="patientName" />
+          <a-table-column title="住院号"><template #cell="{ record }">{{ record.operationCase?.patientNo || '—' }}</template></a-table-column>
           <a-table-column title="科室" data-index="department" />
-          <a-table-column title="手术名称" data-index="surgeryName" />
-          <a-table-column title="急诊/择期" data-index="urgency" :width="90" />
-          <a-table-column title="申请日期" data-index="requestDate" :width="120" />
-          <a-table-column title="主刀" data-index="surgeon" :width="100" />
-          <a-table-column title="状态" :width="100">
+          <a-table-column title="术前诊断"><template #cell="{ record }">{{ record.operationCase?.preoperativeDiagnosisName || '—' }}</template></a-table-column>
+          <a-table-column title="拟行手术" data-index="surgeryName" />
+          <a-table-column title="计划日期" data-index="requestDate" :width="160" />
+          <a-table-column title="状态" :width="100"><template #cell="{ record }"><a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag></template></a-table-column>
+          <a-table-column title="操作" :width="150">
             <template #cell="{ record }">
-              <a-tag :color="requestStatusColor(record.status)">{{ record.status }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="操作" :width="160">
-            <template #cell="{ record }">
-              <a-space :size="4">
-                <a-button
-                  v-if="record.status === '待接收'"
-                  type="primary"
-                  size="mini"
-                  :loading="actingId === record.id"
-                  @click="onReceive(record)"
-                >接收</a-button>
-                <a-button
-                  v-if="record.status !== '已取消'"
-                  status="danger"
-                  size="mini"
-                  :loading="actingId === record.id"
-                  @click="onCancel(record)"
-                >取消</a-button>
+              <a-space v-if="record.status === '待接收' && canManage">
+                <a-button size="mini" type="primary" :loading="acting === record.operationId" @click="onReceive(record)">接收</a-button>
+                <a-button size="mini" status="danger" @click="openCancel(record)">取消</a-button>
               </a-space>
+              <span v-else>{{ record.receivedAt || record.cancelledAt || '—' }}</span>
             </template>
           </a-table-column>
         </template>
       </a-table>
+      <EmptyState v-else title="暂无待手术病例" description="HULI 当前没有可进入术前流程的病例" icon="IconCalendar" />
     </a-card>
+
+    <a-modal :visible="cancelVisible" title="取消手术申请" @cancel="cancelVisible = false" @ok="confirmCancel">
+      <OperationCaseSummary :case-data="cancelTarget?.operationCase ?? null" />
+      <a-form-item label="取消原因" required style="margin-top: 16px"><a-textarea v-model="cancelReason" /></a-form-item>
+    </a-modal>
   </ModulePageShell>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { Message } from '@arco-design/web-vue';
-import { IconRefresh } from '@arco-design/web-vue/es/icon';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
-import type { SurgeryRequest } from '@/types/clinicalModules';
+import EmptyState from '@/components/shared/EmptyState.vue';
+import OperationCaseSummary from '@/components/preoperative/OperationCaseSummary.vue';
+import type { PreopRequest } from '@/api/preoperative';
+import { authApi } from '@/api/auth';
+import { cancelRequest, hasPreopPermission, loadRequestList, receiveRequest } from '@/services/preoperative/preoperativeFiveFlowsService';
 
-const store = useAnesthesiaStore();
-const keyword = ref('');
+const rows = ref<PreopRequest[]>([]);
 const loading = ref(false);
-const actingId = ref('');
-
-const requestStatusColor = (status: SurgeryRequest['status']) => ({
-  待接收: 'arcoblue',
-  已排班: 'green',
-  已取消: 'red',
-}[status] ?? 'gray');
-
-const statusCount = (status: SurgeryRequest['status']) => store.surgeryRequests.filter((item) => item.status === status).length;
+const error = ref('');
+const keyword = ref('');
+const acting = ref('');
+const cancelVisible = ref(false);
+const cancelTarget = ref<PreopRequest | null>(null);
+const cancelReason = ref('');
+const permissions = ref<string[]>([]);
+const canManage = computed(() => hasPreopPermission(permissions.value, 'preop.request.manage'));
 
 const filtered = computed(() => {
   const q = keyword.value.trim().toLowerCase();
-  if (!q) return store.surgeryRequests;
-  return store.surgeryRequests.filter((item) =>
-    [item.patientName, item.department, item.surgeryName, item.surgeon].some((field) => field.toLowerCase().includes(q)),
-  );
+  if (!q) return rows.value;
+  return rows.value.filter((item) => [item.patientName, item.department, item.surgeryName, item.operationCase?.patientNo]
+    .some((value) => String(value ?? '').toLowerCase().includes(q)));
 });
+const count = (status: string) => rows.value.filter((item) => item.status === status).length;
+const statusColor = (status: string) => ({ 待接收: 'arcoblue', 已排班: 'green', 已取消: 'red' }[status] ?? 'gray');
 
 async function reload() {
-  loading.value = true;
-  try {
-    await store.loadRemotePreopRequests();
-  } finally {
-    loading.value = false;
-  }
+  loading.value = true; error.value = '';
+  try { rows.value = await loadRequestList({ pageSize: 200 }); }
+  catch (e) { error.value = e instanceof Error ? e.message : '加载手术申请失败'; rows.value = []; }
+  finally { loading.value = false; }
 }
-
-async function onReceive(record: SurgeryRequest) {
-  actingId.value = record.id;
-  try {
-    await store.receivePreopRequest(record.id);
-    Message.success(`已接收：${record.patientName}`);
-  } catch (error) {
-    Message.error(error instanceof Error ? error.message : '接收失败');
-  } finally {
-    actingId.value = '';
-  }
+async function onReceive(record: PreopRequest) {
+  acting.value = record.operationId;
+  try { await receiveRequest(record); await reload(); Message.success('接收成功'); }
+  catch (e) { Message.error(e instanceof Error ? e.message : '接收失败'); }
+  finally { acting.value = ''; }
 }
-
-async function onCancel(record: SurgeryRequest) {
-  actingId.value = record.id;
-  try {
-    await store.cancelPreopRequest(record.id);
-    Message.success(`已取消：${record.patientName}`);
-  } catch (error) {
-    Message.error(error instanceof Error ? error.message : '取消失败');
-  } finally {
-    actingId.value = '';
-  }
+function openCancel(record: PreopRequest) { cancelTarget.value = record; cancelReason.value = ''; cancelVisible.value = true; }
+async function confirmCancel() {
+  if (!cancelTarget.value || !cancelReason.value.trim()) { Message.warning('请填写取消原因'); return; }
+  acting.value = cancelTarget.value.operationId;
+  try { await cancelRequest(cancelTarget.value, cancelReason.value.trim()); cancelVisible.value = false; await reload(); Message.success('取消成功'); }
+  catch (e) { Message.error(e instanceof Error ? e.message : '取消失败'); }
+  finally { acting.value = ''; }
 }
-
-onMounted(reload);
+async function loadPermissions(){try{const result=await authApi.myPermissions();permissions.value=Array.isArray(result?.permissions)?result.permissions.map(String):[];}catch{permissions.value=[];}}
+onMounted(()=>Promise.all([loadPermissions(),reload()]));
 </script>

@@ -5,117 +5,68 @@ import { cleanupPreop, generateOperationId, statusPreop } from './helpers/preope
 const e2eEnabled = process.env.SAMIS_PREOP_FIVE_FLOWS_E2E === '1';
 const e2eUsername = process.env.SAMIS_E2E_USERNAME;
 const e2ePassword = process.env.SAMIS_E2E_PASSWORD;
+const ok = (data: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data }) });
+const form = (request: Request) => new URLSearchParams(request.postData() ?? '');
 
-function ok(data: unknown) { return { status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, msg: 'ok', data }) }; }
-function permPayload(perms: string[]) { return { permissions: perms, role: perms.length ? 'admin' : 'viewer', groupid: perms.length ? 1 : null }; }
-function parseForm(request: Request): URLSearchParams { return new URLSearchParams(request.postData() ?? ''); }
+const operationCase = (id: string, name: string) => ({ operationId:id,patientNo:`ZY-${id}`,visitNo:`V-${id}`,patientName:name,gender:'女',age:36,ageUnit:'岁',departmentName:'普外科',preoperativeDiagnosisName:'胆囊结石',plannedOperationName:'腹腔镜胆囊切除术',operationName:null,operationDate:'2026-07-20',plannedStartTime:'2026-07-20 09:00:00' });
+const requestRow = (id: string, name: string) => ({ id:0,operationId:id,patientName:name,department:'普外科',surgeryName:'腹腔镜胆囊切除术',surgeon:'张医生',urgency:'择期',requestDate:'2026-07-20',status:'待接收',receivedAt:null,receivedBy:null,cancelledAt:null,cancelledBy:null,cancelReason:null,version:0,remark:null,operationCase:operationCase(id,name) });
 
-async function seed(page: Page) {
-  await page.addInitScript(() => {
-    sessionStorage.setItem('samis_token', 'preop-e2e-token');
-    sessionStorage.setItem('samis_authorization', 'Bearer preop-e2e-token');
-    sessionStorage.setItem('samis_room', 'OR-01');
-    sessionStorage.setItem('samis_room_group', 'ANES');
-    sessionStorage.setItem('samis_user_profile', JSON.stringify({ userId: 'preop-e2e', loginName: 'preop-e2e', displayName: '术前验收用户' }));
-  });
+interface State {
+  permissions: string[]; requests: any[]; consultations: any[]; reviews: any[]; consent: any | null;
+  safety: any; posts: { path:string; fields:URLSearchParams }[]; gets: Record<string,number>; safetyCrud:number; failRequests?:boolean;
+}
+function state(permissions=['*']):State {
+  const requests=[requestRow('OP-PRE-1','患者甲'),requestRow('OP-PRE-2','患者乙')];
+  const consultations=[
+    {id:11,operationId:'OP-PRE-1',requestDept:'普外科',requestContent:'评估',consultant:'麻醉甲',opinion:'可手术',status:'待会诊',requestedAt:'2026-07-15 08:00:00',plannedAt:'2026-07-16 09:00:00',consultDate:null,submittedAt:null,cancelledAt:null,cancelledBy:null,cancelReason:null,version:1,operationCase:requests[0].operationCase},
+    {id:12,operationId:'OP-PRE-2',requestDept:'普外科',requestContent:'评估',consultant:'麻醉乙',opinion:'待复核',status:'待会诊',requestedAt:'2026-07-15 08:10:00',plannedAt:'2026-07-16 10:00:00',consultDate:null,submittedAt:null,cancelledAt:null,cancelledBy:null,cancelReason:null,version:1,operationCase:requests[1].operationCase},
+  ];
+  const sources=['HULI','LIS','PACS','manual'];
+  const reviews=sources.map((source,index)=>({id:21+index,operationId:index%2?'OP-PRE-2':'OP-PRE-1',reviewResult:'待补检',reviewer:'审核医师',reviewDate:'2026-07-15',reviewedAt:'2026-07-15 11:00:00',version:1,operationCase:requests[index%2].operationCase,items:[{id:100+index,itemId:`I-${index}`,sourceType:source,sourceSystem:source==='manual'?'SAMIS':source,sourceRef:source==='manual'?null:`REF-${index}`,recordedBy:source==='manual'?'录入员':null,recordedAt:source==='manual'?'2026-07-15 10:00:00':null,examType:'lab',itemCode:`C-${index}`,itemName:`${source}检查`,resultValue:'正常',resultUnit:'',version:1}]}));
+  const consent={id:31,operationId:'OP-PRE-1',templateCode:'TPL-ANES',templateVersion:'1',riskDisclosure:'麻醉风险告知',anesthesiaMethod:'全身麻醉',commonRisks:true,severeRisks:false,specialRisks:false,planAccepted:true,questionAnswered:true,status:'草稿',printStatus:'未打印',archiveStatus:'未归档',signedAt:null,withdrawnAt:null,printedAt:null,archivedAt:null,version:1,operationCase:requests[0].operationCase};
+  const stages=['sign_in','time_out','sign_out'].map((code)=>({code,status:'incomplete',items:[{code:`${code}-identity`,label:'患者身份',checked:true,value:null},...(code==='time_out'?[{code:'sqhsqt',label:'护理措施',checked:true,value:'备血尚未送达'}]:[])],roles:{surgeon:{confirmed:true,staffGh:'SUR-1',confirmedAt:'2026-07-15 08:00:00'},anesthesiologist:{confirmed:false,staffGh:null,confirmedAt:null},nurse:{confirmed:true,staffGh:'NUR-1',confirmedAt:'2026-07-15 08:01:00'}},exceptions:code==='time_out'?['护理措施：备血尚未送达']:[]}));
+  return {permissions,requests,consultations,reviews,consent,safety:{operationId:'OP-PRE-1',status:'exception',source:'huli',sourceTable:'security',sourceRecordId:'SEC-1',updatedAt:'2026-07-15 08:01:00',stages},posts:[],gets:{},safetyCrud:0};
 }
 
-interface State { safetyCrudCount: number; safetySummaryCount: number; confirmRoleCount: number; }
+async function seed(page:Page){await page.addInitScript(()=>{sessionStorage.setItem('samis_token','preop-e2e-token');sessionStorage.setItem('samis_authorization','Bearer preop-e2e-token');sessionStorage.setItem('samis_room','OR-01');sessionStorage.setItem('samis_room_group','ANES');sessionStorage.setItem('samis_user_profile',JSON.stringify({userId:'preop-e2e',loginName:'preop-e2e',displayName:'术前验收用户'}));});}
 
-function freshState(): State { return { safetyCrudCount: 0, safetySummaryCount: 0, confirmRoleCount: 0 }; }
+async function install(page:Page,s:State){await page.route('**/api-samis/pc/v1/**',async(route)=>{const req=route.request();const url=req.url();const path=new URL(url).pathname;const method=req.method();s.gets[path]=(s.gets[path]??0)+(method==='GET'?1:0);
+  if(url.includes('/auth/myPermissions')){await route.fulfill(ok({permissions:s.permissions,role:s.permissions.length?'admin':'viewer',groupid:s.permissions.length?1:null}));return;}
+  if(url.includes('/preoperative/safetyCheckCreate')||url.includes('/preoperative/safetyCheckUpdate')){s.safetyCrud++;await route.fulfill(ok({}));return;}
+  if(method==='POST')s.posts.push({path,fields:form(req)});
+  if(url.includes('/preoperative/requestList')){if(s.failRequests){await route.fulfill({status:500,body:'failed'});return;}await route.fulfill(ok({list:s.requests,total:s.requests.length}));return;}
+  if(url.includes('/preoperative/requestReceive')){const f=form(req),op=f.get('operationId');const row=s.requests.find(x=>x.operationId===op);Object.assign(row,{id:1,status:'已排班',receivedAt:'2026-07-15 12:00:00',version:Number(row.version)+1});await route.fulfill(ok(row));return;}
+  if(url.includes('/preoperative/requestCancel')){const f=form(req),row=s.requests.find(x=>x.operationId===f.get('operationId'));Object.assign(row,{id:2,status:'已取消',cancelledAt:'2026-07-15 12:01:00',cancelReason:f.get('cancelReason'),version:Number(row.version)+1});await route.fulfill(ok(row));return;}
+  if(url.includes('/preoperative/consultationList')){await route.fulfill(ok({list:s.consultations,total:s.consultations.length}));return;}
+  if(url.includes('/preoperative/consultationCreate')){const f=form(req),row={id:99,operationId:f.get('operationId'),version:1,status:'待会诊',requestDept:f.get('requestDept'),requestContent:f.get('requestContent'),consultant:f.get('consultant'),opinion:f.get('opinion'),plannedAt:f.get('plannedAt'),requestedAt:'2026-07-15 12:00:00',operationCase:s.requests.find(x=>x.operationId===f.get('operationId')).operationCase};s.consultations.push(row);await route.fulfill(ok(row));return;}
+  if(url.includes('/preoperative/consultationUpdate')){const f=form(req),row=s.consultations.find(x=>x.id===Number(f.get('id')));Object.assign(row,{opinion:f.get('opinion'),version:row.version+1});await route.fulfill(ok(row));return;}
+  if(url.includes('/preoperative/consultationSubmit')){const f=form(req),row=s.consultations.find(x=>x.id===Number(f.get('id')));Object.assign(row,{status:'已完成',submittedAt:'2026-07-15 12:02:00',version:row.version+1});await route.fulfill(ok(row));return;}
+  if(url.includes('/preoperative/consultationCancel')){const f=form(req),row=s.consultations.find(x=>x.id===Number(f.get('id')));Object.assign(row,{status:'已取消',cancelReason:f.get('cancelReason'),cancelledAt:'2026-07-15 12:03:00',version:row.version+1});await route.fulfill(ok(row));return;}
+  if(url.includes('/preoperative/examReviewList')){await route.fulfill(ok({list:s.reviews,total:s.reviews.length}));return;}
+  if(url.includes('/preoperative/examReviewCreate')||url.includes('/preoperative/examReviewUpdate')){const f=form(req),row=s.reviews.find(x=>x.id===Number(f.get('id')))??s.reviews[0];row.items=JSON.parse(f.get('items')||'[]');row.reviewResult=f.get('reviewResult')||row.reviewResult;row.version++;await route.fulfill(ok(row));return;}
+  if(url.includes('/preoperative/consentGetByCaseId')){await route.fulfill(ok(s.consent));return;}
+  if(url.includes('/preoperative/consentCreate')){s.consent={...s.consent,id:31,status:'草稿',version:1};await route.fulfill(ok(s.consent));return;}
+  for(const [needle,status] of [['consentPrepareSigning','待签署'],['consentSubmit','已提交'],['consentWithdraw','草稿']] as const){if(url.includes(`/preoperative/${needle}`)){s.consent={...s.consent,status,version:s.consent.version+1,...(status==='已提交'?{signedAt:'2026-07-15 12:10:00'}:{}),...(status==='草稿'?{withdrawnAt:'2026-07-15 12:11:00'}:{})};await route.fulfill(ok(s.consent));return;}}
+  if(url.includes('/preoperative/consentUpdate')){const f=form(req);s.consent={...s.consent,riskDisclosure:f.get('riskDisclosure'),version:s.consent.version+1};await route.fulfill(ok(s.consent));return;}
+  if(url.includes('/preoperative/consentMarkPrinted')){s.consent={...s.consent,printStatus:'已打印',printedAt:'2026-07-15 12:12:00',version:s.consent.version+1};await route.fulfill(ok(s.consent));return;}
+  if(url.includes('/preoperative/consentArchive')){s.consent={...s.consent,archiveStatus:'已归档',archivedAt:'2026-07-15 12:13:00',version:s.consent.version+1};await route.fulfill(ok(s.consent));return;}
+  if(url.includes('/preoperative/safetyCheckSummary')){await route.fulfill(ok(s.safety));return;}
+  if(url.includes('/preoperative/safetyConfirmRole')){const f=form(req),stage=s.safety.stages.find((x:any)=>x.code===f.get('stage'));stage.roles.anesthesiologist={confirmed:true,staffGh:'ANES-1',confirmedAt:'2026-07-15 12:20:00'};await route.fulfill(ok({summary:s.safety}));return;}
+  await route.fulfill(ok({list:[]}));
+});}
 
-function installMocks(page: Page, perms: string[], state: State) {
-  return page.route('**/api-samis/pc/v1/**', async (route) => {
-    const url = route.request().url();
-    if (url.includes('/auth/myPermissions')) { await route.fulfill(ok(permPayload(perms))); return; }
+test.describe('术前五流程真实来源验收',()=>{
+  test('申请自然病例接收与取消均 POST→GET，信封不含患者主数据',async({page})=>{const s=state();await seed(page);await install(page,s);await page.goto('/preoperative/requests');const table=page.locator('.arco-table').first();await expect(page.getByText('胆囊结石').first()).toBeVisible();await table.getByRole('row').filter({hasText:'患者甲'}).getByRole('button',{name:'接收'}).click();await expect(table.getByRole('row').filter({hasText:'患者甲'})).toContainText('已排班');const row2=table.getByRole('row').filter({hasText:'患者乙'});await row2.getByRole('button',{name:'取消'}).click();await page.locator('.arco-modal').getByRole('textbox').fill('患者要求延期');await page.locator('.arco-modal').getByRole('button',{name:'确定'}).click();await expect(row2).toContainText('已取消');await page.reload();await expect(table.getByRole('row').filter({hasText:'患者甲'})).toContainText('已排班');await expect(table.getByRole('row').filter({hasText:'患者乙'})).toContainText('已取消');const writes=s.posts.filter(x=>/request(Receive|Cancel)/.test(x.path));expect(writes).toHaveLength(2);expect([...writes[0].fields.keys()].sort()).toEqual(['expectedVersion','id','operationId']);expect(writes[1].fields.get('cancelReason')).toBe('患者要求延期');expect(writes.every(x=>!x.fields.has('patientName')&&!x.fields.has('surgeryName'))).toBe(true);expect(s.gets['/api-samis/pc/v1/preoperative/requestList']).toBeGreaterThanOrEqual(4);});
 
-    // 旧 safety CRUD 必须拒绝并计数
-    if (url.includes('/preoperative/safetyCheckCreate') || url.includes('/preoperative/safetyCheckUpdate')) {
-      state.safetyCrudCount++;
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 1003, msg: '已迁移至HULI' }) });
-      return;
-    }
+  test('会诊完成与取消使用服务端日期和版本，终态动作消失',async({page})=>{const s=state();await seed(page);await install(page,s);await page.goto('/preoperative/consultation');await expect(page.getByText('2026-07-16 09:00:00').first()).toBeVisible();await page.getByRole('button',{name:'提交会诊'}).click();await expect(page.getByText('2026-07-15 12:02:00').first()).toBeVisible();await page.locator('.arco-table').first().getByRole('row').filter({hasText:'患者乙'}).click();await page.getByRole('button',{name:'取消会诊'}).click();await page.locator('.arco-modal').getByRole('textbox').fill('患者变更方案');await page.locator('.arco-modal').getByRole('button',{name:'确定'}).click();await expect(page.getByText('2026-07-15 12:03:00').first()).toBeVisible();await page.reload();await expect(page.locator('.arco-table').first().getByRole('row').filter({hasText:'患者甲'})).toContainText('已完成');await expect(page.locator('.arco-table').first().getByRole('row').filter({hasText:'患者乙'})).toContainText('已取消');expect(s.posts.filter(x=>x.path.endsWith('consultationSubmit'))[0].fields.get('expectedVersion')).toBe('1');expect(s.posts.filter(x=>x.path.endsWith('consultationCancel'))[0].fields.get('cancelReason')).toBe('患者变更方案');});
 
-    if (url.includes('/preoperative/safetyCheckSummary')) {
-      state.safetySummaryCount++;
-      await route.fulfill(ok({ sourceSystem: 'HULI', sourceRecordId: 'SR-001', operationId: 'OP1', signInComplete: false, timeOutComplete: false, signOutComplete: false, anomalies: [{ type: '过敏', detail: '青霉素' }], confirmedBy: null, confirmedAt: null }));
-      return;
-    }
-    if (url.includes('/preoperative/safetyConfirmRole')) {
-      state.confirmRoleCount++;
-      await route.fulfill(ok({ status: 'confirmed' }));
-      return;
-    }
+  test('检查四来源可见，外部项只读，人工项保存结构化来源并回读',async({page})=>{const s=state();await seed(page);await install(page,s);await page.goto('/preoperative/exam-review');const table=page.locator('.arco-table').first();for(const source of ['HULI','LIS','PACS','manual'])await expect(table.getByText(source,{exact:true})).toBeVisible();expect(await table.getByRole('button',{name:'编辑人工项'}).count()).toBe(1);await table.getByRole('button',{name:'编辑人工项'}).click();let modal=page.locator('.arco-modal');await modal.locator('input[value="正常"]').fill('复查正常');await modal.getByRole('button',{name:'确定'}).click();await page.reload();await table.getByRole('button',{name:'编辑人工项'}).click();modal=page.locator('.arco-modal');await expect(modal.locator('input[value="复查正常"]')).toBeVisible();await modal.getByRole('button',{name:'取消'}).click();const write=s.posts.find(x=>x.path.endsWith('examReviewUpdate'));expect(write).toBeTruthy();const items=JSON.parse(write!.fields.get('items')||'[]');expect(items[0]).toMatchObject({sourceType:'manual',recordedBy:'录入员',resultValue:'复查正常'});expect(write!.fields.get('expectedVersion')).toBe('1');});
 
-    // requestList 返回空（真实 empty 不回填 seed）
-    if (url.includes('/preoperative/requestList')) {
-      await route.fulfill(ok({ list: [], total: 0 })); return;
-    }
-    if (url.includes('/preoperative/consultationList')) {
-      await route.fulfill(ok({ list: [], total: 0 })); return;
-    }
-    if (url.includes('/preoperative/examReviewList')) {
-      await route.fulfill(ok({ list: [], total: 0 })); return;
-    }
-    if (url.includes('/preoperative/consentList') || url.includes('/preoperative/consentGetByCaseId')) {
-      await route.fulfill(ok({ list: [] })); return;
-    }
+  test('知情同意显示真实患者和计划日期，完整状态动作均带版本并刷新保持',async({page})=>{const s=state();await seed(page);await install(page,s);await page.goto('/preoperative/consent');await expect(page.getByText('患者甲').first()).toBeVisible();await expect(page.getByText('2026-07-20 09:00:00').first()).toBeVisible();await page.locator('textarea').fill('更新后的麻醉风险');await page.getByRole('button',{name:'保存草稿'}).click();await page.getByRole('button',{name:'准备签署'}).click();await page.getByRole('button',{name:'提交',exact:true}).click();await expect(page.getByText('2026-07-15 12:10:00').first()).toBeVisible();await page.getByRole('button',{name:'撤回'}).click();await expect(page.getByText('2026-07-15 12:11:00').first()).toBeVisible();await page.locator('textarea').fill('撤回后修订的麻醉风险');await page.getByRole('button',{name:'保存草稿'}).click();await page.getByRole('button',{name:'准备签署'}).click();await page.getByRole('button',{name:'提交',exact:true}).click();await page.getByRole('button',{name:'记录打印'}).click();await expect(page.getByText('2026-07-15 12:12:00').first()).toBeVisible();await page.getByRole('button',{name:'归档'}).click();await expect(page.getByText('2026-07-15 12:13:00').first()).toBeVisible();await page.reload();await expect(page.getByText('已归档',{exact:true}).first()).toBeVisible();await expect(page.locator('textarea')).toHaveValue('撤回后修订的麻醉风险');const consentWrites=s.posts.filter(x=>x.path.includes('/preoperative/consent'));expect(consentWrites.length).toBeGreaterThanOrEqual(10);expect(consentWrites.every(x=>x.fields.has('expectedVersion')||x.path.endsWith('consentCreate'))).toBe(true);expect(consentWrites.every(x=>!x.fields.has('patientName')&&!x.fields.has('surgeryDate'))).toBe(true);});
 
-    await route.fulfill(ok({}));
-  });
-}
+  test('安全核查只读 HULI 护理内容，麻醉确认 POST→GET，旧 CRUD 精确 0',async({page})=>{const s=state();await seed(page);await install(page,s);await page.goto('/preoperative/safety-check');await expect(page.getByText('来源：huli')).toBeVisible();await expect(page.getByText('患者身份').first()).toBeVisible();await expect(page.getByText('护理措施：备血尚未送达').first()).toBeVisible();await page.getByRole('button',{name:'确认'}).first().click();await expect(page.getByText(/已确认 · ANES-1/).first()).toBeVisible();expect(s.posts.filter(x=>x.path.endsWith('safetyConfirmRole'))).toHaveLength(1);expect(s.gets['/api-samis/pc/v1/preoperative/safetyCheckSummary']).toBeGreaterThanOrEqual(2);expect(s.safetyCrud).toBe(0);});
 
-test.describe('术前五流程真实来源验收', () => {
-  test('申请页：真实 empty 无 seed；页面加载不报错', async ({ page }) => {
-    const state = freshState();
-    await seed(page);
-    await installMocks(page, ['*'], state);
-    await page.goto('/preoperative/requests');
-    await page.waitForLoadState('networkidle');
-    // 页面成功加载，无 JS 报错
-    await expect(page.locator('body')).toBeVisible();
-    // 旧 safety CRUD 没有被调用
-    expect(state.safetyCrudCount).toBe(0);
-  });
+  test('真实错误不伪装 empty；无权限时五页写动作隐藏且 0 写请求',async({page})=>{const s=state([]);s.failRequests=true;await seed(page);await install(page,s);await page.goto('/preoperative/requests');await expect(page.getByText(/加载手术申请失败|响应解析失败|Failed to fetch|HTTP/)).toBeVisible();s.failRequests=false;for(const path of ['/preoperative/requests','/preoperative/consultation','/preoperative/exam-review','/preoperative/consent','/preoperative/safety-check']){await page.goto(path);await page.waitForLoadState('networkidle');}expect(s.posts.filter(x=>x.path.includes('/preoperative/'))).toHaveLength(0);});
 
-  test('安全核查页：旧 CRUD 精确为 0', async ({ page }) => {
-    const state = freshState();
-    await seed(page);
-    await installMocks(page, ['*'], state);
-    await page.goto('/preoperative/safety-check');
-    await page.waitForLoadState('networkidle');
-    await expect(page.locator('body')).toBeVisible();
-    // 旧 safety CRUD 请求数精确为 0
-    expect(state.safetyCrudCount).toBe(0);
-    // NOTE: 页面仍使用 store.cases 选择器而非直接 GET safetyCheckSummary；
-    // R5 发现此生产缺陷，R4 需进一步改造 PreoperativeSafetyCheck.vue。
-  });
-
-  test('五页无权限：页面加载且 0 写请求', async ({ page }) => {
-    const state = freshState();
-    await seed(page);
-    await installMocks(page, [], state);
-    await page.goto('/preoperative/requests');
-    await page.waitForLoadState('networkidle');
-    await expect(page.locator('body')).toBeVisible();
-    expect(state.safetyCrudCount).toBe(0);
-  });
-
-  test('真实凭据五流程生命周期与清理（opt-in）', async ({ page }) => {
-    test.skip(!e2eEnabled || !e2eUsername || !e2ePassword, 'requires SAMIS_PREOP_FIVE_FLOWS_E2E=1 and credentials');
-    if (!e2eUsername || !e2ePassword) return;
-    const opId = generateOperationId();
-    try {
-      await page.goto('/login');
-      await page.locator('input').first().fill(e2eUsername);
-      await page.locator('input[type="password"]').fill(e2ePassword);
-      await page.getByRole('button', { name: '登录' }).click();
-      await expect(page).toHaveURL(/\/(workbench|surgery|config|preoperative)/);
-      await page.goto('/preoperative/requests');
-      await page.waitForLoadState('networkidle');
-    } finally {
-      await cleanupPreop(opId);
-      expect((await statusPreop(opId)).status).toBe('absent');
-    }
-  });
+  test('真实凭据五流程生命周期与清理（opt-in）',async({page})=>{test.skip(!e2eEnabled||!e2eUsername||!e2ePassword,'requires SAMIS_PREOP_FIVE_FLOWS_E2E=1 and credentials');if(!e2eUsername||!e2ePassword)return;const opId=generateOperationId();try{await page.goto('/login');await page.locator('input').first().fill(e2eUsername);await page.locator('input[type="password"]').fill(e2ePassword);await page.getByRole('button',{name:'登录'}).click();await expect(page).toHaveURL(/\/(workbench|surgery|config|preoperative)/);await page.goto('/preoperative/requests');await page.waitForLoadState('networkidle');}finally{await cleanupPreop(opId);expect((await statusPreop(opId)).status).toBe('absent');}});
 });

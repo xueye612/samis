@@ -1,65 +1,35 @@
 <template>
-  <ModulePageShell title="术前检查审核" description="检验与影像结果审核，确认术前准备是否达标">
-    <template #chips>
-      <a-tag color="green">通过 {{ resultCount('通过') }}</a-tag>
-      <a-tag color="orangered">待补检 {{ resultCount('待补检') }}</a-tag>
-      <a-tag color="red">异常 {{ resultCount('异常') }}</a-tag>
-    </template>
-    <template #toolbar>
-      <a-select v-model="resultFilter" style="width: 140px" allow-clear placeholder="审核结果">
-        <a-option value="通过">通过</a-option>
-        <a-option value="待补检">待补检</a-option>
-        <a-option value="异常">异常</a-option>
-      </a-select>
-      <a-button type="primary" status="success" :loading="loading" style="margin-left: 8px" @click="reload">
-        <template #icon><IconRefresh /></template>刷新
-      </a-button>
-      <a-button type="primary" style="margin-left: 8px" @click="openCreate">
-        <template #icon><IconPlus /></template>新增审核
-      </a-button>
-    </template>
+  <ModulePageShell title="术前检查审核" description="区分 HULI、LIS、PACS 与人工录入来源">
+    <template #toolbar><a-space><a-button :loading="loading" @click="reload">刷新</a-button><a-button v-if="canManage" type="primary" @click="openCreate">新增审核</a-button></a-space></template>
+    <a-alert v-if="error" type="error" show-icon style="margin-bottom:12px">{{ error }} <a-button size="mini" type="text" @click="reload">重试</a-button></a-alert>
     <a-card class="section-card" :bordered="false" title="检查审核列表">
-      <a-table :data="filtered" :pagination="{ pageSize: 8 }" :loading="loading" row-key="id">
+      <a-table v-if="rows.length || loading" :data="rows" :loading="loading" :pagination="{pageSize:8}" row-key="id">
         <template #columns>
-          <a-table-column title="患者" data-index="patientName" />
-          <a-table-column title="检验项目" data-index="labItems" />
-          <a-table-column title="影像项目" data-index="imagingItems" />
-          <a-table-column title="审核结果" :width="100">
-            <template #cell="{ record }">
-              <a-tag :color="reviewColor(record.reviewResult)">{{ record.reviewResult }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="审核人" data-index="reviewer" :width="100" />
-          <a-table-column title="审核日期" data-index="reviewDate" :width="120" />
-          <a-table-column title="操作" :width="130">
-            <template #cell="{ record }">
-              <a-space :size="4">
-                <a-button size="mini" type="text" @click="openEdit(record)">编辑</a-button>
-                <a-button size="mini" type="text" @click="router.push(`/surgery/detail/${record.caseId}`)">详情</a-button>
-              </a-space>
-            </template>
-          </a-table-column>
+          <a-table-column title="患者"><template #cell="{record}">{{ record.operationCase?.patientName || '—' }}</template></a-table-column>
+          <a-table-column title="来源"><template #cell="{record}"><a-space wrap><a-tag v-for="item in record.items" :key="item.id || item.itemId" :color="item.sourceType === 'manual' ? 'arcoblue' : 'purple'">{{ item.sourceType }}</a-tag></a-space></template></a-table-column>
+          <a-table-column title="检查项目"><template #cell="{record}">{{ itemNames(record) }}</template></a-table-column>
+          <a-table-column title="审核结果"><template #cell="{record}"><a-tag :color="record.reviewResult==='通过'?'green':record.reviewResult==='异常'?'red':'orangered'">{{record.reviewResult}}</a-tag></template></a-table-column>
+          <a-table-column title="审核人" data-index="reviewer" />
+          <a-table-column title="审核时间" data-index="reviewedAt" />
+          <a-table-column title="操作"><template #cell="{record}"><a-button v-if="allManual(record)&&canManage" size="mini" type="text" @click="openEdit(record)">编辑人工项</a-button><span v-else>外部只读</span></template></a-table-column>
         </template>
       </a-table>
+      <EmptyState v-else title="暂无检查审核" description="真实空列表不会回填模拟检查" icon="IconFile" />
     </a-card>
 
-    <a-modal :visible="formVisible" :title="formMode === 'create' ? '新增检查审核' : '编辑检查审核'" :width="560" @cancel="closeForm" @ok="submitForm">
+    <a-modal :visible="visible" :title="editing?'编辑人工检查':'新增检查审核'" :width="680" @cancel="visible=false" @ok="save">
       <a-form :model="form" layout="vertical">
-        <a-row :gutter="12">
-          <a-col :span="12"><a-form-item label="病例ID" required><a-input v-model="form.caseId" :disabled="formMode === 'edit'" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="患者姓名"><a-input v-model="form.patientName" /></a-form-item></a-col>
+        <a-form-item label="手术病例" required><a-select v-model="form.operationId" :disabled="!!editing"><a-option v-for="item in cases" :key="caseId(item)" :value="caseId(item)">{{item.patientName}} · {{item.plannedOperationName || item.operationName}} · {{item.plannedStartTime || item.operationDate}}</a-option></a-select></a-form-item>
+        <OperationCaseSummary v-if="formCase" :case-data="formCase" />
+        <a-row :gutter="12" style="margin-top:12px">
+          <a-col :span="8"><a-form-item label="来源"><a-select v-model="form.sourceType" :disabled="!!editing"><a-option value="HULI">HULI</a-option><a-option value="LIS">LIS</a-option><a-option value="PACS">PACS</a-option><a-option value="manual">人工</a-option></a-select></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="项目编码"><a-input v-model="form.itemCode" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="项目名称"><a-input v-model="form.itemName" /></a-form-item></a-col>
         </a-row>
-        <a-row :gutter="12">
-          <a-col :span="12"><a-form-item label="检验项目"><a-input v-model="form.labItems" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="影像项目"><a-input v-model="form.imagingItems" /></a-form-item></a-col>
-        </a-row>
-        <a-row :gutter="12">
-          <a-col :span="8"><a-form-item label="审核结果">
-            <a-select v-model="form.reviewResult"><a-option value="通过">通过</a-option><a-option value="待补检">待补检</a-option><a-option value="异常">异常</a-option></a-select>
-          </a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="审核人"><a-input v-model="form.reviewer" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="审核日期"><a-date-picker v-model="form.reviewDate" value-format="YYYY-MM-DD" style="width: 100%" /></a-form-item></a-col>
-        </a-row>
+        <a-row :gutter="12"><a-col :span="12"><a-form-item label="结果"><a-input v-model="form.resultValue" /></a-form-item></a-col><a-col :span="12"><a-form-item label="单位"><a-input v-model="form.resultUnit" /></a-form-item></a-col></a-row>
+        <a-form-item v-if="form.sourceType!=='manual'" label="外部引用" required><a-input v-model="form.sourceRef" /></a-form-item>
+        <a-row v-else :gutter="12"><a-col :span="12"><a-form-item label="录入人" required><a-input v-model="form.recordedBy" /></a-form-item></a-col><a-col :span="12"><a-form-item label="录入时间" required><a-date-picker v-model="form.recordedAt" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></a-form-item></a-col></a-row>
+        <a-row :gutter="12"><a-col :span="12"><a-form-item label="审核结果"><a-select v-model="form.reviewResult"><a-option value="通过">通过</a-option><a-option value="待补检">待补检</a-option><a-option value="异常">异常</a-option></a-select></a-form-item></a-col><a-col :span="12"><a-form-item label="审核人"><a-input v-model="form.reviewer" /></a-form-item></a-col></a-row>
       </a-form>
     </a-modal>
   </ModulePageShell>
@@ -67,108 +37,22 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
-import { IconRefresh, IconPlus } from '@arco-design/web-vue/es/icon';
-import ModulePageShell from '@/components/shared/ModulePageShell.vue';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
-import type { ExamReviewRecord } from '@/types/clinicalModules';
-
-const store = useAnesthesiaStore();
-const router = useRouter();
-const resultFilter = ref<string | undefined>();
-const loading = ref(false);
-
-const reviewColor = (result: ExamReviewRecord['reviewResult']) => ({
-  通过: 'green',
-  待补检: 'orangered',
-  异常: 'red',
-}[result] ?? 'gray');
-
-const resultCount = (result: ExamReviewRecord['reviewResult']) => store.examReviews.filter((item) => item.reviewResult === result).length;
-
-const filtered = computed(() => {
-  if (!resultFilter.value) return store.examReviews;
-  return store.examReviews.filter((item) => item.reviewResult === resultFilter.value);
-});
-
-async function reload() {
-  loading.value = true;
-  try {
-    await store.loadRemotePreopExamReviews();
-  } finally {
-    loading.value = false;
-  }
-}
-
-// ---- 表单 ----
-const formVisible = ref(false);
-const formMode = ref<'create' | 'edit'>('create');
-const editingId = ref('');
-const form = reactive({
-  caseId: '',
-  patientName: '',
-  labItems: '',
-  imagingItems: '',
-  reviewResult: '通过' as ExamReviewRecord['reviewResult'],
-  reviewer: '',
-  reviewDate: '',
-});
-
-function resetForm() {
-  form.caseId = '';
-  form.patientName = '';
-  form.labItems = '';
-  form.imagingItems = '';
-  form.reviewResult = '通过';
-  form.reviewer = '';
-  form.reviewDate = '';
-}
-
-function openCreate() {
-  formMode.value = 'create';
-  editingId.value = '';
-  resetForm();
-  formVisible.value = true;
-}
-
-function openEdit(record: ExamReviewRecord) {
-  formMode.value = 'edit';
-  editingId.value = record.id;
-  Object.assign(form, {
-    caseId: record.caseId,
-    patientName: record.patientName,
-    labItems: record.labItems,
-    imagingItems: record.imagingItems,
-    reviewResult: record.reviewResult,
-    reviewer: record.reviewer,
-    reviewDate: record.reviewDate,
-  });
-  formVisible.value = true;
-}
-
-function closeForm() {
-  formVisible.value = false;
-}
-
-async function submitForm() {
-  if (!form.caseId) {
-    Message.warning('请填写病例ID');
-    return;
-  }
-  try {
-    if (formMode.value === 'create') {
-      await store.upsertPreopExamReview({ id: `tmp-${Date.now()}`, ...form });
-      Message.success('检查审核已创建');
-    } else {
-      await store.upsertPreopExamReview({ id: editingId.value, ...form });
-      Message.success('检查审核已更新');
-    }
-    formVisible.value = false;
-  } catch (error) {
-    Message.error(error instanceof Error ? error.message : '保存失败');
-  }
-}
-
-onMounted(reload);
+import ModulePageShell from '@/components/shared/ModulePageShell.vue'; import EmptyState from '@/components/shared/EmptyState.vue'; import OperationCaseSummary from '@/components/preoperative/OperationCaseSummary.vue';
+import type { PreopExamReview, PreopExamSource } from '@/api/preoperative'; import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
+import { authApi } from '@/api/auth';import { createExamReview, hasPreopPermission, loadExamReviewList, loadOperationCases, updateExamReview } from '@/services/preoperative/preoperativeFiveFlowsService';
+const rows=ref<PreopExamReview[]>([]);const cases=ref<OperationCase[]>([]);const loading=ref(false);const error=ref('');const visible=ref(false);const editing=ref<PreopExamReview|null>(null);
+const form=reactive({operationId:'',sourceType:'manual' as PreopExamSource,itemCode:'',itemName:'',resultValue:'',resultUnit:'',sourceRef:'',recordedBy:'',recordedAt:'',reviewResult:'通过' as PreopExamReview['reviewResult'],reviewer:''});
+const permissions=ref<string[]>([]);const canManage=computed(()=>hasPreopPermission(permissions.value,'preop.exam.manage'));
+const formCase=computed(()=>cases.value.find(x=>x.operationId===form.operationId)??null);
+const caseId=(item:OperationCase)=>String(item.operationId??'');
+const itemNames=(row:PreopExamReview)=>row.items.map((item)=>item.itemName).join('、')||'—';
+const allManual=(row:PreopExamReview)=>row.items.every((item)=>item.sourceType==='manual');
+async function reload(){loading.value=true;error.value='';try{[rows.value,cases.value]=await Promise.all([loadExamReviewList({pageSize:200}),loadOperationCases()]);}catch(e){rows.value=[];error.value=e instanceof Error?e.message:'加载检查审核失败';}finally{loading.value=false;}}
+function reset(){Object.assign(form,{operationId:'',sourceType:'manual',itemCode:'',itemName:'',resultValue:'',resultUnit:'',sourceRef:'',recordedBy:'',recordedAt:'',reviewResult:'通过',reviewer:''});}
+function openCreate(){editing.value=null;reset();visible.value=true;}
+function openEdit(row:PreopExamReview){const item=row.items[0];if(!item||item.sourceType!=='manual')return;editing.value=row;Object.assign(form,{operationId:row.operationId,sourceType:item.sourceType,itemCode:item.itemCode,itemName:item.itemName,resultValue:item.resultValue??'',resultUnit:item.resultUnit??'',sourceRef:item.sourceRef??'',recordedBy:item.recordedBy??'',recordedAt:item.recordedAt??'',reviewResult:row.reviewResult,reviewer:row.reviewer??''});visible.value=true;}
+async function save(){if(!form.operationId||!form.itemCode||!form.itemName){Message.warning('请选择病例并填写检查项目');return;}if(form.sourceType==='manual'&&(!form.recordedBy||!form.recordedAt)){Message.warning('人工项必须填写录入人和录入时间');return;}if(form.sourceType!=='manual'&&!form.sourceRef){Message.warning('外部项必须填写来源引用');return;}const old=editing.value?.items[0];const item={id:old?.id,itemId:old?.itemId,version:old?.version,sourceType:form.sourceType,sourceSystem:form.sourceType==='manual'?'SAMIS':form.sourceType,sourceRef:form.sourceType==='manual'?null:form.sourceRef,recordedBy:form.sourceType==='manual'?form.recordedBy:null,recordedAt:form.sourceType==='manual'?form.recordedAt:null,examType:form.sourceType==='PACS'?'imaging':'lab',itemCode:form.itemCode,itemName:form.itemName,resultValue:form.resultValue,resultUnit:form.resultUnit};try{const params={reviewResult:form.reviewResult,reviewer:form.reviewer,items:[item]};editing.value?await updateExamReview(editing.value,params):await createExamReview(form.operationId,params);visible.value=false;await reload();Message.success('检查审核已保存');}catch(e){Message.error(e instanceof Error?e.message:'保存失败');}}
+async function loadPermissions(){try{const result=await authApi.myPermissions();permissions.value=Array.isArray(result?.permissions)?result.permissions.map(String):[];}catch{permissions.value=[];}}
+onMounted(()=>Promise.all([loadPermissions(),reload()]));
 </script>
