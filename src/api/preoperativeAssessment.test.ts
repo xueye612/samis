@@ -1,0 +1,4 @@
+import { beforeEach,describe,expect,it,vi } from 'vitest';
+const mock=vi.hoisted(()=>vi.fn());vi.mock('@/api/samisClient',()=>({samisRequest:mock}));
+import { preoperativeApi } from '@/api/preoperative';
+describe('preoperative assessment structured form',()=>{beforeEach(()=>{mock.mockReset();mock.mockResolvedValue({});});it('serializes rich JSON and version without forged master data',async()=>{await preoperativeApi.assessmentSaveDraft({operationId:'OP-1',expectedVersion:2,medicalHistoryJson:[{summary:'高血压'}],airwayJson:{mallampati:'III'}});const init=mock.mock.calls[0][1] as RequestInit;const body=new URLSearchParams(String(init.body));expect(body.get('expectedVersion')).toBe('2');expect(JSON.parse(body.get('medicalHistoryJson')??'')).toEqual([{summary:'高血压'}]);expect(JSON.parse(body.get('airwayJson')??'')).toEqual({mallampati:'III'});expect(body.has('patientName')).toBe(false);});});

@@ -45,14 +45,15 @@ export const useAnesthesiaPlanStore = defineStore('anesthesia-plan-workflow', {
       this.error = null;
       try {
         const current = this.detail?.currentPlan;
+        const operationId = this.loadedOperationId;
         const saved = await anesthesiaPlanApi.saveDraft({
-          operationId: this.loadedOperationId,
+          operationId,
           planVersionId: current?.planVersionId,
           expectedVersion: current?.version ?? 0,
           ...fields,
         });
-        this.replaceCurrent(saved);
-        return saved;
+        await this.load(operationId);
+        return this.detail?.currentPlan ?? saved;
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -66,8 +67,8 @@ export const useAnesthesiaPlanStore = defineStore('anesthesia-plan-workflow', {
       this.error = null;
       try {
         const saved = await anesthesiaPlanApi.submit({ planVersionId: current.planVersionId, expectedVersion: current.version });
-        this.replaceCurrent(saved);
-        return saved;
+        await this.load(current.operationId);
+        return this.detail?.currentPlan ?? saved;
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -78,13 +79,13 @@ export const useAnesthesiaPlanStore = defineStore('anesthesia-plan-workflow', {
     async cancel(reason: string) {
       const current = this.requireCurrent();
       this.saving = true; this.error = null;
-      try { const saved = await anesthesiaPlanApi.cancel({ planVersionId: current.planVersionId, expectedVersion: current.version, reason }); this.replaceCurrent(saved); return saved; }
+      try { const saved = await anesthesiaPlanApi.cancel({ planVersionId: current.planVersionId, expectedVersion: current.version, reason }); await this.load(current.operationId); return this.detail?.currentPlan ?? saved; }
       catch (error) { this.error = errorMessage(error); throw error; } finally { this.saving = false; }
     },
     async createRevision(reason: string) {
       const current = this.requireCurrent();
       this.saving = true; this.error = null;
-      try { const saved = await anesthesiaPlanApi.createRevision({ planVersionId: current.planVersionId, expectedVersion: current.version, reason }); this.replaceCurrent(saved); return saved; }
+      try { const saved = await anesthesiaPlanApi.createRevision({ planVersionId: current.planVersionId, expectedVersion: current.version, reason }); await this.load(current.operationId); return this.detail?.currentPlan ?? saved; }
       catch (error) { this.error = errorMessage(error); throw error; } finally { this.saving = false; }
     },
     replaceCurrent(currentPlan: AnesthesiaPlanApi) {

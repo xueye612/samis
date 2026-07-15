@@ -3,7 +3,7 @@
     <template #chips><a-tag :color="assessment.status==='submitted'?'green':'orange'">{{ statusText }} · v{{ assessment.version }}</a-tag><a-tag :color="persistenceAvailable?'arcoblue':'red'">{{ persistenceAvailable?'真实存储':'存储不可用' }}</a-tag></template>
     <template #toolbar>
       <a-space wrap>
-        <a-select v-model="selectedId" style="width:360px" placeholder="选择真实手术病例"><a-option v-for="item in cases" :key="item.operationId||''" :value="item.operationId||''">{{ item.roomName||'未排房' }} · {{ item.patientName||'未提供姓名' }} · {{ item.operationName||'未提供手术' }}</a-option></a-select>
+        <a-select v-model="selectedId" style="width:420px" placeholder="选择真实手术病例"><a-option v-for="item in cases" :key="item.operationId||''" :value="item.operationId||''">{{ item.operationId }} · {{ item.roomName||'未排房' }} · {{ item.patientName||'未提供姓名' }} · {{ item.operationName||'未提供手术' }}</a-option></a-select>
         <a-input v-model="actionReason" style="width:220px" placeholder="撤回/修订原因" allow-clear />
         <a-button :loading="saving" :disabled="!canEdit" @click="saveDraft">保存草稿</a-button>
         <a-button type="primary" :loading="saving" :disabled="!canSubmit" @click="submitAssessment">提交评估</a-button>

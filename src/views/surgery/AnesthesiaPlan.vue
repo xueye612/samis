@@ -2,7 +2,7 @@
   <ModulePageShell title="麻醉计划" description="基于 OperationCase 与术前评估制定结构化、可追溯的版本化计划">
     <template #chips><a-tag :color="statusColor">{{ planStatusLabel(currentPlan?.status) }} · v{{ currentPlan?.version??0 }}</a-tag><a-tag v-if="currentPlan?.templateCode">模板 {{ currentPlan.templateCode }} / v{{ currentPlan.templateVersion }}</a-tag></template>
     <template #toolbar><a-space wrap>
-      <a-select v-model="selectedId" style="width:360px" placeholder="选择真实手术病例"><a-option v-for="item in cases" :key="item.operationId||''" :value="item.operationId||''">{{ item.roomName||'未排房' }} · {{ item.patientName||'未提供姓名' }} · {{ item.operationName||'未提供手术' }}</a-option></a-select>
+      <a-select v-model="selectedId" style="width:420px" placeholder="选择真实手术病例"><a-option v-for="item in cases" :key="item.operationId||''" :value="item.operationId||''">{{ item.operationId }} · {{ item.roomName||'未排房' }} · {{ item.patientName||'未提供姓名' }} · {{ item.operationName||'未提供手术' }}</a-option></a-select>
       <a-input v-model="actionReason" style="width:220px" placeholder="取消/修订原因" allow-clear />
       <a-button :loading="workflow.saving" :disabled="!canEdit" @click="saveDraft">保存草稿</a-button><a-button type="primary" :loading="workflow.saving" :disabled="!canSubmit" @click="submitPlan">提交计划</a-button>
       <a-button :loading="workflow.saving" :disabled="!canReviseAction" @click="cancelPlan">取消计划</a-button><a-button :loading="workflow.saving" :disabled="!canCreateRevision" @click="createRevision">创建修订</a-button>

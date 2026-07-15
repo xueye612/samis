@@ -77,9 +77,12 @@ describe('anesthesia workflow stores', () => {
   });
 
   it('loads and saves an anesthesia plan using the server version contract', async () => {
-    api.planDetail.mockResolvedValue({ operationId: 'OP-1', operationCase: {}, currentPlan: plan, historyMeta: { total: 1, versions: [] } });
-    api.planSaveDraft.mockResolvedValue({ ...plan, notes: '高风险病例' });
-    api.planSubmit.mockResolvedValue({ ...plan, notes: '高风险病例', status: 'submitted' });
+    api.planDetail
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, currentPlan: plan, historyMeta: { total: 1, versions: [] } })
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, currentPlan: { ...plan, notes: '高风险病例', version: 2 }, historyMeta: { total: 1, versions: [] } })
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, currentPlan: { ...plan, notes: '高风险病例', status: 'submitted', version: 3 }, historyMeta: { total: 1, versions: [] } });
+    api.planSaveDraft.mockResolvedValue({ ...plan, notes: '高风险病例', version: 2 });
+    api.planSubmit.mockResolvedValue({ ...plan, notes: '高风险病例', status: 'submitted', version: 3 });
     const store = useAnesthesiaPlanStore();
 
     await store.load('OP-1');
@@ -95,7 +98,10 @@ describe('anesthesia workflow stores', () => {
   });
 
   it('uses current server version for cancel and revision', async () => {
-    api.planDetail.mockResolvedValue({ operationId: 'OP-1', operationCase: {}, currentPlan: { ...plan, status: 'submitted', version: 3 }, historyMeta: { total: 1, versions: [] } });
+    api.planDetail
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, currentPlan: { ...plan, status: 'submitted', version: 3 }, historyMeta: { total: 1, versions: [] } })
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, currentPlan: { ...plan, status: 'cancelled', version: 4, revisionReason: '改期' }, historyMeta: { total: 1, versions: [] } })
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, currentPlan: { ...plan, planVersionId: 'PLANV-2', status: 'draft', version: 5, revisionReason: '重拟' }, historyMeta: { total: 2, versions: [] } });
     api.planCancel.mockResolvedValue({ ...plan, status: 'cancelled', version: 4, revisionReason: '改期' });
     api.planCreateRevision.mockResolvedValue({ ...plan, planVersionId: 'PLANV-2', status: 'draft', version: 5, revisionReason: '重拟' });
     const store = useAnesthesiaPlanStore(); await store.load('OP-1'); await store.cancel('改期'); await store.createRevision('重拟');

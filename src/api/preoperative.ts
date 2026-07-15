@@ -1,5 +1,5 @@
 import { samisRequest } from '@/api/samisClient';
-import { buildFormPost, flatFormFieldsFromRecord } from '@/api/samisFormBody';
+import { buildFormPost, flatFormFieldsFromRecord, type FormRecord } from '@/api/samisFormBody';
 import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
 
 export type PreoperativeAssessmentStatus = 'draft' | 'submitted' | 'cancelled';
@@ -259,6 +259,15 @@ function postForm<T>(path: string, data: Record<string, unknown>) {
   });
 }
 
+function postAssessmentForm<T>(path: string, data: Record<string, unknown>) {
+  const fields: FormRecord = {};
+  Object.entries(data).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    fields[key] = typeof value === 'object' ? JSON.stringify(value) : value as string | number | boolean;
+  });
+  return samisRequest<T>(`/preoperative${path}`, buildFormPost(fields), { module: 'preoperative' });
+}
+
 export const preoperativeApi = {
   assessmentDetail(operationId: string) {
     return samisRequest<PreoperativeAssessmentDetailApi>(
@@ -268,16 +277,16 @@ export const preoperativeApi = {
     );
   },
   assessmentSaveDraft(data: PreoperativeAssessmentDraftPayload) {
-    return postForm<PreoperativeAssessmentApi>('/assessmentSaveDraft', data);
+    return postAssessmentForm<PreoperativeAssessmentApi>('/assessmentSaveDraft', data);
   },
   assessmentSubmit(data: { operationId: string; expectedVersion: number }) {
-    return postForm<PreoperativeAssessmentApi>('/assessmentSubmit', data);
+    return postAssessmentForm<PreoperativeAssessmentApi>('/assessmentSubmit', data);
   },
   assessmentCancelSubmit(data: { operationId: string; expectedVersion: number; reason: string }) {
-    return postForm<PreoperativeAssessmentApi>('/assessmentCancelSubmit', data);
+    return postAssessmentForm<PreoperativeAssessmentApi>('/assessmentCancelSubmit', data);
   },
   assessmentCreateRevision(data: { operationId: string; expectedVersion: number; reason: string }) {
-    return postForm<PreoperativeAssessmentApi>('/assessmentCreateRevision', data);
+    return postAssessmentForm<PreoperativeAssessmentApi>('/assessmentCreateRevision', data);
   },
   assessmentHistory(operationId: string) {
     return samisRequest<PreoperativeAssessmentDetailApi['history']>(`/preoperative/assessmentHistory?operationId=${encodeURIComponent(operationId)}`, undefined, { module: 'preoperative' });
