@@ -644,13 +644,35 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const items: TodoItem[] = [];
       state.cases
         .filter((item) => item.urgency === '择期' && !item.preVisit.completed)
-        .forEach((item) => items.push({ id: `todo-pre-${item.id}`, title: `${item.patientName} 术前访视未完成`, category: '访视', caseId: item.id, priority: '高', dueTime: dayjs(item.plannedStart).subtract(1, 'day').toISOString(), status: '待处理' }));
+        .forEach((item) => {
+          const plannedStart = dayjs(item.plannedStart);
+          items.push({
+            id: `todo-pre-${item.id}`,
+            title: `${item.patientName} 术前访视未完成`,
+            category: '访视',
+            caseId: item.id,
+            priority: '高',
+            dueTime: plannedStart.isValid() ? plannedStart.subtract(1, 'day').toISOString() : undefined,
+            status: '待处理',
+          });
+        });
       this.qualityDefects
         .filter((item) => item.status === '待整改' || item.status === '待确认')
         .forEach((item) => items.push({ id: `todo-def-${item.defectId}`, title: item.defectType, category: '缺陷', caseId: item.caseId, priority: item.defectLevel === '严重' ? '高' : '中', status: '待处理' }));
       state.pacuPatients
         .filter((item) => item.status !== '已转出' && dayjs().diff(dayjs(item.inTime), 'minute') > 120)
-        .forEach((item) => items.push({ id: `todo-pacu-${item.id}`, title: `${item.patientName} PACU 转出延迟`, category: 'PACU', caseId: item.caseId, priority: '高', dueTime: dayjs(item.inTime).add(120, 'minute').toISOString(), status: '待处理' }));
+        .forEach((item) => {
+          const inTime = dayjs(item.inTime);
+          items.push({
+            id: `todo-pacu-${item.id}`,
+            title: `${item.patientName} PACU 转出延迟`,
+            category: 'PACU',
+            caseId: item.caseId,
+            priority: '高',
+            dueTime: inTime.isValid() ? inTime.add(120, 'minute').toISOString() : undefined,
+            status: '待处理',
+          });
+        });
       state.cases
         .filter((item) => item.postoperativeAnalgesia && !state.followUps.some((fu) => fu.caseId === item.id))
         .forEach((item) => items.push({ id: `todo-fu-${item.id}`, title: `${item.patientName} 术后镇痛随访`, category: '随访', caseId: item.id, priority: '中', status: '待处理' }));

@@ -9,6 +9,23 @@ async function mockData<T>(path: string, init?: RequestInit) {
 }
 
 describe('samisMockRouter', () => {
+  it('为本地模拟页面提供结构化权限上下文', async () => {
+    const data = await mockData<{ permissions: string[]; role: string; groupid: number | null }>(
+      '/auth/myPermissions',
+    );
+
+    expect(data).toEqual({ permissions: ['*'], role: 'developer', groupid: 1 });
+  });
+
+  it('为重构后的26项质控页提供完整模拟列表', async () => {
+    const data = await mockData<Array<{ code: string; category: string; status: string }>>(
+      '/quality/indicators?category=全部',
+    );
+
+    expect(data).toHaveLength(26);
+    expect(data[0]).toEqual(expect.objectContaining({ code: expect.any(String), status: 'no-data' }));
+  });
+
   it('filters operation list by operationDate', async () => {
     const today = dayjs().format('YYYY-MM-DD');
     const tomorrow = dayjs().add(1, 'day').format('YYYY-MM-DD');

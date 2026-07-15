@@ -8,28 +8,27 @@ test.describe('核心页面冒烟测试', () => {
     });
   }
 
-  test('麻醉质控指标左侧列表使用内部滚动且不被右侧详情撑高', async ({ page }) => {
+  test('麻醉质控指标表格在页面内完整呈现且无横向溢出', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openImplementedPage(page, corePages.find((item) => item.path === '/quality/dashboard')!);
 
+    const table = page.locator('.section-card .arco-table').first();
+    await expect(table).toBeVisible();
+    expect(await table.locator('tbody tr').count()).toBeGreaterThan(0);
+
     const metrics = await page.evaluate(() => {
-      const leftCard = document.querySelector('.indicator-list-card')?.getBoundingClientRect();
-      const list = document.querySelector('.indicator-list') as HTMLElement | null;
-      const layout = document.querySelector('.quality-layout')?.getBoundingClientRect();
+      const card = document.querySelector('.section-card')?.getBoundingClientRect();
+      const content = document.querySelector('.app-content')?.getBoundingClientRect();
 
       return {
-        leftCardHeight: leftCard?.height ?? 0,
-        listClientHeight: list?.clientHeight ?? 0,
-        listScrollHeight: list?.scrollHeight ?? 0,
-        layoutHeight: layout?.height ?? 0,
-        viewportHeight: window.innerHeight,
+        cardWidth: card?.width ?? 0,
+        contentWidth: content?.width ?? 0,
         pageOverflowX: document.body.scrollWidth > document.documentElement.clientWidth,
       };
     });
 
-    expect(metrics.leftCardHeight).toBeLessThanOrEqual(metrics.viewportHeight - 240);
-    expect(metrics.listScrollHeight).toBeGreaterThan(metrics.listClientHeight);
-    expect(metrics.layoutHeight).toBeGreaterThan(metrics.leftCardHeight);
+    expect(metrics.cardWidth).toBeGreaterThan(0);
+    expect(metrics.cardWidth).toBeLessThanOrEqual(metrics.contentWidth);
     expect(metrics.pageOverflowX).toBe(false);
   });
 

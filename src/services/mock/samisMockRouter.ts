@@ -7,6 +7,7 @@ import { anesthesiaCases, pacuPatients as mockPacuPatients } from '@/mock/anesth
 import { drugDictItemToApi } from '@/services/drugDictMapper';
 import { buildDrugRecommendFromDict } from '@/services/drugDictRecommend';
 import { SPECIAL_DRUG_CATEGORY_OPTIONS } from '@/types/drugDict';
+import { qualityIndicators } from '@/config/qualityIndicators';
 
 const serverIdCounter = { value: 10000 };
 
@@ -1222,6 +1223,39 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
       roomGroup: '手术中心',
       roleNames: ['麻醉医生'],
     }) as T;
+  }
+  if (path.includes('/auth/myPermissions')) {
+    return buildSamisSuccess({ permissions: ['*'], role: 'developer', groupid: 1 }) as T;
+  }
+  if (path.includes('/quality/indicators')) {
+    const category = getSearchParams(path).get('category');
+    const list = qualityIndicators
+      .filter((item) => !category || category === '全部' || item.category === category)
+      .map((item) => ({
+        code: item.code,
+        name: item.name,
+        category: item.category,
+        unit: item.unit,
+        numerator: 0,
+        denominator: 0,
+        rate: 0,
+        value: 0,
+        expression: item.formulaText,
+        displayValue: item.unit === '%' || item.unit === '‰' ? `0${item.unit}` : '0',
+        target: item.warningRule ? `${item.warningRule.operator}${item.warningRule.value}` : null,
+        warningRule: item.warningRule ?? null,
+        met: true,
+        status: 'no-data',
+        denominatorDefinition: item.denominatorName,
+        numeratorDefinition: item.numeratorName,
+        exclusions: [],
+        timeWindow: { anchor: 'operationDate', granularity: 'month', timezone: 'Asia/Shanghai' },
+        evidenceFields: item.dataSources,
+        severity: '提示',
+        drilldown: { denominator: item.supportDrillDown, numerator: item.supportDrillDown, defect: item.supportDrillDown },
+        remediationAction: '请根据病例穿透结果处理',
+      }));
+    return buildSamisSuccess(list) as T;
   }
 
   // ============ 系统管理（T04/T05）mock 兜底：adminUserList / adminUserGroupsList / getMenu ============
