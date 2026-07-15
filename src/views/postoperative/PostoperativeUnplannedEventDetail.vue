@@ -138,6 +138,10 @@ const onSelectChange = async (val: string | undefined) => {
   if (selectedOperationId.value) {
     try {
       await ue.loadList(selectedOperationId.value);
+      if (ue.list[0]?.eventId) {
+        await ue.loadDetail(ue.list[0].eventId);
+        syncFormFromDetail();
+      }
     } catch { /* error in store */ }
   }
 };

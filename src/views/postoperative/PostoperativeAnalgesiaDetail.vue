@@ -184,12 +184,16 @@ const syncFormFromCurrent = () => {
 };
 
 const onCreateDraft = async () => {
+  const formulaText = prompt('请输入镇痛配方 JSON 数组，例如 [{"drugCode":"FEN","dose":0.5,"unit":"mg"}]');
+  if (!formulaText) return;
   try {
-    await analgesia.saveDraft({ methodCode: 'PCIA', backgroundRateMlH: 2, bolusMl: 2, lockoutMinutes: 15 });
+    const formula = JSON.parse(formulaText) as unknown;
+    if (!Array.isArray(formula) || formula.length === 0) throw new Error('镇痛配方必须是非空 JSON 数组');
+    await analgesia.saveDraft({ methodCode: 'PCIA', formula, backgroundRateMlH: 2, bolusMl: 2, lockoutMinutes: 15 });
     syncFormFromCurrent();
     Message.success('草稿已创建');
   } catch (e) {
-    Message.error(analgesia.error ?? '创建失败');
+    Message.error(e instanceof Error ? e.message : (analgesia.error ?? '创建失败'));
   }
 };
 
