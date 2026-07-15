@@ -4,20 +4,28 @@ const apiMock = {
   requestList: vi.fn(),
   requestReceive: vi.fn(),
   requestCancel: vi.fn(),
+  safetyCheckSummary: vi.fn(),
+  safetyConfirmRole: vi.fn(),
+};
+const legacyApiMock = {
   consultationList: vi.fn(),
   consultationCreate: vi.fn(),
+  consultationUpdate: vi.fn(),
   consultationSubmit: vi.fn(),
   consultationCancel: vi.fn(),
   consentGetByCaseId: vi.fn(),
+  consentCreate: vi.fn(),
+  consentUpdate: vi.fn(),
   consentSubmit: vi.fn(),
   consentWithdraw: vi.fn(),
   consentMarkPrinted: vi.fn(),
   consentArchive: vi.fn(),
-  safetyCheckSummary: vi.fn(),
-  safetyConfirmRole: vi.fn(),
 };
 
-vi.mock('@/api/preoperative', () => ({ preoperativeFiveFlowsApi: apiMock }));
+vi.mock('@/api/preoperative', () => ({
+  preoperativeFiveFlowsApi: apiMock,
+  preoperativeApi: legacyApiMock,
+}));
 vi.mock('@/api/samisHttpClient', () => ({
   SamisHttpError: class SamisHttpError extends Error {
     constructor(message: string, public status: number, public code?: number) { super(message); }
@@ -26,7 +34,8 @@ vi.mock('@/api/samisHttpClient', () => ({
 
 const {
   loadRequestList, receiveRequest, cancelRequest,
-  loadConsultationList, createConsultation, submitConsultation, cancelConsultation,
+  loadConsultationList, createConsultation, updateConsultation, submitConsultation, cancelConsultation,
+  loadConsentByCaseId, createConsent, updateConsent, submitConsent, withdrawConsent, markConsentPrinted, archiveConsent,
   loadSafetySummary, confirmSafetyRole, PreopConflictError,
 } = await import('@/services/preoperative/preoperativeFiveFlowsService');
 
@@ -54,8 +63,45 @@ describe('preoperativeFiveFlowsService', () => {
 
   it('cancelRequest sends id + version + reason', async () => {
     apiMock.requestCancel.mockResolvedValue({});
-    await cancelRequest(1, 1, '取消原因');
-    expect(apiMock.requestCancel).toHaveBeenCalledWith({ id: 1, expectedVersion: 1, cancelReason: '取消原因' });
+    await cancelRequest(1, 1, '取消');
+    expect(apiMock.requestCancel).toHaveBeenCalledWith({ id: 1, expectedVersion: 1, cancelReason: '取消' });
+  });
+
+  it('loadConsultationList uses legacy API', async () => {
+    legacyApiMock.consultationList.mockResolvedValue({ list: [{ id: 1, status: '待会诊' }] });
+    const list = await loadConsultationList({ caseId: 'OP1' });
+    expect(list).toHaveLength(1);
+    expect(legacyApiMock.consultationList).toHaveBeenCalled();
+  });
+
+  it('createConsultation sends operationId', async () => {
+    legacyApiMock.consultationCreate.mockResolvedValue({ id: 10 });
+    const result = await createConsultation('OP1', { consultant: '医生' });
+    expect(result.id).toBe(10);
+    expect(legacyApiMock.consultationCreate).toHaveBeenCalledWith({ operationId: 'OP1', consultant: '医生' });
+  });
+
+  it('submitConsultation sends id', async () => {
+    legacyApiMock.consultationSubmit.mockResolvedValue({});
+    await submitConsultation(10);
+    expect(legacyApiMock.consultationSubmit).toHaveBeenCalledWith(10);
+  });
+
+  it('cancelConsultation sends id + reason', async () => {
+    legacyApiMock.consultationCancel.mockResolvedValue({});
+    await cancelConsultation(10, '原因');
+    expect(legacyApiMock.consultationCancel).toHaveBeenCalledWith(10, '原因');
+  });
+
+  it('loadConsentByCaseId returns null for empty', async () => {
+    legacyApiMock.consentGetByCaseId.mockResolvedValue({});
+    expect(await loadConsentByCaseId('OP1')).toBeNull();
+  });
+
+  it('createConsent sends operationId', async () => {
+    legacyApiMock.consentCreate.mockResolvedValue({ id: 20 });
+    const result = await createConsent('OP1', { templateCode: 'TPL1' });
+    expect(result.id).toBe(20);
   });
 
   it('loadSafetySummary returns null on error', async () => {
