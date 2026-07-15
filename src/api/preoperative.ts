@@ -455,3 +455,56 @@ export const preoperativeApi = {
     );
   },
 };
+
+// P07 五流程扩展 API
+export interface PreopRequest {
+  id: number;
+  operationId: string;
+  patientName: string | null;
+  department: string | null;
+  surgeryName: string | null;
+  surgeon: string | null;
+  urgency: string;
+  requestDate: string | null;
+  status: string;
+  receivedAt: string | null;
+  receivedBy: string | null;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+  version: number;
+  remark: string | null;
+}
+
+export interface PreopSafetySummary {
+  sourceSystem: string;
+  sourceRecordId: string | null;
+  operationId: string;
+  signInComplete: boolean;
+  timeOutComplete: boolean;
+  signOutComplete: boolean;
+  anomalies: unknown[];
+  confirmedBy: string | null;
+  confirmedAt: string | null;
+}
+
+export const preoperativeFiveFlowsApi = {
+  requestList(params: Record<string, unknown> = {}) {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null) query.set(k, String(v)); });
+    const q = query.toString();
+    return samisRequest<{ list: PreopRequest[]; total?: number }>(`/preoperative/requestList${q ? '?' + q : ''}`, undefined, { module: 'preoperative' });
+  },
+  requestReceive(data: Record<string, unknown>) {
+    return samisRequest<{ id?: number }>(`/preoperative/requestReceive`, buildFormPost(flatFormFieldsFromRecord(data)), { module: 'preoperative' });
+  },
+  requestCancel(data: Record<string, unknown>) {
+    return samisRequest<void>(`/preoperative/requestCancel`, buildFormPost(flatFormFieldsFromRecord(data)), { module: 'preoperative' });
+  },
+  safetyCheckSummary(operationId: string) {
+    return samisRequest<PreopSafetySummary>(`/preoperative/safetyCheckSummary?operationId=${encodeURIComponent(operationId)}`, undefined, { module: 'preoperative' });
+  },
+  safetyConfirmRole(data: Record<string, unknown>) {
+    return samisRequest<{ status?: string }>(`/preoperative/safetyConfirmRole`, buildFormPost(flatFormFieldsFromRecord(data)), { module: 'preoperative' });
+  },
+};
