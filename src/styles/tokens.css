@@ -87,6 +87,14 @@
   --font-size-2xl: 24px;
   --line-height-tight: 1.35;
   --line-height-base: 1.5;
+
+  --form-item-margin: 16px;
+  --table-cell-padding-y: 10px;
+  --table-cell-padding-x: 12px;
+  --drawer-body-padding: 20px;
+  --alert-radius: 8px;
+  --tag-font-size: 12px;
+  --tag-height: 22px;
 }
 
 /* Arco theme bridge */

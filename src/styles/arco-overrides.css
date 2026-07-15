@@ -7,17 +7,25 @@
 .arco-card-header {
   border-bottom-color: var(--border);
   font-weight: 600;
+  min-height: 48px;
 }
 
 .arco-table-th {
   background: linear-gradient(180deg, var(--surface-blue), var(--surface-muted));
   color: var(--text-secondary);
   font-weight: 600;
+  font-size: var(--font-size-sm);
 }
 
 .arco-table-td {
   color: var(--text-primary);
   border-bottom-color: var(--border);
+  font-size: var(--font-size-sm);
+}
+
+.arco-table-size-medium .arco-table-th,
+.arco-table-size-medium .arco-table-td {
+  padding: var(--table-cell-padding-y) var(--table-cell-padding-x);
 }
 
 .arco-table-tr:hover .arco-table-td {
@@ -39,6 +47,10 @@
   box-shadow: none;
 }
 
+.arco-btn-size-small {
+  font-size: var(--font-size-xs);
+}
+
 .arco-input-wrapper,
 .arco-select-view,
 .arco-picker {
@@ -52,9 +64,68 @@
 }
 
 .arco-tag {
-  border-radius: 999px;
+  border-radius: 4px;
+  font-size: var(--tag-font-size);
+  height: var(--tag-height);
+  line-height: var(--tag-height);
+}
+
+.arco-tag-size-small {
+  height: 20px;
+  line-height: 20px;
+  font-size: 11px;
 }
 
 .arco-breadcrumb {
   margin-top: 4px;
+}
+
+.arco-form-item {
+  margin-bottom: var(--form-item-margin);
+}
+
+.arco-form-item-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.arco-drawer-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.arco-drawer-body {
+  padding: var(--drawer-body-padding);
+}
+
+.arco-alert {
+  border-radius: var(--alert-radius);
+}
+
+.arco-modal-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.arco-descriptions {
+  border-radius: var(--radius-sm);
+}
+
+.arco-timeline-item-content {
+  font-size: var(--font-size-sm);
+}
+
+.arco-empty {
+  padding: 32px 0;
+}
+
+.arco-spin {
+  min-height: 120px;
+}
+
+.arco-tabs-tab-active {
+  font-weight: 600;
+}
+
+.arco-select-dropdown {
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
 }
