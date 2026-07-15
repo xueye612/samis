@@ -12,15 +12,17 @@
           <a-table-column title="编码"><template #cell="{ record }">{{ record.templateCode }}</template></a-table-column>
           <a-table-column title="名称"><template #cell="{ record }">{{ record.templateName }}</template></a-table-column>
           <a-table-column title="类型"><template #cell="{ record }">{{ record.templateType || '—' }}</template></a-table-column>
+          <a-table-column title="适用麻醉方式"><template #cell="{ record }">{{ record.applicableAnesthesiaMethod || '—' }}</template></a-table-column>
           <a-table-column title="字段数" :width="80"><template #cell="{ record }">{{ (record.fields || []).length }}</template></a-table-column>
           <a-table-column title="版本" :width="70"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
           <a-table-column title="状态" :width="90"><template #cell="{ record }"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template></a-table-column>
-          <a-table-column title="操作" :width="240">
+          <a-table-column title="操作" :width="280">
             <template #cell="{ record }">
               <a-space wrap>
                 <a-button size="small" @click="openHistory(record)">历史</a-button>
                 <a-button v-if="canManage" size="small" @click="openEdit(record)">编辑</a-button>
                 <a-button v-if="canManage && record.status === 'enabled'" size="small" @click="onChangeStatus(record, 'paused')">暂停</a-button>
+                <a-button v-if="canManage && record.status === 'paused'" size="small" @click="onChangeStatus(record, 'enabled')">启用</a-button>
                 <a-button v-if="canManage && record.status !== 'disabled'" size="small" status="warning" @click="onChangeStatus(record, 'disabled')">停用</a-button>
               </a-space>
             </template>
@@ -28,22 +30,39 @@
         </template>
       </a-table>
     </a-card>
-    <a-drawer :visible="editorVisible" :width="640" :title="isCreate ? '新增模板' : '编辑模板'" :mask-closable="false" unmount-on-close @cancel="editorVisible = false">
+    <a-drawer :visible="editorVisible" :width="720" :title="isCreate ? '新增模板' : '编辑模板'" :mask-closable="false" unmount-on-close @cancel="editorVisible = false">
       <a-form :model="form" layout="vertical">
         <a-row :gutter="12">
-          <a-col :span="8"><a-form-item label="编码" required><a-input v-model="form.templateCode" :disabled="!isCreate" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="名称" required><a-input v-model="form.templateName" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="类型"><a-input v-model="form.templateType" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="编码" required><a-input v-model="form.templateCode" :disabled="!isCreate" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="名称" required><a-input v-model="form.templateName" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="类型"><a-input v-model="form.templateType" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="默认模板"><a-switch v-model="form.isDefault" /></a-form-item></a-col>
         </a-row>
-        <a-form-item label="模板字段（原子保存）">
+        <a-row :gutter="12">
+          <a-col :span="8"><a-form-item label="适用麻醉方式"><a-input v-model="form.applicableAnesthesiaMethod" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="适用科室"><a-input v-model="form.applicableDepartment" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="适用手术类型"><a-input v-model="form.applicableSurgeryType" /></a-form-item></a-col>
+        </a-row>
+        <a-form-item label="适用范围">
+          <div v-for="(sc, idx) in form.scopes" :key="idx" class="scope-row">
+            <a-select v-model="sc.scopeType" :style="{ width: '130px' }" :options="templateScopeOptions" />
+            <a-input v-model="sc.scopeCode" placeholder="编码" :style="{ flex: 1 }" />
+            <a-input v-model="sc.scopeName" placeholder="名称" :style="{ flex: 1 }" />
+            <a-button status="danger" size="small" @click="form.scopes.splice(idx, 1)">移除</a-button>
+          </div>
+          <a-button type="dashed" size="small" @click="form.scopes.push({ scopeType: 'anesthesia_method', scopeCode: '', scopeName: '' })">添加范围</a-button>
+        </a-form-item>
+        <a-form-item label="模板字段（原子保存，支持 section/code/name/type/unit/default/placeholder/required/print/sort/optionGroup/displayRule/validationRule）">
           <div v-for="(f, idx) in form.fields" :key="idx" class="field-row">
-            <a-input v-model="f.fieldCode" placeholder="字段编码" :style="{ width: '120px' }" />
-            <a-input v-model="f.fieldName" placeholder="字段名称" :style="{ flex: 1 }" />
-            <a-input v-model="f.fieldType" placeholder="类型" :style="{ width: '100px' }" />
-            <a-input-number v-model="f.sortNo" placeholder="排序" :style="{ width: '80px' }" :min="0" />
+            <a-input v-model="f.fieldCode" placeholder="字段编码" :style="{ width: '100px' }" />
+            <a-input v-model="f.fieldName" placeholder="名称" :style="{ flex: 1 }" />
+            <a-select v-model="f.fieldType" :style="{ width: '90px' }" :options="fieldTypeOptions" />
+            <a-input v-model="f.unit" placeholder="单位" :style="{ width: '70px' }" />
+            <a-input v-model="f.defaultValue" placeholder="默认值" :style="{ width: '80px' }" />
+            <a-input-number v-model="f.sortNo" placeholder="排序" :style="{ width: '60px' }" :min="0" />
             <a-button status="danger" size="small" @click="form.fields.splice(idx, 1)">移除</a-button>
           </div>
-          <a-button type="dashed" size="small" @click="form.fields.push({ fieldCode: '', fieldName: '', fieldType: 'text', sortNo: form.fields.length + 1 })">添加字段</a-button>
+          <a-button type="dashed" size="small" @click="addField">添加字段</a-button>
         </a-form-item>
         <a-form-item label="备注"><a-textarea v-model="form.remark" :auto-size="{ minRows: 2 }" /></a-form-item>
       </a-form>
@@ -57,7 +76,11 @@
     </a-modal>
     <a-drawer :visible="historyVisible" :width="500" title="模板状态变更历史" unmount-on-close @cancel="historyVisible = false">
       <a-empty v-if="!history.length" description="暂无状态变更记录" />
-      <a-timeline v-else><a-timeline-item v-for="h in history" :key="h.id"><a-tag :color="statusColor(h.toStatus)">{{ statusLabel(h.toStatus) }}</a-tag><div style="color:var(--color-text-3);font-size:12px">版本 {{ h.version }} · {{ h.actor ?? '系统' }} · {{ h.occurredAt ?? '—' }}</div></a-timeline-item></a-timeline>
+      <a-timeline v-else><a-timeline-item v-for="h in history" :key="h.id">
+        <span v-if="h.fromStatus">{{ statusLabel(h.fromStatus) }} → </span><a-tag :color="statusColor(h.toStatus)">{{ statusLabel(h.toStatus) }}</a-tag>
+        <div style="color:var(--color-text-3);font-size:12px">版本 {{ h.version }} · {{ h.actor ?? '系统' }} · {{ h.occurredAt ?? '—' }}</div>
+        <div v-if="h.reason" style="font-size:13px">原因：{{ h.reason }}</div>
+      </a-timeline-item></a-timeline>
     </a-drawer>
   </ModulePageShell>
 </template>
@@ -74,11 +97,18 @@ const items = ref<any[]>([]);
 const loading = ref(false); const loadError = ref(''); const source = ref<'remote'|'local'>('local');
 const permissions = ref<string[]>([]);
 const editorVisible = ref(false); const isCreate = ref(true); const saving = ref(false);
-const form = reactive<Record<string, any>>({ fields: [] as any[] });
+const form = reactive<Record<string, any>>({ fields: [], scopes: [] });
 const statusVisible = ref(false); const statusSaving = ref(false); const statusReason = ref('');
 const statusTarget = ref<{ id: number; version: number; toStatus: 'enabled'|'paused'|'disabled' } | null>(null);
 const historyVisible = ref(false); const history = ref<any[]>([]);
 const canManage = computed(() => !useRealAnesthesiaDict() || canManageClinical(permissions.value, ENTITY));
+const templateScopeOptions = [{ label: '麻醉方式', value: 'anesthesia_method' }, { label: '科室', value: 'department' }, { label: '手术类型', value: 'surgery_type' }];
+const fieldTypeOptions = [
+  { label: 'text', value: 'text' }, { label: 'number', value: 'number' }, { label: 'date', value: 'date' },
+  { label: 'time', value: 'time' }, { label: 'datetime', value: 'datetime' }, { label: 'select', value: 'select' },
+  { label: 'textarea', value: 'textarea' }, { label: 'checkbox', value: 'checkbox' }, { label: 'radio', value: 'radio' },
+  { label: 'table', value: 'table' }, { label: 'section', value: 'section' }, { label: 'label', value: 'label' },
+];
 async function loadPerms() { try { const r = await authApi.myPermissions(); permissions.value = Array.isArray(r?.permissions) ? r.permissions.map(String) : []; } catch { permissions.value = []; } }
 async function reload() {
   loading.value = true; loadError.value = '';
@@ -86,24 +116,47 @@ async function reload() {
   catch (e) { items.value = []; source.value = 'local'; loadError.value = e instanceof Error ? e.message : '未知错误'; }
   finally { loading.value = false; }
 }
-function blankFields() { return []; }
-function openCreate() { isCreate.value = true; Object.assign(form, { id: 0, templateCode: '', templateName: '', templateType: '', remark: '', expectedVersion: 1, fields: blankFields() }); editorVisible.value = true; }
+function addField() { form.fields.push({ fieldCode: '', fieldName: '', fieldType: 'text', unit: '', defaultValue: '', sortNo: form.fields.length + 1 }); }
+function blank() {
+  return { id: 0, templateCode: '', templateName: '', templateType: '', isDefault: false,
+    applicableAnesthesiaMethod: '', applicableDepartment: '', applicableSurgeryType: '',
+    sortNo: 0, remark: '', expectedVersion: 1, fields: [], scopes: [] };
+}
+function openCreate() { isCreate.value = true; Object.assign(form, blank()); editorVisible.value = true; }
 function openEdit(r: any) {
   isCreate.value = false;
-  Object.assign(form, {
+  Object.assign(form, blank(), {
     id: r.id, templateCode: r.templateCode, templateName: r.templateName, templateType: r.templateType ?? '',
-    remark: r.remark ?? '', expectedVersion: r.version,
-    fields: (r.fields || []).map((f: any) => ({ fieldCode: f.fieldCode ?? '', fieldName: f.fieldName ?? '', fieldType: f.fieldType ?? 'text', sortNo: f.sortNo ?? 0 })),
+    isDefault: !!r.isDefault, applicableAnesthesiaMethod: r.applicableAnesthesiaMethod ?? '',
+    applicableDepartment: r.applicableDepartment ?? '', applicableSurgeryType: r.applicableSurgeryType ?? '',
+    sortNo: r.sortNo ?? 0, remark: r.remark ?? '', expectedVersion: r.version,
+    fields: (r.fields || []).map((f: any) => ({
+      fieldCode: f.fieldCode ?? '', fieldName: f.fieldName ?? '', fieldType: f.fieldType ?? 'text',
+      unit: f.unit ?? '', defaultValue: f.defaultValue ?? '', sortNo: f.sortNo ?? 0,
+    })),
+    scopes: (r.scopes || []).map((s: any) => ({ scopeType: s.scopeType ?? 'anesthesia_method', scopeCode: s.scopeCode ?? '', scopeName: s.scopeName ?? '' })),
   });
   editorVisible.value = true;
 }
 async function onSave() {
   if (!String(form.templateCode || '').trim()) { Message.warning('编码不能为空'); return; }
   if (!String(form.templateName || '').trim()) { Message.warning('名称不能为空'); return; }
-  const fields = (form.fields || []).filter((f: any) => f.fieldCode?.trim()).map((f: any) => ({ fieldCode: f.fieldCode.trim(), fieldName: f.fieldName || null, fieldType: f.fieldType || 'text', sortNo: f.sortNo ?? 0 }));
   saving.value = true;
-  try { await saveClinicalDictionary({ entityType: ENTITY, id: form.id || undefined, templateCode: form.templateCode.trim(), templateName: form.templateName.trim(), templateType: form.templateType || null, remark: form.remark || null, expectedVersion: form.expectedVersion, fields }); Message.success('保存成功'); editorVisible.value = false; await reload(); }
-  catch (e) { if (e instanceof ClinicalConflictError) Message.warning('数据已被其他人修改，请刷新后重试'); else if (e instanceof Error) Message.error(e.message); }
+  try {
+    const payload: Record<string, any> = {
+      entityType: ENTITY, templateCode: form.templateCode.trim(), templateName: form.templateName.trim(),
+      templateType: form.templateType || null, isDefault: form.isDefault ? 1 : 0,
+      applicableAnesthesiaMethod: form.applicableAnesthesiaMethod || null, applicableDepartment: form.applicableDepartment || null,
+      applicableSurgeryType: form.applicableSurgeryType || null, sortNo: form.sortNo, remark: form.remark || null,
+      fields: (form.fields || []).filter((f: any) => f.fieldCode?.trim()).map((f: any) => ({
+        fieldCode: f.fieldCode.trim(), fieldName: f.fieldName || null, fieldType: f.fieldType || 'text',
+        unit: f.unit || null, defaultValue: f.defaultValue || null, sortNo: f.sortNo ?? 0,
+      })),
+      scopes: (form.scopes || []).filter((s: any) => s.scopeCode?.trim()).map((s: any) => ({ scopeType: s.scopeType, scopeCode: s.scopeCode.trim(), scopeName: s.scopeName || null })),
+    };
+    if (!isCreate.value) { payload.id = form.id; payload.expectedVersion = form.expectedVersion; }
+    await saveClinicalDictionary(payload); Message.success('保存成功'); await reload(); editorVisible.value = false;
+  } catch (e) { if (e instanceof ClinicalConflictError) Message.warning('数据已被其他人修改，请刷新后重试'); else if (e instanceof Error) Message.error(e.message); }
   finally { saving.value = false; }
 }
 function onChangeStatus(r: any, to: 'enabled'|'paused'|'disabled') { statusTarget.value = { id: Number(r.id), version: Number(r.version), toStatus: to }; statusReason.value = ''; statusVisible.value = true; }
@@ -122,5 +175,6 @@ function statusColor(s: string): string { return ({ enabled: 'green', paused: 'o
 onMounted(async () => { await loadPerms(); await reload(); });
 </script>
 <style scoped>
-.field-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.scope-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.field-row { display: flex; gap: 4px; margin-bottom: 8px; align-items: center; }
 </style>
