@@ -100,7 +100,7 @@ export const usePacuExtensionStore = defineStore('pacu-extension', {
       this.error = null;
       try {
         const created = await pacuApi.scoreCreate(data) as unknown as PacuScoreApi;
-        this.scores.unshift(created);
+        await this.load(data.operationId);
         return created;
       } catch (error) {
         this.error = errorMessage(error);
@@ -120,7 +120,7 @@ export const usePacuExtensionStore = defineStore('pacu-extension', {
       this.error = null;
       try {
         const created = await pacuApi.orderCreate(data) as unknown as PacuOrderApi;
-        this.orders.unshift(created);
+        await this.load(data.operationId);
         return created;
       } catch (error) {
         this.error = errorMessage(error);
@@ -140,6 +140,7 @@ export const usePacuExtensionStore = defineStore('pacu-extension', {
           const execResult = await pacuApi.orderExecutions(orderId) as unknown as { list: PacuExecutionApi[] };
           this.executions[orderId] = execResult.list ?? [];
         } catch { /* ignore */ }
+        if (this.loadedOperationId) await this.load(this.loadedOperationId);
         return res;
       } catch (error) {
         this.error = errorMessage(error);
@@ -154,10 +155,7 @@ export const usePacuExtensionStore = defineStore('pacu-extension', {
       this.error = null;
       try {
         await pacuApi.orderStop(orderId, reason ?? '');
-        const idx = this.orders.findIndex((o) => o.orderId === orderId);
-        if (idx >= 0) {
-          this.orders[idx] = { ...this.orders[idx], status: 'stopped', stoppedAt: new Date().toISOString() };
-        }
+        if (this.loadedOperationId) await this.load(this.loadedOperationId);
       } catch (error) {
         this.error = errorMessage(error);
         throw error;

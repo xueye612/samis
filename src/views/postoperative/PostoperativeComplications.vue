@@ -1,196 +1,213 @@
 <template>
-  <ModulePageShell title="并发症追踪" description="术后异常事件登记与病例回溯">
-    <template #chips>
-      <a-tag color="orangered">记录 {{ store.complications.length }}</a-tag>
-    </template>
-    <template #toolbar>
-      <a-button :disabled="!form.caseId" @click="refreshDetail">刷新回读</a-button>
-      <a-button type="primary" @click="openCreate">登记并发症</a-button>
-    </template>
-    <a-card v-if="detail" class="section-card" :bordered="false" title="OperationCase / 结构化并发症">
-      <div>{{ detail.operationCase.patientName ?? '-' }} · {{ detail.operationCase.operationName ?? '-' }} · {{ detail.operationCase.operationId }}</div>
-      <a-table :data="detail.complications" row-key="complicationId" :pagination="false" style="margin-top: 12px">
-        <template #columns>
-          <a-table-column title="类型" data-index="complicationType" /><a-table-column title="严重度" data-index="severity" />
-          <a-table-column title="状态" data-index="reportStatus" /><a-table-column title="转归" data-index="outcome" />
-          <a-table-column title="操作"><template #cell="{ record }"><a-button size="mini" status="danger" :disabled="record.reportStatus === 'voided'" @click="voidCurrent(record.complicationId)">作废</a-button></template></a-table-column>
-        </template>
-      </a-table>
-    </a-card>
-    <a-card class="section-card" :bordered="false" title="并发症列表">
-      <a-table :data="store.complications" row-key="id" :pagination="{ pageSize: 8 }">
-        <template #columns>
-          <a-table-column title="患者" data-index="patientName" :width="100" />
-          <a-table-column title="类型" data-index="type" />
-          <a-table-column title="严重程度" data-index="severity" :width="100" />
-          <a-table-column title="阶段" data-index="stage" :width="90" />
-          <a-table-column title="转归" data-index="outcome" />
-          <a-table-column title="上报时间" data-index="reportTime" :width="150" />
-          <a-table-column title="状态" :width="90">
-            <template #cell="{ record }">
-              <a-tag :color="record.status === '已提交' ? 'green' : 'gray'">{{ record.status }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="操作" :width="220" fixed="right">
-            <template #cell="{ record }">
-              <a-space>
-                <a-button size="mini" @click="openEdit(record)">编辑</a-button>
-                <a-button size="mini" status="danger" :loading="deletingId === record.id" @click="onDelete(record)">删除</a-button>
-                <a-button size="mini" type="primary" @click="goCase(record.caseId)">病例</a-button>
-              </a-space>
-            </template>
-          </a-table-column>
-        </template>
-      </a-table>
-    </a-card>
-    <a-modal v-model:visible="visible" :title="editingId ? '编辑并发症' : '登记并发症'" width="640px" @ok="save">
-      <a-form :model="form" layout="vertical">
-        <a-form-item label="关联病例" required>
-          <a-select v-model="form.caseId" :options="caseOptions" placeholder="选择患者" />
-        </a-form-item>
-        <a-row :gutter="12">
-          <a-col :span="12">
-            <a-form-item label="并发症类型" required>
-              <a-select v-model="form.type" :options="typeOptions" allow-create />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="严重程度" required>
-              <a-select v-model="form.severity" :options="['轻度', '中度', '重度', '危及生命']" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="发生阶段">
-          <a-select v-model="form.stage" :options="['术前', '术中', '术后', 'PACU', '随访']" />
-        </a-form-item>
-        <a-form-item label="症状描述"><a-textarea v-model="form.symptoms" /></a-form-item>
-        <a-form-item label="处理措施"><a-textarea v-model="form.treatment" /></a-form-item>
-        <a-form-item label="转归"><a-input v-model="form.outcome" /></a-form-item>
-      </a-form>
-    </a-modal>
-  </ModulePageShell>
+  <ModulePageShell
+    title="并发症追踪"
+    description="麻醉并发症真实上报、版本与作废闭环"
+    ><template #toolbar
+      ><a-select
+        v-model="operationId"
+        :options="caseOptions"
+        style="width: 320px"
+      /><a-button @click="load">刷新</a-button
+      ><a-button v-if="canManage" type="primary" @click="openCreate"
+        >登记</a-button
+      ></template
+    ><a-alert v-if="error" type="error">{{ error }}</a-alert
+    ><a-card v-if="detail" title="OperationCase（只读）"
+      ><div>
+        {{ detail.operationCase.patientName ?? "-" }} ·
+        {{ detail.operationCase.operationName ?? "-" }} ·
+        {{ detail.operationCase.operationDate ?? "-" }}
+      </div></a-card
+    ><a-card v-if="detail" title="并发症记录"
+      ><a-table
+        :data="detail.complications"
+        row-key="complicationId"
+        :pagination="false"
+        ><template #columns
+          ><a-table-column
+            title="类型"
+            data-index="complicationType"
+          /><a-table-column
+            title="严重度"
+            data-index="severity"
+          /><a-table-column
+            title="发生时间"
+            data-index="occurredAt"
+          /><a-table-column
+            title="状态"
+            data-index="reportStatus"
+          /><a-table-column title="版本" data-index="version" /><a-table-column
+            title="操作"
+            ><template #cell="{ record }"
+              ><a-space v-if="canManage"
+                ><a-button
+                  size="mini"
+                  :disabled="record.reportStatus !== 'draft'"
+                  @click="edit(record)"
+                  >编辑</a-button
+                ><a-button
+                  size="mini"
+                  type="primary"
+                  :disabled="record.reportStatus !== 'draft'"
+                  @click="report(record)"
+                  >上报</a-button
+                ><a-button
+                  size="mini"
+                  status="danger"
+                  :disabled="record.reportStatus === 'voided'"
+                  @click="voidRow(record)"
+                  >作废</a-button
+                ></a-space
+              ></template
+            ></a-table-column
+          ></template
+        ></a-table
+      ><a-empty
+        v-if="!detail.complications.length"
+        description="暂无真实并发症记录" /></a-card
+    ><a-modal v-model:visible="visible" title="并发症" @ok="save"
+      ><a-form :model="form" layout="vertical"
+        ><a-form-item label="类型"
+          ><a-input v-model="form.complicationType" /></a-form-item
+        ><a-form-item label="严重度"
+          ><a-select
+            v-model="form.severity"
+            :options="[
+              'mild',
+              'moderate',
+              'severe',
+              'life_threatening',
+            ]" /></a-form-item
+        ><a-form-item label="发生时间"
+          ><a-date-picker
+            v-model="form.occurredAt"
+            show-time
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%" /></a-form-item
+        ><a-form-item label="描述"
+          ><a-textarea v-model="form.description" /></a-form-item
+        ><a-form-item label="处理"
+          ><a-textarea v-model="form.treatment" /></a-form-item
+        ><a-form-item label="转归"
+          ><a-input v-model="form.outcome" /></a-form-item></a-form></a-modal
+  ></ModulePageShell>
 </template>
-
 <script setup lang="ts">
-import dayjs from 'dayjs';
-import { computed, onMounted, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
-import { Message } from '@arco-design/web-vue';
-import ModulePageShell from '@/components/shared/ModulePageShell.vue';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
-import { useRealPostoperative } from '@/config/apiFlags';
-import type { ComplicationRecord } from '@/types/clinicalModules';
-import type { PostoperativeDetail } from '@/services/anesthesia/postoperativeWorkflow';
-import { loadPostoperativeDetail, saveComplication, voidComplication } from '@/services/anesthesia/postoperativeWorkflow';
-
-const store = useAnesthesiaStore();
-const router = useRouter();
-const visible = ref(false);
-const editingId = ref('');
-const saving = ref(false);
-const deletingId = ref('');
-const detail = ref<PostoperativeDetail | null>(null);
-const typeOptions = ['恶心呕吐', '呼吸抑制', '低体温', '低血压', '出血', '感染', '其他'];
-
+import dayjs from "dayjs";
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import { Message, Modal } from "@arco-design/web-vue";
+import ModulePageShell from "@/components/shared/ModulePageShell.vue";
+import { authApi } from "@/api/auth";
+import type { OperationCase } from "@/services/anesthesia/adapters/operationInfoAdapter";
+import { loadOperationCases } from "@/services/preoperative/preoperativeFiveFlowsService";
+import {
+  hasPostoperativePermission,
+  loadPostoperativeDetail,
+  reportComplication,
+  saveComplication,
+  voidComplication,
+  type PostoperativeDetail,
+} from "@/services/anesthesia/postoperativeWorkflow";
+import type { PostoperativeComplicationContract } from "@/api/postoperative";
+const cases = ref<OperationCase[]>([]),
+  permissions = ref<string[]>([]),
+  operationId = ref(""),
+  detail = ref<PostoperativeDetail | null>(null),
+  error = ref(""),
+  visible = ref(false),
+  editing = ref<PostoperativeComplicationContract | null>(null);
 const form = reactive({
-  caseId: '',
-  type: '其他',
-  severity: '中度' as ComplicationRecord['severity'],
-  stage: '术后',
-  symptoms: '',
-  treatment: '',
-  outcome: '观察中',
+  complicationType: "",
+  severity: "moderate" as PostoperativeComplicationContract["severity"],
+  occurredAt: "",
+  description: "",
+  treatment: "",
+  outcome: "",
 });
-
-const caseOptions = computed(() =>
-  store.cases.map((item) => ({ label: `${item.patientName} · ${item.surgeryName}`, value: item.id })),
+const canManage = computed(() =>
+  hasPostoperativePermission(permissions.value, "postop.complication.manage"),
 );
-const operationCaseOf = (operationId: string) => { const row=store.cases.find((item)=>item.id===operationId); return row?{operationId:row.id,patientName:row.patientName,operationName:row.surgeryName}:{operationId}; };
-const refreshDetail = async () => { if(form.caseId) detail.value=await loadPostoperativeDetail(form.caseId,operationCaseOf(form.caseId)); };
-const voidCurrent = async (complicationId:string) => { if(form.caseId) detail.value=await voidComplication(form.caseId,complicationId,'页面作废'); };
-
-const resetForm = () => {
-  form.caseId = store.cases[0]?.id ?? '';
-  form.type = '其他';
-  form.severity = '中度';
-  form.stage = '术后';
-  form.symptoms = '';
-  form.treatment = '';
-  form.outcome = '观察中';
-};
-
-const openCreate = () => {
-  editingId.value = '';
-  resetForm();
-  visible.value = true;
-};
-
-const openEdit = (record: ComplicationRecord) => {
-  editingId.value = record.id;
-  form.caseId = record.caseId;
-  form.type = record.type;
-  form.severity = record.severity;
-  form.stage = record.stage;
-  form.symptoms = record.symptoms;
-  form.treatment = record.treatment;
-  form.outcome = record.outcome;
-  visible.value = true;
-};
-
-const save = async () => {
-  if (!form.caseId) {
-    Message.warning('请选择关联病例');
-    return;
-  }
-  const patient = store.cases.find((item) => item.id === form.caseId);
-  const payload: ComplicationRecord = {
-    id: editingId.value || `comp-${Date.now()}`,
-    caseId: form.caseId,
-    patientName: patient?.patientName ?? '',
-    type: form.type,
-    severity: form.severity,
-    stage: form.stage,
-    symptoms: form.symptoms,
-    treatment: form.treatment,
-    outcome: form.outcome,
-    reportTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-    status: '已提交',
-  };
-  saving.value = true;
+const caseOptions = computed(() =>
+  cases.value.map((c) => ({
+    label: `${c.patientName ?? "-"} · ${c.operationName ?? "-"} · ${c.operationDate ?? "-"}`,
+    value: String(c.operationId),
+  })),
+);
+async function load() {
+  if (!operationId.value) return;
   try {
-    if (useRealPostoperative()) {
-      detail.value = await saveComplication({ operationId: form.caseId, complicationId: /^\d+$/.test(editingId.value) ? editingId.value : undefined, complicationType: form.type, severity: ({轻度:'mild',中度:'moderate',重度:'severe',危及生命:'life_threatening'} as const)[form.severity], occurredAt: payload.reportTime, description: form.symptoms, treatment: form.treatment, outcome: form.outcome, reportStatus: 'reported' }, operationCaseOf(form.caseId));
-    } else {
-      store.saveComplication(payload);
-    }
-    Message.success('并发症记录已保存');
-    visible.value = false;
-  } catch (error) {
-    Message.warning(error instanceof Error ? error.message : '保存并发症失败');
-  } finally {
-    saving.value = false;
+    detail.value = await loadPostoperativeDetail(operationId.value);
+    error.value = "";
+  } catch (e) {
+    detail.value = null;
+    error.value = e instanceof Error ? e.message : "加载失败";
   }
-};
-
-const onDelete = async (record: ComplicationRecord) => {
-  deletingId.value = record.id;
-  try {
-    if (useRealPostoperative()) {
-      await store.deleteComplicationRemote(record.id);
-    } else {
-      store.complications = store.complications.filter((item) => item.id !== record.id);
-    }
-    Message.success('并发症记录已删除');
-  } catch (error) {
-    Message.warning(error instanceof Error ? error.message : '删除失败');
-  } finally {
-    deletingId.value = '';
-  }
-};
-
-onMounted(() => {
-  if (useRealPostoperative()) { void store.loadRemoteComplications(); if(form.caseId) void refreshDetail(); }
+}
+function openCreate() {
+  editing.value = null;
+  Object.assign(form, {
+    complicationType: "",
+    severity: "moderate",
+    occurredAt: dayjs().format("YYYY-MM-DD HH:mm:ss"),
+    description: "",
+    treatment: "",
+    outcome: "",
+  });
+  visible.value = true;
+}
+function edit(r: PostoperativeComplicationContract) {
+  editing.value = r;
+  Object.assign(form, {
+    complicationType: r.complicationType,
+    severity: r.severity,
+    occurredAt: r.occurredAt ?? "",
+    description: r.description ?? "",
+    treatment: r.treatment ?? "",
+    outcome: r.outcome ?? "",
+  });
+  visible.value = true;
+}
+async function save() {
+  detail.value = await saveComplication({
+    operationId: operationId.value,
+    complicationId: editing.value?.complicationId,
+    expectedVersion: editing.value?.version ?? 0,
+    ...form,
+  });
+  visible.value = false;
+  Message.success("保存并回读成功");
+}
+async function report(r: PostoperativeComplicationContract) {
+  detail.value = await reportComplication(
+    operationId.value,
+    r.complicationId,
+    r.version,
+  );
+}
+function voidRow(r: PostoperativeComplicationContract) {
+  Modal.confirm({
+    title: "作废并发症",
+    content: "确认按误报作废？",
+    onOk: async () => {
+      detail.value = await voidComplication(
+        operationId.value,
+        r.complicationId,
+        r.version,
+        "页面确认误报",
+      );
+    },
+  });
+}
+onMounted(async () => {
+  const [c, p] = await Promise.all([
+    loadOperationCases(),
+    authApi.myPermissions(),
+  ]);
+  cases.value = c;
+  permissions.value = Array.isArray(p?.permissions)
+    ? p.permissions.map(String)
+    : [];
+  operationId.value = String(c[0]?.operationId ?? "");
 });
-
-const goCase = (caseId: string) => router.push(`/surgery/detail/${caseId}`);
+watch(operationId, () => void load());
 </script>

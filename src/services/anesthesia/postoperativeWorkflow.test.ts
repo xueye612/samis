@@ -1,11 +1,98 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-vi.mock('@/config/apiFlags',()=>({useRealPostoperative:vi.fn(()=>false)}));
-vi.mock('@/api/postoperative',()=>({postoperativeApi:{followupDetail:vi.fn(),followupSaveDraft:vi.fn(),followupSubmit:vi.fn(),followupCancelSubmit:vi.fn(),complicationSave:vi.fn(),complicationVoid:vi.fn()}}));
-import { useRealPostoperative } from '@/config/apiFlags'; import { postoperativeApi } from '@/api/postoperative';
-import { buildComplicationSavePayload, buildFollowupDraftPayload, cancelFollowup, loadPostoperativeDetail, resetPostoperativeMock, saveComplication, saveFollowupDraft, submitFollowup, voidComplication } from './postoperativeWorkflow';
-describe('postoperative workflow adapter',()=>{
- beforeEach(()=>{resetPostoperativeMock();vi.mocked(useRealPostoperative).mockReturnValue(false);vi.clearAllMocks();});
- it('runs mock followup and complication state flow',async()=>{const operationCase={operationId:'OP-1',patientName:'只读患者',operationName:'只读手术'};expect((await loadPostoperativeDetail('OP-1',operationCase)).followup).toBeNull();expect((await saveFollowupDraft({operationId:'OP-1',painScore:2},operationCase)).followup?.status).toBe('draft');expect((await submitFollowup('OP-1')).followup?.status).toBe('submitted');expect((await cancelFollowup('OP-1')).followup?.status).toBe('cancelled');const saved=await saveComplication({operationId:'OP-1',complicationType:'PONV',severity:'moderate'},operationCase);const cid=saved.complications[0].complicationId;expect((await voidComplication('OP-1',cid,'误报')).complications[0].reportStatus).toBe('voided');});
- it('filters patient and operation master data from write payloads',()=>{const f=buildFollowupDraftPayload({operationId:'OP-2',painScore:1,patientName:'x',operationName:'y'} as never);const c=buildComplicationSavePayload({operationId:'OP-2',complicationType:'x',patientName:'x',operationName:'y'} as never);expect(f).toEqual({operationId:'OP-2',painScore:1});expect(c).toEqual({operationId:'OP-2',complicationType:'x'});});
- it('uses real flag paths and filtered payloads',async()=>{vi.mocked(useRealPostoperative).mockReturnValue(true);const detail={operationCase:{operationId:'OP-3'},followup:null,complications:[]};vi.mocked(postoperativeApi.followupDetail).mockResolvedValue(detail);vi.mocked(postoperativeApi.followupSaveDraft).mockResolvedValue(detail);vi.mocked(postoperativeApi.complicationSave).mockResolvedValue(detail);await loadPostoperativeDetail('OP-3');await saveFollowupDraft({operationId:'OP-3',painScore:4,patientName:'bad'} as never);await saveComplication({operationId:'OP-3',complicationType:'PONV',patientName:'bad'} as never);expect(postoperativeApi.followupDetail).toHaveBeenCalledWith('OP-3');expect(postoperativeApi.followupSaveDraft).toHaveBeenCalledWith({operationId:'OP-3',painScore:4});expect(postoperativeApi.complicationSave).toHaveBeenCalledWith({operationId:'OP-3',complicationType:'PONV'});});
+import { beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("@/config/apiFlags", () => ({
+  useRealPostoperative: vi.fn(() => false),
+}));
+vi.mock("@/api/postoperative", () => ({
+  postoperativeApi: {
+    followupDetail: vi.fn(),
+    followupSaveDraft: vi.fn(),
+    followupSubmit: vi.fn(),
+    followupCancelSubmit: vi.fn(),
+    complicationSave: vi.fn(),
+    complicationReport: vi.fn(),
+    complicationVoid: vi.fn(),
+  },
+}));
+import { useRealPostoperative } from "@/config/apiFlags";
+import { postoperativeApi } from "@/api/postoperative";
+import {
+  buildComplicationSavePayload,
+  buildFollowupDraftPayload,
+  cancelFollowup,
+  hasPostoperativePermission,
+  reportComplication,
+  resetPostoperativeMock,
+  saveComplication,
+  saveFollowupDraft,
+  submitFollowup,
+  voidComplication,
+} from "./postoperativeWorkflow";
+describe("postoperative workflow", () => {
+  beforeEach(() => {
+    resetPostoperativeMock();
+    vi.mocked(useRealPostoperative).mockReturnValue(false);
+    vi.clearAllMocks();
+  });
+  it("runs versioned state flow", async () => {
+    let d = await saveFollowupDraft({
+      operationId: "OP",
+      expectedVersion: 0,
+      painScore: 2,
+    });
+    expect(d.followup?.version).toBe(1);
+    d = await submitFollowup("OP", 1);
+    d = await cancelFollowup("OP", 2, "修订");
+    expect(d.followup?.version).toBe(3);
+    d = await saveComplication({
+      operationId: "OP",
+      expectedVersion: 0,
+      complicationType: "PONV",
+    });
+    const c = d.complications[0];
+    d = await reportComplication("OP", c.complicationId, 1);
+    d = await voidComplication("OP", c.complicationId, 2, "误报");
+    expect(d.complications[0].reportStatus).toBe("voided");
+  });
+  it("filters master fields", () => {
+    expect(
+      buildFollowupDraftPayload({
+        operationId: "OP",
+        expectedVersion: 0,
+        painScore: 1,
+        patientName: "bad",
+      } as never),
+    ).toEqual({ operationId: "OP", expectedVersion: 0, painScore: 1 });
+    expect(
+      buildComplicationSavePayload({
+        operationId: "OP",
+        expectedVersion: 0,
+        complicationType: "x",
+        patientName: "bad",
+      } as never),
+    ).toEqual({ operationId: "OP", expectedVersion: 0, complicationType: "x" });
+  });
+  it("forces GET after POST", async () => {
+    vi.mocked(useRealPostoperative).mockReturnValue(true);
+    const d = {
+      operationCase: { operationId: "OP" },
+      followup: null,
+      complications: [],
+    };
+    vi.mocked(postoperativeApi.followupDetail).mockResolvedValue(d);
+    vi.mocked(postoperativeApi.followupSaveDraft).mockResolvedValue(d);
+    await saveFollowupDraft({ operationId: "OP", expectedVersion: 0 });
+    expect(postoperativeApi.followupSaveDraft).toHaveBeenCalledWith({
+      operationId: "OP",
+      expectedVersion: 0,
+    });
+    expect(postoperativeApi.followupDetail).toHaveBeenCalledWith("OP");
+  });
+  it("checks permissions", () => {
+    expect(
+      hasPostoperativePermission(["postop.*"], "postop.followup.manage"),
+    ).toBe(true);
+    expect(hasPostoperativePermission([], "postop.followup.manage")).toBe(
+      false,
+    );
+  });
 });

@@ -1,205 +1,203 @@
 <template>
-  <div class="page-stack">
-    <a-card class="section-card" :bordered="false" title="PACU 真实化工作流">
-      <a-space wrap>
-        <a-input v-model="workflowOperationId" placeholder="operationId" style="width:260px" />
-        <a-button :loading="workflowLoading" @click="loadWorkflow">加载/刷新</a-button>
-        <a-button type="primary" :disabled="!!workflowDetail?.pacuRecord" @click="runWorkflow('admit')">入 PACU</a-button>
-        <a-button :disabled="!['admitted','recovering'].includes(workflowStatus)" @click="runWorkflow('saveRecovery')">保存恢复记录</a-button>
-        <a-button :disabled="workflowStatus !== 'recovering'" @click="runWorkflow('markReady')">标记达标</a-button>
-        <a-button :disabled="workflowStatus !== 'ready_to_discharge'" @click="runWorkflow('discharge')">转出</a-button>
-        <a-button status="danger" :disabled="!['admitted','recovering'].includes(workflowStatus)" @click="runWorkflow('void')">作废/取消</a-button>
-      </a-space>
-      <a-alert v-if="workflowDetail" class="record-alert" type="info">
-        {{ workflowDetail.operationCase.patientName ?? '—' }} · {{ workflowDetail.operationCase.operationName ?? '—' }} · {{ workflowStatus || 'pending' }}
-      </a-alert>
-    </a-card>
-    <template v-if="current">
-    <section class="module-hero">
-      <div>
-        <h2 class="module-hero__title">PACU恢复记录</h2>
-        <p class="module-hero__desc">{{ current.patientName }} · {{ current.room }} · 停留 {{ stayMinutes(current) }} 分钟</p>
-      </div>
-      <div class="module-hero__chips">
-        <a-tag :color="stayMinutes(current) > 120 ? 'red' : 'green'">{{ stayMinutes(current) > 120 ? '超2小时' : '停留正常' }}</a-tag>
-        <a-tag :color="current.firstTemperature && current.firstTemperature < 36 ? 'orangered' : 'arcoblue'">
-          首温 {{ current.firstTemperature ?? '未记录' }}
-        </a-tag>
-      </div>
-    </section>
-
-    <a-card class="section-card" :bordered="false">
-      <template #title>PACU恢复记录</template>
-      <template #extra>
-        <a-radio-group v-model="viewMode" type="button" size="small">
-          <a-radio value="form">表单录入</a-radio>
-          <a-radio value="sheet">纸面记录单</a-radio>
-        </a-radio-group>
-        <a-select v-model="selectedId" class="toolbar-search">
-          <a-option v-for="item in store.pacuPatients" :key="item.id" :value="item.id">{{ item.patientName }} · {{ item.room }}</a-option>
-        </a-select>
-      </template>
-
-      <a-alert v-if="stayMinutes(current) > 120" class="record-alert" type="error" show-icon>PACU停留超过2小时，请记录转出延迟原因。</a-alert>
-      <a-alert v-if="current.firstTemperature && current.firstTemperature < 36" class="record-alert" type="warning" show-icon>首次体温低于36摄氏度，请记录复温措施。</a-alert>
-
-      <div v-if="viewMode === 'sheet' && linkedCase" class="pacu-sheet-wrap">
-        <LiveAnesthesiaSheet
-          :record="pacuSheetRecord"
-          :vitals="vitalCatalog"
-          :drugs="drugCatalog"
-          :fluids="fluidCatalog"
-          :monitor-order="monitorOrder"
-          :read-only="linkedCase.locked"
-          :method-keys="['general']"
-          :method-labels="[linkedCase.anesthesiaMethod]"
-          @save-vital="savePacuVital"
-        />
-      </div>
-
-      <a-form v-else :model="current" layout="vertical">
-        <a-row :gutter="14">
-          <a-col :span="6"><a-form-item label="入PACU时间"><a-input :model-value="formatTime(current.inTime)" readonly /></a-form-item></a-col>
-          <a-col :span="6"><a-form-item label="首次体温"><a-input-number v-model="current.firstTemperature" /></a-form-item></a-col>
-          <a-col :span="6"><a-form-item label="HR"><a-input-number v-model="current.HR" /></a-form-item></a-col>
-          <a-col :span="6"><a-form-item label="BP"><a-input v-model="current.BP" /></a-form-item></a-col>
-          <a-col :span="6"><a-form-item label="SpO2"><a-input-number v-model="current.SpO2" /></a-form-item></a-col>
-          <a-col :span="6"><a-form-item label="RR"><a-input-number v-model="current.RR" /></a-form-item></a-col>
-          <a-col :span="6"><a-form-item label="Aldrete评分"><a-input-number v-model="current.aldrete" /></a-form-item></a-col>
-          <a-col :span="6"><a-form-item label="VAS评分"><a-input-number v-model="current.vas" /></a-form-item></a-col>
-          <a-col :span="24">
-            <a-space wrap>
-              <a-checkbox v-model="current.nausea">恶心呕吐</a-checkbox>
-              <a-checkbox v-model="current.shivering">寒战</a-checkbox>
-              <a-checkbox v-model="current.agitation">躁动</a-checkbox>
-              <a-checkbox v-model="current.reintubation">二次插管</a-checkbox>
-            </a-space>
-          </a-col>
-          <a-col :span="8"><a-form-item label="转出时间"><a-input :model-value="formatTime(current.outTime)" placeholder="未转出" readonly /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="转出地点"><a-select v-model="current.transferTo" :options="['病房', 'ICU', '日间病房', '留观']" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="当前状态"><a-select v-model="current.status" :options="['观察中', '待转出', '已转出']" /></a-form-item></a-col>
-          <a-col :span="24"><a-form-item label="交接记录"><a-textarea v-model="current.handover" :auto-size="{ minRows: 4 }" /></a-form-item></a-col>
-        </a-row>
-      </a-form>
-
-      <div class="page-toolbar">
-        <a-button type="primary" @click="saveRecord">
-          <template #icon><icon-file /></template>
-          保存记录
-        </a-button>
-        <a-button @click="router.push('/pacu/transfer')">
-          <template #icon><icon-swap /></template>
-          转出管理
-        </a-button>
-      </div>
-    </a-card>
-    </template>
-  </div>
+  <ModulePageShell
+    title="PACU恢复记录"
+    description="恢复记录、达标、出室与时间轴"
+    ><template #toolbar
+      ><a-select
+        v-model="operationId"
+        :options="caseOptions"
+        style="width: 320px"
+      /><a-button :loading="loading" @click="load">刷新</a-button></template
+    ><a-alert v-if="error" type="error">{{ error }}</a-alert
+    ><a-card v-if="detail" title="OperationCase（只读）"
+      ><a-descriptions :column="3" bordered
+        ><a-descriptions-item label="患者">{{
+          detail.operationCase.patientName ?? "-"
+        }}</a-descriptions-item
+        ><a-descriptions-item label="手术">{{
+          detail.operationCase.operationName ?? "-"
+        }}</a-descriptions-item
+        ><a-descriptions-item label="日期">{{
+          detail.operationCase.operationDate ?? "-"
+        }}</a-descriptions-item
+        ><a-descriptions-item label="PACU状态">{{
+          record?.status ?? "未入室"
+        }}</a-descriptions-item
+        ><a-descriptions-item label="版本">{{
+          record?.version ?? 0
+        }}</a-descriptions-item
+        ><a-descriptions-item label="入室时间">{{
+          record?.admittedAt ?? "-"
+        }}</a-descriptions-item></a-descriptions
+      ></a-card
+    ><a-card v-if="record" title="恢复记录"
+      ><a-form :model="form" layout="vertical"
+        ><a-row :gutter="12"
+          ><a-col :span="6"
+            ><a-form-item label="Aldrete"
+              ><a-input-number
+                v-model="form.aldreteScore"
+                :min="0"
+                :max="10" /></a-form-item></a-col
+          ><a-col :span="6"
+            ><a-form-item label="VAS"
+              ><a-input-number
+                v-model="form.painScore"
+                :min="0"
+                :max="10" /></a-form-item></a-col
+          ><a-col :span="6"
+            ><a-form-item label="氧疗"
+              ><a-input v-model="form.oxygenSupport" /></a-form-item></a-col
+          ><a-col :span="6"
+            ><a-form-item label="气道"
+              ><a-input
+                v-model="form.airwayStatus" /></a-form-item></a-col></a-row
+        ><a-form-item label="备注"
+          ><a-textarea v-model="form.notes" /></a-form-item></a-form
+      ><a-space v-if="canManage"
+        ><a-button
+          type="primary"
+          :disabled="!['admitted', 'recovering'].includes(record.status)"
+          @click="act('saveRecovery')"
+          >保存恢复</a-button
+        ><a-button
+          :disabled="record.status !== 'recovering'"
+          @click="act('markReady')"
+          >确认达标</a-button
+        ><a-button
+          :disabled="record.status !== 'ready_to_discharge'"
+          @click="act('discharge')"
+          >正常出室</a-button
+        ><a-button
+          v-if="canForce"
+          status="danger"
+          :disabled="
+            !['admitted', 'recovering', 'ready_to_discharge'].includes(
+              record.status,
+            )
+          "
+          @click="act('forceDischarge')"
+          >强制出室</a-button
+        ></a-space
+      ></a-card
+    ><a-card v-if="detail" title="PACU时间轴"
+      ><a-timeline
+        ><a-timeline-item
+          v-for="item in detail.timeline ?? []"
+          :key="String(item.eventId)"
+          >{{ item.occurredAt }} · {{ item.eventType }} ·
+          {{ item.fromStatus ?? "-" }} → {{ item.toStatus }} · v{{
+            item.version
+          }}</a-timeline-item
+        ></a-timeline
+      ></a-card
+    ><a-card v-if="detail" title="护理摘要（HULI只读）">
+      <pre>{{ detail.nursingSummary }}</pre>
+    </a-card></ModulePageShell
+  >
 </template>
-
 <script setup lang="ts">
-import dayjs from 'dayjs';
-import { computed, ref, watch } from 'vue';
-import { Message } from '@arco-design/web-vue';
-import { useRoute, useRouter } from 'vue-router';
-import LiveAnesthesiaSheet from '@/components/anesthesia/record/LiveAnesthesiaSheet.vue';
-import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog, ensureRecordDocument } from '@/services/anesthesiaRecordEngine';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
-import type { PacuPatient, SurgeryCase, VitalSign } from '@/types/anesthesia';
-import { pacuAction, pacuDetail, type PacuDetailContract } from '@/services/anesthesia/pacuWorkflow';
-
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import { Message } from "@arco-design/web-vue";
+import { useRoute } from "vue-router";
+import ModulePageShell from "@/components/shared/ModulePageShell.vue";
+import { authApi } from "@/api/auth";
+import { loadOperationCases } from "@/services/preoperative/preoperativeFiveFlowsService";
+import type { OperationCase } from "@/services/anesthesia/adapters/operationInfoAdapter";
+import {
+  hasPacuPermission,
+  pacuAction,
+  pacuDetail,
+  type PacuAction,
+  type PacuDetailContract,
+} from "@/services/anesthesia/pacuWorkflow";
+const cases = ref<OperationCase[]>([]),
+  permissions = ref<string[]>([]),
+  operationId = ref(""),
+  detail = ref<PacuDetailContract | null>(null),
+  loading = ref(false),
+  error = ref("");
 const route = useRoute();
-const router = useRouter();
-const store = useAnesthesiaStore();
-const selectedId = ref(String(route.params.id || store.pacuPatients[0]?.id));
-const viewMode = ref<'form' | 'sheet'>('form');
-const workflowOperationId = ref(String(route.query.operationId || route.params.id || ''));
-const workflowDetail = ref<PacuDetailContract | null>(null);
-const workflowLoading = ref(false);
-const workflowStatus = computed(() => workflowDetail.value?.pacuRecord?.status ?? '');
-const loadWorkflow = async () => { if (!workflowOperationId.value) return; workflowLoading.value=true; try { workflowDetail.value=await pacuDetail(workflowOperationId.value); } catch(e) { Message.error(e instanceof Error?e.message:'PACU加载失败'); } finally { workflowLoading.value=false; } };
-const runWorkflow = async (action:'admit'|'saveRecovery'|'markReady'|'discharge'|'void') => { if(!workflowOperationId.value)return; const record=workflowDetail.value?.pacuRecord; const payload:Record<string,unknown>={operationId:workflowOperationId.value}; if(action==='saveRecovery')Object.assign(payload,{aldreteScore:current.value?.aldrete,painScore:current.value?.vas,nauseaVomiting:current.value?.nausea,shivering:current.value?.shivering,vitalSummary:current.value?`HR ${current.value.HR}; BP ${current.value.BP}; SpO2 ${current.value.SpO2}; RR ${current.value.RR}`:undefined,notes:current.value?.handover}); if(action==='markReady')Object.assign(payload,{dischargeCriteriaMet:true,aldreteScore:record?.aldreteScore}); if(action==='discharge')Object.assign(payload,{dischargeDestination:current.value?.transferTo||'病房'}); if(action==='void')Object.assign(payload,{voidReason:'页面取消'}); workflowLoading.value=true; try{workflowDetail.value=await pacuAction(action,payload);Message.success('PACU状态已更新');}catch(e){Message.error(e instanceof Error?e.message:'PACU操作失败');}finally{workflowLoading.value=false;} };
-
-watch(() => route.params.id, (id) => {
-  if (id) selectedId.value = String(id);
+const form = reactive({
+  aldreteScore: 0,
+  painScore: 0,
+  oxygenSupport: "",
+  airwayStatus: "",
+  notes: "",
+  dischargeDestination: "病房",
 });
-
-const current = computed(() => store.pacuPatients.find((item) => item.id === selectedId.value));
-const linkedCase = computed(() => store.cases.find((item) => item.id === current.value?.caseId));
-const vitalCatalog = computed(() => buildVitalCatalog(store.configVitals));
-const drugCatalog = computed(() => buildDrugCatalog(store.configDrugs));
-const fluidCatalog = computed(() => buildFluidCatalog(store.configFluids));
-const monitorOrder = computed(() => ['HR', 'SBP', 'SpO2', 'RR', 'TEMP']);
-
-const pacuSheetRecord = computed((): SurgeryCase => {
-  const base = linkedCase.value;
-  if (!base || !current.value) return base as SurgeryCase;
-  const doc = ensureRecordDocument(base);
-  return {
-    ...base,
-    roomInTime: current.value.inTime,
-    anesthesiaStart: current.value.inTime,
-    recordDocument: {
-      ...doc,
-      recordType: 'pacu',
-      hospitalName: doc.hospitalName,
-    },
-    recordSummary: {
-      ...(base.recordSummary ?? {}),
-      destination: current.value.transferTo,
-      handoverNote: current.value.handover,
-    },
-    recoveryRecord: {
-      ...(base.recoveryRecord ?? {}),
-      pacuInTime: current.value.inTime,
-      pacuOutTime: current.value.outTime,
-      aldrete: current.value.aldrete,
-      painScore: current.value.vas,
-      handoverNote: current.value.handover,
-      destination: current.value.transferTo === 'ICU' ? 'ICU' : '病房',
-    },
-    vitals: [
-      ...(base.vitals ?? []),
-      {
-        id: `pacu-vital-${current.value.id}`,
-        time: current.value.inTime,
-        HR: current.value.HR,
-        SpO2: current.value.SpO2,
-        RR: current.value.RR,
-        TEMP: current.value.firstTemperature,
-        source: '手工录入',
-      },
-    ],
+const record = computed(() => detail.value?.pacuRecord ?? null);
+const canManage = computed(() =>
+  hasPacuPermission(permissions.value, "pacu.workflow.manage"),
+);
+const canForce = computed(() =>
+  hasPacuPermission(permissions.value, "pacu.force_discharge"),
+);
+const caseOptions = computed(() =>
+  cases.value.filter((c) => Boolean(c.operationId)).map((c) => ({
+    label: `${c.patientName ?? "-"} · ${c.operationName ?? "-"} · ${c.operationDate ?? "-"}`,
+    value: String(c.operationId),
+  })),
+);
+async function load() {
+  if (!operationId.value) return;
+  loading.value = true;
+  try {
+    detail.value = await pacuDetail(operationId.value);
+    const r = record.value;
+    if (r)
+      Object.assign(form, {
+        aldreteScore: r.aldreteScore ?? 0,
+        painScore: r.painScore ?? 0,
+        oxygenSupport: r.oxygenSupport ?? "",
+        airwayStatus: r.airwayStatus ?? "",
+        notes: r.notes ?? "",
+        dischargeDestination: r.dischargeDestination ?? "病房",
+      });
+    error.value = "";
+  } catch (e) {
+    detail.value = null;
+    error.value = e instanceof Error ? e.message : "加载失败";
+  } finally {
+    loading.value = false;
+  }
+}
+async function act(action: PacuAction) {
+  const r = record.value;
+  if (!r) return;
+  const payload: Record<string, unknown> = {
+    operationId: operationId.value,
+    expectedVersion: r.version,
   };
+  if (action === "saveRecovery") Object.assign(payload, form);
+  if (action === "markReady")
+    Object.assign(payload, {
+      dischargeCriteriaMet: true,
+      aldreteScore: form.aldreteScore,
+    });
+  if (action === "discharge")
+    Object.assign(payload, { dischargeDestination: form.dischargeDestination });
+  if (action === "forceDischarge")
+    Object.assign(payload, {
+      dischargeDestination: form.dischargeDestination,
+      reason: "页面强制出室",
+      reasonCode: "MANUAL_OVERRIDE",
+    });
+  detail.value = await pacuAction(action, payload);
+  Message.success("操作并回读成功");
+}
+onMounted(async () => {
+  const [c, p] = await Promise.all([
+    loadOperationCases(),
+    authApi.myPermissions(),
+  ]);
+  cases.value = c;
+  permissions.value = Array.isArray(p?.permissions)
+    ? p.permissions.map(String)
+    : [];
+  const requested = String(route.query.operationId ?? route.params.id ?? "");
+  operationId.value = requested || String(c.find((item) => item.operationId)?.operationId ?? "");
+  if (operationId.value) await load();
 });
-
-watch([selectedId, linkedCase], () => {
-  if (linkedCase.value) store.syncRecordDocument(linkedCase.value.id);
-}, { immediate: true });
-
-const formatTime = (value?: string) => (value ? dayjs(value).format('HH:mm') : '');
-const stayMinutes = (item: PacuPatient) => dayjs(item.outTime ?? new Date()).diff(dayjs(item.inTime), 'minute');
-
-const saveRecord = () => {
-  if (current.value) store.upsertPacuPatient(current.value);
-};
-
-const savePacuVital = (row: VitalSign) => {
-  if (!linkedCase.value) return;
-  store.upsertVital(linkedCase.value.id, row);
-};
+watch(operationId, () => void load());
 </script>
-
-<style scoped>
-.record-alert {
-  margin-bottom: 14px;
-}
-
-.pacu-sheet-wrap {
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px;
-  background: var(--surface);
-}
-</style>

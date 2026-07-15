@@ -2,8 +2,8 @@
   <ModulePageShell title="术后镇痛管理" description="镇痛方案创建、参数调整、评估和状态流转">
     <template #toolbar>
       <a-select v-model="selectedOperationId" style="width: 280px" placeholder="选择手术病例" allow-clear @change="onSelectChange as any">
-        <a-option v-for="item in store.cases" :key="item.id" :value="item.id">
-          {{ item.room }} · {{ item.patientName }} · {{ item.surgeryName }}
+        <a-option v-for="item in cases" :key="String(item.operationId)" :value="String(item.operationId)">
+          {{ item.roomName ?? '—' }} · {{ item.patientName ?? '—' }} · {{ item.operationName ?? '—' }}
         </a-option>
       </a-select>
     </template>
@@ -18,7 +18,7 @@
       <!-- 无方案 -->
       <a-card v-else-if="!analgesia.currentPlan" class="section-card" :bordered="false" title="镇痛方案">
         <a-empty description="该病例暂无镇痛方案">
-          <a-button type="primary" :loading="analgesia.saving" @click="onCreateDraft">新建镇痛方案</a-button>
+          <a-button v-if="canManage" type="primary" :loading="analgesia.saving" @click="onCreateDraft">新建镇痛方案</a-button>
         </a-empty>
       </a-card>
 
@@ -32,12 +32,12 @@
           </template>
           <template #extra>
             <a-space>
-              <a-button v-if="analgesia.canStart" type="primary" :loading="analgesia.saving" @click="onStart">启动</a-button>
-              <a-button v-if="analgesia.canPause" :loading="analgesia.saving" @click="onPause">暂停</a-button>
-              <a-button v-if="analgesia.canResume" type="primary" :loading="analgesia.saving" @click="onResume">恢复</a-button>
-              <a-button v-if="analgesia.canStop" status="warning" :loading="analgesia.saving" @click="onStop">停止</a-button>
-              <a-button v-if="analgesia.canComplete" status="success" :loading="analgesia.saving" @click="onComplete">完成</a-button>
-              <a-button v-if="analgesia.canVoid" status="danger" :loading="analgesia.saving" @click="onVoid">作废</a-button>
+              <a-button v-if="canManage && analgesia.canStart" type="primary" :loading="analgesia.saving" @click="onStart">启动</a-button>
+              <a-button v-if="canManage && analgesia.canPause" :loading="analgesia.saving" @click="onPause">暂停</a-button>
+              <a-button v-if="canManage && analgesia.canResume" type="primary" :loading="analgesia.saving" @click="onResume">恢复</a-button>
+              <a-button v-if="canManage && analgesia.canStop" status="warning" :loading="analgesia.saving" @click="onStop">停止</a-button>
+              <a-button v-if="canManage && analgesia.canComplete" status="success" :loading="analgesia.saving" @click="onComplete">完成</a-button>
+              <a-button v-if="canManage && analgesia.canVoid" status="danger" :loading="analgesia.saving" @click="onVoid">作废</a-button>
             </a-space>
           </template>
 
@@ -54,7 +54,7 @@
           </a-descriptions>
 
           <!-- 草稿编辑表单 -->
-          <a-form v-if="analgesia.currentPlan.status === 'draft'" :model="draftForm" layout="vertical" style="margin-top: 16px">
+          <a-form v-if="canManage && analgesia.currentPlan.status === 'draft'" :model="draftForm" layout="vertical" style="margin-top: 16px">
             <a-row :gutter="14">
               <a-col :span="8"><a-form-item label="镇痛方式"><a-input v-model="draftForm.methodCode" placeholder="如 PCIA/PCEA" /></a-form-item></a-col>
               <a-col :span="6"><a-form-item label="背景速率(ml/h)"><a-input-number v-model="draftForm.backgroundRateMlH" :min="0" :step="0.5" /></a-form-item></a-col>
@@ -69,7 +69,7 @@
           </a-form>
 
           <!-- 参数调整 -->
-          <a-form v-if="analgesia.canAdjust" :model="adjustForm" layout="vertical" style="margin-top: 16px">
+          <a-form v-if="canManage && analgesia.canAdjust" :model="adjustForm" layout="vertical" style="margin-top: 16px">
             <a-divider orientation="left">参数调整</a-divider>
             <a-row :gutter="14">
               <a-col :span="6"><a-form-item label="背景速率(ml/h)"><a-input-number v-model="adjustForm.backgroundRateMlH" :min="0" :step="0.5" /></a-form-item></a-col>
@@ -81,7 +81,7 @@
           </a-form>
 
           <!-- 镇痛评估 -->
-          <a-form v-if="analgesia.canAssess" :model="assessForm" layout="vertical" style="margin-top: 16px">
+          <a-form v-if="canManage && analgesia.canAssess" :model="assessForm" layout="vertical" style="margin-top: 16px">
             <a-divider orientation="left">镇痛评估</a-divider>
             <a-row :gutter="14">
               <a-col :span="4"><a-form-item label="VAS"><a-input-number v-model="assessForm.vasScore" :min="0" :max="10" :step="0.5" /></a-form-item></a-col>
@@ -128,17 +128,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Message } from '@arco-design/web-vue';
+import { useRoute } from 'vue-router';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import EmptyState from '@/components/shared/EmptyState.vue';
 import StatusTag from '@/components/StatusTag.vue';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
 import { usePostAnalgesiaStore } from '@/stores/postAnalgesia';
+import { authApi } from '@/api/auth';
+import { loadOperationCases } from '@/services/preoperative/preoperativeFiveFlowsService';
+import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
+import { hasPostoperativePermission } from '@/services/anesthesia/postoperativeWorkflow';
 
-const store = useAnesthesiaStore();
 const analgesia = usePostAnalgesiaStore();
 const selectedOperationId = ref('');
+const route = useRoute();
+const cases = ref<OperationCase[]>([]);
+const permissions = ref<string[]>([]);
+const canManage = computed(() => hasPostoperativePermission(permissions.value, 'postop.analgesia.manage'));
 
 const draftForm = ref({ methodCode: '', backgroundRateMlH: undefined as number | undefined, bolusMl: undefined as number | undefined, lockoutMinutes: undefined as number | undefined });
 const adjustForm = ref({ backgroundRateMlH: undefined as number | undefined, bolusMl: undefined as number | undefined, lockoutMinutes: undefined as number | undefined, reason: '' });
@@ -232,4 +239,12 @@ const onAssess = async () => {
     Message.error(analgesia.error ?? '评估失败');
   }
 };
+
+onMounted(async () => {
+  const [loadedCases, granted] = await Promise.all([loadOperationCases(), authApi.myPermissions()]);
+  cases.value = loadedCases.filter((item) => Boolean(item.operationId));
+  permissions.value = Array.isArray(granted?.permissions) ? granted.permissions.map(String) : [];
+  const requested = String(route.query.operationId ?? '');
+  if (requested) await onSelectChange(requested);
+});
 </script>

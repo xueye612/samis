@@ -1,122 +1,151 @@
 <template>
-  <ModulePageShell title="PACU 接收" description="接收检查、床位分配与接收确认">
-    <template #toolbar>
-      <a-select v-model="selectedCaseId" style="width: 280px">
-        <a-option v-for="item in pendingCases" :key="item.id" :value="item.id">{{ item.patientName }} · {{ item.room }}</a-option>
-      </a-select>
-    </template>
-    <a-card v-if="currentCase" class="section-card" :bordered="false">
-      <a-descriptions :column="3" bordered size="small" style="margin-bottom: 16px">
-        <a-descriptions-item label="患者">{{ currentCase.patientName }}</a-descriptions-item>
-        <a-descriptions-item label="手术">{{ currentCase.surgeryName }}</a-descriptions-item>
-        <a-descriptions-item label="麻醉">{{ currentCase.anesthesiaMethod }}</a-descriptions-item>
-      </a-descriptions>
-      <a-form :model="form" layout="vertical">
-        <a-divider>接收检查</a-divider>
-        <a-checkbox v-model="form.vitalsChecked">生命体征</a-checkbox>
-        <a-checkbox v-model="form.consciousnessChecked">意识状态</a-checkbox>
-        <a-checkbox v-model="form.airwayChecked">呼吸情况</a-checkbox>
-        <a-checkbox v-model="form.circulationChecked">循环情况</a-checkbox>
-        <a-checkbox v-model="form.tubeChecked">管道情况</a-checkbox>
-        <a-checkbox v-model="form.skinChecked">皮肤情况</a-checkbox>
-        <a-divider>核对清单</a-divider>
-        <a-checkbox v-model="form.identityChecked">身份核对</a-checkbox>
-        <a-checkbox v-model="form.siteChecked">手术部位核对</a-checkbox>
-        <a-form-item label="分配床位">
-          <a-select v-model="form.bedId" placeholder="选择空闲床位">
-            <a-option v-for="bed in freeBeds" :key="bed.id" :value="bed.id">{{ bed.bedNo }}</a-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="入室首次体温(℃)">
-          <a-input-number v-model="form.firstTemperature" :min="30" :max="42" :step="0.1" placeholder="如 36.2" />
-        </a-form-item>
-        <a-form-item label="入室 Aldrete 评分">
-          <a-input-number v-model="form.aldrete" :min="0" :max="10" placeholder="如 8" />
-        </a-form-item>
-        <a-form-item label="接收护士"><a-input v-model="form.receiveNurse" /></a-form-item>
-        <a-form-item label="交接备注"><a-textarea v-model="form.notes" /></a-form-item>
-      </a-form>
-      <a-space>
-        <a-button type="primary" :disabled="!canSubmit" @click="submit">确认接收</a-button>
-        <a-button @click="Message.info('打印接收单（Mock）')">打印接收单</a-button>
-      </a-space>
-    </a-card>
-    <EmptyState v-else title="暂无待接收患者" icon="IconHeart" />
-  </ModulePageShell>
+  <ModulePageShell
+    title="PACU接收"
+    description="预约接收、床位占用与护理摘要只读核对"
+    ><template #toolbar><a-button @click="load">刷新</a-button></template
+    ><a-alert v-if="error" type="error">{{ error }}</a-alert
+    ><a-card title="待接收预约"
+      ><a-table :data="bookings" row-key="bookingId" :pagination="false"
+        ><template #columns
+          ><a-table-column title="患者"
+            ><template #cell="{ record }">{{
+              record.operationCase?.patientName ?? "-"
+            }}</template></a-table-column
+          ><a-table-column title="手术"
+            ><template #cell="{ record }">{{
+              record.operationCase?.operationName ?? "-"
+            }}</template></a-table-column
+          ><a-table-column
+            title="预约时间"
+            data-index="bookingTime"
+          /><a-table-column title="版本" data-index="version" /><a-table-column
+            title="操作"
+            ><template #cell="{ record }"
+              ><a-button v-if="canManage" type="primary" @click="select(record)"
+                >接收入室</a-button
+              ></template
+            ></a-table-column
+          ></template
+        ></a-table
+      ><a-empty v-if="!bookings.length" description="暂无待接收预约" /></a-card
+    ><a-card title="可用床位"
+      ><a-table :data="beds" row-key="bedId" :pagination="false"
+        ><template #columns
+          ><a-table-column title="房间" data-index="roomId" /><a-table-column
+            title="床号"
+            data-index="bedNo" /><a-table-column
+            title="状态"
+            data-index="status" /><a-table-column
+            title="版本"
+            data-index="version" /></template></a-table></a-card
+    ><a-modal v-model:visible="visible" title="确认PACU入室" @ok="admit"
+      ><a-form :model="form" layout="vertical"
+        ><a-form-item label="床位"
+          ><a-select v-model="form.bedId" :options="bedOptions" /></a-form-item
+        ><a-form-item label="护士"><a-input v-model="form.nurse" /></a-form-item
+        ><a-form-item label="备注"
+          ><a-textarea v-model="form.notes" /></a-form-item></a-form></a-modal
+    ><a-card v-if="detail" title="护理交接摘要（HULI只读）"
+      ><a-descriptions :column="3"
+        ><a-descriptions-item label="来源">{{
+          detail.nursingSummary?.source ?? "huli"
+        }}</a-descriptions-item
+        ><a-descriptions-item label="安全核查">{{
+          (detail.nursingSummary?.safetyCheck as any)?.status ?? "missing"
+        }}</a-descriptions-item
+        ><a-descriptions-item label="护理交接">{{
+          (detail.nursingSummary?.handover as any)?.status ?? "missing"
+        }}</a-descriptions-item></a-descriptions
+      ></a-card
+    ></ModulePageShell
+  >
 </template>
-
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
-import { Message } from '@arco-design/web-vue';
-import ModulePageShell from '@/components/shared/ModulePageShell.vue';
-import EmptyState from '@/components/shared/EmptyState.vue';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
-import { useRealPacu } from '@/config/apiFlags';
-
-const store = useAnesthesiaStore();
-const pendingCases = computed(() => store.cases.filter((item) => ['苏醒中', '麻醉中', '手术中'].includes(item.status)));
-const selectedCaseId = ref(pendingCases.value[0]?.id ?? '');
-const currentCase = computed(() => store.cases.find((item) => item.id === selectedCaseId.value));
-const freeBeds = computed(() => store.pacuRooms.flatMap((r) => r.beds).filter((b) => b.status === '空闲'));
-const form = reactive({
-  bedId: '',
-  vitalsChecked: false,
-  consciousnessChecked: false,
-  airwayChecked: false,
-  circulationChecked: false,
-  tubeChecked: false,
-  skinChecked: false,
-  identityChecked: false,
-  siteChecked: false,
-  receiveNurse: 'PACU护士',
-  notes: '',
-  firstTemperature: undefined as number | undefined,
-  aldrete: undefined as number | undefined,
-});
-const canSubmit = computed(() => currentCase.value && form.bedId && form.vitalsChecked && form.identityChecked);
-
-const submit = async () => {
-  if (!currentCase.value || !form.bedId) return;
-  const bed = store.pacuRooms.flatMap((r) => r.beds).find((b) => b.id === form.bedId);
-
-  if (useRealPacu()) {
-    // 真实模式：调 admit 端点（患者信息前端补传，plan R1）
-    try {
-      await store.admitPacu({
-        caseId: currentCase.value.id,
-        patientName: currentCase.value.patientName,
-        room: currentCase.value.room,
-        operationId: currentCase.value.id,
-        firstTemperature: form.firstTemperature,
-        aldrete: form.aldrete,
-        bedNo: bed?.bedNo,
-        remark: form.notes,
-      });
-      Message.success('PACU 接收完成（已入室）');
-    } catch (error) {
-      Message.error(error instanceof Error ? error.message : '入室失败');
-      return;
-    }
-  } else {
-    store.receivePacuPatient({
-      caseId: currentCase.value.id,
-      patientName: currentCase.value.patientName,
-      vitalsChecked: form.vitalsChecked,
-      consciousnessChecked: form.consciousnessChecked,
-      airwayChecked: form.airwayChecked,
-      circulationChecked: form.circulationChecked,
-      tubeChecked: form.tubeChecked,
-      skinChecked: form.skinChecked,
-      identityChecked: form.identityChecked,
-      siteChecked: form.siteChecked,
-      receiveNurse: form.receiveNurse,
-      notes: form.notes,
-      bedId: form.bedId,
-    });
-    Message.success('PACU 接收完成');
-  }
-  form.bedId = '';
-  form.firstTemperature = undefined;
-  form.aldrete = undefined;
+import { computed, onMounted, reactive, ref } from "vue";
+import { Message } from "@arco-design/web-vue";
+import ModulePageShell from "@/components/shared/ModulePageShell.vue";
+import { authApi } from "@/api/auth";
+import { pacuApi } from "@/api/pacu";
+import {
+  hasPacuPermission,
+  pacuAction,
+  type PacuDetailContract,
+} from "@/services/anesthesia/pacuWorkflow";
+type Booking = {
+  bookingId: string;
+  operationId: string;
+  bookingTime: string;
+  version: number;
+  operationCase?: Record<string, unknown>;
 };
+type Bed = {
+  bedId: string;
+  roomId: string;
+  bedNo: string;
+  status: string;
+  version: number;
+};
+const bookings = ref<Booking[]>([]),
+  beds = ref<Bed[]>([]),
+  permissions = ref<string[]>([]),
+  selected = ref<Booking | null>(null),
+  detail = ref<PacuDetailContract | null>(null),
+  visible = ref(false),
+  error = ref("");
+const form = reactive({ bedId: "", nurse: "", notes: "" });
+const canManage = computed(() =>
+  hasPacuPermission(permissions.value, "pacu.workflow.manage"),
+);
+const bedOptions = computed(() =>
+  beds.value
+    .filter((b) => ["空闲", "预留"].includes(b.status))
+    .map((b) => ({ label: `${b.roomId}-${b.bedNo}`, value: b.bedId })),
+);
+const list = <T,>(r: unknown) =>
+  Array.isArray((r as { list?: T[] })?.list) ? (r as { list: T[] }).list : [];
+async function load() {
+  try {
+    const [b, d] = await Promise.all([
+      pacuApi.bookingList({ status: "待接收", pageSize: 200 }),
+      pacuApi.bedList({ pageSize: 200 }),
+    ]);
+    bookings.value = list<Booking>(b);
+    beds.value = list<Bed>(d);
+    error.value = "";
+  } catch (e) {
+    bookings.value = [];
+    beds.value = [];
+    error.value = e instanceof Error ? e.message : "PACU资源加载失败";
+  }
+}
+function select(r: Booking) {
+  selected.value = r;
+  form.bedId = beds.value.find((b) => b.status === "空闲")?.bedId ?? "";
+  visible.value = true;
+}
+async function admit() {
+  const booking = selected.value,
+    bed = beds.value.find((b) => b.bedId === form.bedId);
+  if (!booking || !bed) return;
+  detail.value = await pacuAction("admit", {
+    operationId: booking.operationId,
+    expectedVersion: 0,
+    bookingId: booking.bookingId,
+    bookingExpectedVersion: booking.version,
+    bedId: bed.bedId,
+    bedExpectedVersion: bed.version,
+    nurse: form.nurse,
+    notes: form.notes,
+  });
+  visible.value = false;
+  await load();
+  Message.success("接收入室并回读成功");
+}
+onMounted(async () => {
+  const p = await authApi.myPermissions();
+  permissions.value = Array.isArray(p?.permissions)
+    ? p.permissions.map(String)
+    : [];
+  await load();
+});
 </script>

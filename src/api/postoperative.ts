@@ -96,6 +96,7 @@ export interface CaseAggregateQuery {
 export type PostoperativeFollowupStatus = 'draft' | 'submitted' | 'cancelled';
 export interface PostoperativeFollowupContract {
   operationId: string; followupId: string; status: PostoperativeFollowupStatus;
+  version: number;
   followupAt?: string | null; followupMethod?: string | null; painScore?: number | null;
   nauseaVomiting: boolean; soreThroat: boolean; awareness: boolean; satisfaction?: number | null;
   analgesiaPlan?: string | null; notes?: string | null; evaluatorId?: string | null; evaluatorName?: string | null;
@@ -104,11 +105,11 @@ export type PostoperativeComplicationStatus = 'draft' | 'reported' | 'voided';
 export interface PostoperativeComplicationContract {
   operationId: string; complicationId: string; complicationType: string; severity: 'mild' | 'moderate' | 'severe' | 'life_threatening';
   occurredAt?: string | null; description?: string | null; treatment?: string | null; outcome?: string | null;
-  reportStatus: PostoperativeComplicationStatus; reporterId?: string | null; reporterName?: string | null; voidReason?: string | null;
+  reportStatus: PostoperativeComplicationStatus; version: number; reporterId?: string | null; reporterName?: string | null; voidReason?: string | null;
 }
 export interface PostoperativeDetailApi {
   operationCase: Record<string, unknown>; followup: PostoperativeFollowupContract | null;
-  complications: PostoperativeComplicationContract[]; nursingVisitSummary?: Record<string, unknown> | null;
+  complications: PostoperativeComplicationContract[]; nursingVisitSummary?: Record<string, unknown> | null; history?: Record<string, unknown>[];
 }
 
 function buildFollowupListQuery(params: FollowupListQuery = {}): string {
@@ -156,10 +157,11 @@ export const postoperativeApi = {
     return samisRequest<PostoperativeDetailApi>(`/postoperative/followupDetail?operationId=${encodeURIComponent(operationId)}`, undefined, { module: 'postoperative' });
   },
   followupSaveDraft(data: Record<string, unknown>) { return postForm<PostoperativeDetailApi>('/followupSaveDraft', data); },
-  followupSubmit(operationId: string) { return postForm<PostoperativeDetailApi>('/followupSubmit', { operationId }); },
-  followupCancelSubmit(operationId: string) { return postForm<PostoperativeDetailApi>('/followupCancelSubmit', { operationId }); },
+  followupSubmit(data: Record<string, unknown>) { return postForm<PostoperativeDetailApi>('/followupSubmit', data); },
+  followupCancelSubmit(data: Record<string, unknown>) { return postForm<PostoperativeDetailApi>('/followupCancelSubmit', data); },
   complicationSave(data: Record<string, unknown>) { return postForm<PostoperativeDetailApi>('/complicationSave', data); },
-  complicationVoid(operationId: string, complicationId: string, voidReason?: string) { return postForm<PostoperativeDetailApi>('/complicationVoid', { operationId, complicationId, voidReason }); },
+  complicationReport(data: Record<string, unknown>) { return postForm<PostoperativeDetailApi>('/complicationReport', data); },
+  complicationVoid(data: Record<string, unknown>) { return postForm<PostoperativeDetailApi>('/complicationVoid', data); },
   // ---- 术后随访 ----
   followupList(params: FollowupListQuery = {}) {
     return samisRequest<unknown>(

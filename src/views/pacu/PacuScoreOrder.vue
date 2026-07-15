@@ -1,7 +1,9 @@
 <template>
   <ModulePageShell title="PACU 评分与医嘱" description="分项评分记录、医嘱管理和强制出室">
     <template #toolbar>
-      <a-input v-model="operationId" placeholder="operationId" style="width: 240px" allow-clear @change="onOperationIdChange" />
+      <a-select v-model="operationId" placeholder="选择手术病例" style="width: 320px" allow-clear @change="onOperationIdChange">
+        <a-option v-for="item in cases" :key="String(item.operationId)" :value="String(item.operationId)">{{ item.patientName ?? '—' }} · {{ item.operationName ?? '—' }}</a-option>
+      </a-select>
       <a-button :loading="detailLoading" @click="loadAll">加载</a-button>
     </template>
 
@@ -24,7 +26,7 @@
         <!-- 评分管理 -->
         <a-card class="section-card" :bordered="false" title="Aldrete 分项评分" style="margin-top: 12px">
           <template #extra>
-            <a-button v-if="!isTerminal" type="primary" size="small" @click="showScoreModal = true">新增评分</a-button>
+            <a-button v-if="canOrder && !isTerminal" type="primary" size="small" @click="showScoreModal = true">新增评分</a-button>
           </template>
           <a-table v-if="ext.scores.length" :data="ext.scores" row-key="scoreId" :pagination="{ pageSize: 5 }" size="small">
             <template #columns>
@@ -51,7 +53,7 @@
         <!-- 医嘱管理 -->
         <a-card class="section-card" :bordered="false" title="PACU 医嘱" style="margin-top: 12px">
           <template #extra>
-            <a-button v-if="!isTerminal" type="primary" size="small" @click="showOrderModal = true">新建医嘱</a-button>
+            <a-button v-if="canOrder && !isTerminal" type="primary" size="small" @click="showOrderModal = true">新建医嘱</a-button>
           </template>
           <a-table v-if="ext.orders.length" :data="ext.orders" row-key="orderId" :pagination="{ pageSize: 5 }" size="small" @row-click="onOrderRowClick as any">
             <template #columns>
@@ -66,8 +68,8 @@
               <a-table-column title="操作" :width="200" fixed="right">
                 <template #cell="{ record }">
                   <a-space>
-                    <a-button v-if="record.status === 'active' && !isTerminal" size="mini" type="primary" :loading="ext.saving" @click.stop="onExecuteOrder(record.orderId)">执行</a-button>
-                    <a-button v-if="record.status === 'active' && !isTerminal" size="mini" status="warning" :loading="ext.saving" @click.stop="onStopOrder(record.orderId)">停止</a-button>
+                    <a-button v-if="canOrder && record.status === 'active' && !isTerminal" size="mini" type="primary" :loading="ext.saving" @click.stop="onExecuteOrder(record.orderId)">执行</a-button>
+                    <a-button v-if="canOrder && record.status === 'active' && !isTerminal" size="mini" status="warning" :loading="ext.saving" @click.stop="onStopOrder(record.orderId)">停止</a-button>
                     <a-button size="mini" @click.stop="ext.loadExecutions(record.orderId)">执行记录</a-button>
                   </a-space>
                 </template>
@@ -95,8 +97,8 @@
           <a-space>
             <a-tag v-if="isTerminal" color="gray">当前为终态（{{ pacuStatus }}），不可操作</a-tag>
             <template v-else>
-              <a-button :disabled="!canNormalDischarge" @click="onNormalDischarge">普通出室</a-button>
-              <a-button v-if="canForceDischarge" status="danger" @click="onForceDischarge">强制出室</a-button>
+              <a-button v-if="canWorkflow" :disabled="!canNormalDischarge" @click="onNormalDischarge">普通出室</a-button>
+              <a-button v-if="canForce && canForceDischarge" status="danger" @click="onForceDischarge">强制出室</a-button>
             </template>
           </a-space>
           <a-alert v-if="!canNormalDischarge && !isTerminal" type="info" style="margin-top: 8px">
@@ -142,17 +144,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Message, Modal } from '@arco-design/web-vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import EmptyState from '@/components/shared/EmptyState.vue';
 import StatusTag from '@/components/StatusTag.vue';
 import { usePacuExtensionStore } from '@/stores/pacuExtension';
 import { pacuApi } from '@/api/pacu';
+import { authApi } from '@/api/auth';
+import { loadOperationCases } from '@/services/preoperative/preoperativeFiveFlowsService';
+import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
+import { hasPacuPermission, pacuAction } from '@/services/anesthesia/pacuWorkflow';
 
 const ext = usePacuExtensionStore();
 
 const operationId = ref('');
+const cases = ref<OperationCase[]>([]);
+const permissions = ref<string[]>([]);
 const pacuDetail = ref<Record<string, any> | null>(null);
 const detailLoading = ref(false);
 const showScoreModal = ref(false);
@@ -180,6 +188,9 @@ const pacuStatus = computed(() => (pacuDetail.value?.pacuRecord?.status as strin
 const isTerminal = computed(() => ['discharged', 'voided'].includes(pacuStatus.value));
 const canNormalDischarge = computed(() => pacuStatus.value === 'ready_to_discharge' && (ext.latestScore?.total ?? 0) >= 9);
 const canForceDischarge = computed(() => ['admitted', 'recovering', 'ready_to_discharge'].includes(pacuStatus.value));
+const canOrder = computed(() => hasPacuPermission(permissions.value, 'pacu.order.manage'));
+const canWorkflow = computed(() => hasPacuPermission(permissions.value, 'pacu.workflow.manage'));
+const canForce = computed(() => hasPacuPermission(permissions.value, 'pacu.force_discharge'));
 const aldreteTotal = computed(() => scoreForm.value.activity + scoreForm.value.respiration + scoreForm.value.circulation + scoreForm.value.consciousness + scoreForm.value.spo2);
 
 const onOperationIdChange = async (val: any) => {
@@ -258,9 +269,8 @@ const onOrderRowClick = async (record: any) => {
 
 const onNormalDischarge = async () => {
   try {
-    await pacuApi.discharge({ operationId: operationId.value, dischargeDestination: '病房' });
+    pacuDetail.value = await pacuAction('discharge', { operationId: operationId.value, expectedVersion: pacuDetail.value?.pacuRecord?.version, dischargeDestination: '病房' });
     Message.success('已出室');
-    pacuDetail.value = await pacuApi.detail(operationId.value) as any;
   } catch (e) { Message.error(e instanceof Error ? e.message : '出室失败'); }
 };
 
@@ -275,9 +285,8 @@ const onForceDischarge = () => {
       const reasonCode = prompt('请输入原因编码（如 medical_judgment / bed_shortage）') ?? 'other';
       const approverId = prompt('请输入审批人工号') ?? undefined;
       try {
-        await ext.forceDischarge(operationId.value, reason, reasonCode, approverId);
+        pacuDetail.value = await pacuAction('forceDischarge', { operationId: operationId.value, expectedVersion: pacuDetail.value?.pacuRecord?.version, reason, reasonCode, approverId });
         Message.success('强制出室成功');
-        pacuDetail.value = await pacuApi.detail(operationId.value) as any;
       } catch { Message.error(ext.error ?? '强制出室失败'); }
     },
   });
@@ -289,4 +298,10 @@ const formatOrderContent = (content: unknown): string => {
   const parts = Object.entries(obj).slice(0, 3).map(([k, v]) => `${k}:${v}`);
   return parts.join(' · ') || '—';
 };
+
+onMounted(async () => {
+  const [loadedCases, granted] = await Promise.all([loadOperationCases(), authApi.myPermissions()]);
+  cases.value = loadedCases.filter((item) => Boolean(item.operationId));
+  permissions.value = Array.isArray(granted?.permissions) ? granted.permissions.map(String) : [];
+});
 </script>

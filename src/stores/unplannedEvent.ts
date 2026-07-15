@@ -85,8 +85,7 @@ export const useUnplannedEventStore = defineStore('unplanned-event-workflow', {
           expectedVersion: this.detail?.version ?? 0,
           ...fields,
         });
-        this.detail = saved;
-        return saved;
+        return await this.reload(saved.eventId);
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -104,8 +103,7 @@ export const useUnplannedEventStore = defineStore('unplanned-event-workflow', {
           expectedVersion: this.detail?.version ?? 0,
           ...fields,
         });
-        this.detail = saved;
-        return saved;
+        return await this.reload(saved.eventId);
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -119,8 +117,8 @@ export const useUnplannedEventStore = defineStore('unplanned-event-workflow', {
       this.saving = true;
       this.error = null;
       try {
-        this.detail = await unplannedEventApi.startReview({ eventId: d.eventId, expectedVersion: d.version });
-        return this.detail;
+        await unplannedEventApi.startReview({ eventId: d.eventId, expectedVersion: d.version });
+        return await this.reload(d.eventId);
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -134,8 +132,8 @@ export const useUnplannedEventStore = defineStore('unplanned-event-workflow', {
       this.saving = true;
       this.error = null;
       try {
-        this.detail = await unplannedEventApi.confirm({ eventId: d.eventId, expectedVersion: d.version, reviewOpinion });
-        return this.detail;
+        await unplannedEventApi.confirm({ eventId: d.eventId, expectedVersion: d.version, reviewOpinion });
+        return await this.reload(d.eventId);
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -149,8 +147,8 @@ export const useUnplannedEventStore = defineStore('unplanned-event-workflow', {
       this.saving = true;
       this.error = null;
       try {
-        this.detail = await unplannedEventApi.exclude({ eventId: d.eventId, expectedVersion: d.version, reason });
-        return this.detail;
+        await unplannedEventApi.exclude({ eventId: d.eventId, expectedVersion: d.version, reason });
+        return await this.reload(d.eventId);
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -164,8 +162,8 @@ export const useUnplannedEventStore = defineStore('unplanned-event-workflow', {
       this.saving = true;
       this.error = null;
       try {
-        this.detail = await unplannedEventApi.close({ eventId: d.eventId, expectedVersion: d.version, reason });
-        return this.detail;
+        await unplannedEventApi.close({ eventId: d.eventId, expectedVersion: d.version, reason });
+        return await this.reload(d.eventId);
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -177,6 +175,13 @@ export const useUnplannedEventStore = defineStore('unplanned-event-workflow', {
     requireDetail(): UnplannedEventApi {
       if (!this.detail) throw new Error('当前无事件');
       return this.detail;
+    },
+
+    async reload(eventId: string): Promise<UnplannedEventApi> {
+      const detail = await unplannedEventApi.detail(eventId);
+      this.detail = detail;
+      this.loadedEventId = eventId;
+      return detail;
     },
 
     reset() {

@@ -78,14 +78,13 @@ export const usePostAnalgesiaStore = defineStore('post-analgesia-workflow', {
       this.error = null;
       try {
         const current = this.currentPlan;
-        const saved = await postAnalgesiaApi.saveDraft({
+        await postAnalgesiaApi.saveDraft({
           operationId: this.loadedOperationId,
           planVersionId: current?.planVersionId,
           expectedVersion: current?.version ?? 0,
           ...fields,
         });
-        this.replaceCurrent(saved);
-        return saved;
+        return await this.reloadCurrent();
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -99,9 +98,8 @@ export const usePostAnalgesiaStore = defineStore('post-analgesia-workflow', {
       this.saving = true;
       this.error = null;
       try {
-        const updated = await postAnalgesiaApi.start({ planVersionId: c.planVersionId, expectedVersion: c.version });
-        this.replaceCurrent(updated);
-        return updated;
+        await postAnalgesiaApi.start({ planVersionId: c.planVersionId, expectedVersion: c.version });
+        return await this.reloadCurrent();
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -115,9 +113,8 @@ export const usePostAnalgesiaStore = defineStore('post-analgesia-workflow', {
       this.saving = true;
       this.error = null;
       try {
-        const updated = await postAnalgesiaApi.pause({ planVersionId: c.planVersionId, expectedVersion: c.version });
-        this.replaceCurrent(updated);
-        return updated;
+        await postAnalgesiaApi.pause({ planVersionId: c.planVersionId, expectedVersion: c.version });
+        return await this.reloadCurrent();
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -131,9 +128,8 @@ export const usePostAnalgesiaStore = defineStore('post-analgesia-workflow', {
       this.saving = true;
       this.error = null;
       try {
-        const updated = await postAnalgesiaApi.resume({ planVersionId: c.planVersionId, expectedVersion: c.version });
-        this.replaceCurrent(updated);
-        return updated;
+        await postAnalgesiaApi.resume({ planVersionId: c.planVersionId, expectedVersion: c.version });
+        return await this.reloadCurrent();
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -147,9 +143,8 @@ export const usePostAnalgesiaStore = defineStore('post-analgesia-workflow', {
       this.saving = true;
       this.error = null;
       try {
-        const updated = await postAnalgesiaApi.stop({ planVersionId: c.planVersionId, expectedVersion: c.version });
-        this.replaceCurrent(updated);
-        return updated;
+        await postAnalgesiaApi.stop({ planVersionId: c.planVersionId, expectedVersion: c.version });
+        return await this.reloadCurrent();
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -163,9 +158,8 @@ export const usePostAnalgesiaStore = defineStore('post-analgesia-workflow', {
       this.saving = true;
       this.error = null;
       try {
-        const updated = await postAnalgesiaApi.complete({ planVersionId: c.planVersionId, expectedVersion: c.version });
-        this.replaceCurrent(updated);
-        return updated;
+        await postAnalgesiaApi.complete({ planVersionId: c.planVersionId, expectedVersion: c.version });
+        return await this.reloadCurrent();
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -179,9 +173,8 @@ export const usePostAnalgesiaStore = defineStore('post-analgesia-workflow', {
       this.saving = true;
       this.error = null;
       try {
-        const updated = await postAnalgesiaApi.void({ planVersionId: c.planVersionId, expectedVersion: c.version, reason });
-        this.replaceCurrent(updated);
-        return updated;
+        await postAnalgesiaApi.void({ planVersionId: c.planVersionId, expectedVersion: c.version, reason });
+        return await this.reloadCurrent();
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -196,7 +189,7 @@ export const usePostAnalgesiaStore = defineStore('post-analgesia-workflow', {
       this.error = null;
       try {
         const result = await postAnalgesiaApi.adjust({ planVersionId: c.planVersionId, expectedVersion: c.version, nextParameters, reason });
-        this.replaceCurrent(result.plan);
+        await this.reloadCurrent();
         return result;
       } catch (error) {
         this.error = errorMessage(error);
@@ -229,6 +222,14 @@ export const usePostAnalgesiaStore = defineStore('post-analgesia-workflow', {
       if (this.detail) {
         this.detail = { ...this.detail, currentPlan: plan };
       }
+    },
+
+    async reloadCurrent(): Promise<PostAnalgesiaPlanApi> {
+      if (!this.loadedOperationId) throw new Error('请先选择手术病例');
+      const detail = await postAnalgesiaApi.detail(this.loadedOperationId);
+      this.detail = detail;
+      if (!detail.currentPlan) throw new Error('保存后未回读到镇痛方案');
+      return detail.currentPlan;
     },
 
     requireCurrent(): PostAnalgesiaPlanApi {

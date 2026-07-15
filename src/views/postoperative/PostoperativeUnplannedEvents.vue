@@ -40,41 +40,22 @@ import { useRouter } from 'vue-router';
 import StatusTag from '@/components/StatusTag.vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
-import { useRealPostoperative } from '@/config/apiFlags';
 import type { PostCaseSummary } from '@/services/anesthesia/postoperativeService';
-import type { SurgeryCase } from '@/types/anesthesia';
-
-const UNPLANNED_TYPES = ['非计划转ICU', '非计划二次插管', '心脏骤停', '严重过敏'];
 
 const store = useAnesthesiaStore();
 const router = useRouter();
 
-const useRemote = computed(() => useRealPostoperative() && store.unplannedCasesSource === 'remote');
+const eventCases = computed<PostCaseSummary[]>(() => store.unplannedCases);
 
-const hasUnplannedEvent = (item: SurgeryCase) =>
-  item.events.some((e) => UNPLANNED_TYPES.includes(e.type) || (e.type.includes('非计划') && e.qualityIncluded));
+const caseIdOf = (row: PostCaseSummary) => row.operationId;
 
-const eventCases = computed<Array<SurgeryCase | PostCaseSummary>>(() =>
-  useRemote.value
-    ? store.unplannedCases
-    : store.cases.filter((item) => item.transferIcuPlanned || hasUnplannedEvent(item) || item.transferTo === 'ICU'),
-);
-
-const caseIdOf = (row: SurgeryCase | PostCaseSummary) => ('operationId' in row ? row.operationId : row.id);
-
-const eventLabel = (item: SurgeryCase | PostCaseSummary) => {
-  if ('events' in item) {
-    const evt = item.events.find((e) => UNPLANNED_TYPES.includes(e.type) || e.type.includes('非计划'));
-    if (evt) return evt.type;
-  }
+const eventLabel = (item: PostCaseSummary) => {
   if (item.transferIcuPlanned) return '计划转 ICU';
   if (item.transferTo === 'ICU') return '转出 ICU';
   return '—';
 };
 
-const goDetail = (id: string) => router.push(`/surgery/detail/${id}`);
+const goDetail = (id: string) => router.push({ path: '/postoperative/unplanned-event-detail', query: { operationId: id } });
 
-onMounted(() => {
-  if (useRealPostoperative()) void store.loadRemoteUnplannedCases();
-});
+onMounted(() => void store.loadRemoteUnplannedCases());
 </script>

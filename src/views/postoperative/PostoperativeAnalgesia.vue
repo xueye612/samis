@@ -39,28 +39,20 @@ import { useRouter } from 'vue-router';
 import StatusTag from '@/components/StatusTag.vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
-import { useRealPostoperative } from '@/config/apiFlags';
 import type { PostCaseSummary } from '@/services/anesthesia/postoperativeService';
-import type { SurgeryCase } from '@/types/anesthesia';
 
 const store = useAnesthesiaStore();
 const router = useRouter();
 
-const useRemote = computed(() => useRealPostoperative() && store.analgesiaCasesSource === 'remote');
-
-const analgesiaCases = computed<Array<SurgeryCase | PostCaseSummary>>(() =>
-  useRemote.value ? store.analgesiaCases : store.cases.filter((item) => item.postoperativeAnalgesia),
-);
+const analgesiaCases = computed<PostCaseSummary[]>(() => store.analgesiaCases);
 
 const followedIds = computed(() => new Set(store.followUps.map((item) => item.caseId)));
 const pendingFollowUp = computed(() => analgesiaCases.value.filter((item) => !followedIds.value.has(item.id)));
 
-const caseIdOf = (row: SurgeryCase | PostCaseSummary) => ('operationId' in row ? row.operationId : row.id);
-const hasFollowUp = (row: SurgeryCase | PostCaseSummary) => followedIds.value.has(caseIdOf(row));
-const goDetail = (id: string) => router.push(`/surgery/detail/${id}`);
+const caseIdOf = (row: PostCaseSummary) => row.operationId;
+const hasFollowUp = (row: PostCaseSummary) => followedIds.value.has(row.operationId);
+const goDetail = (id: string) => router.push({ path: '/postoperative/analgesia-detail', query: { operationId: id } });
 const goFollowUp = (id: string) => router.push({ path: '/postoperative/followup', query: { caseId: id } });
 
-onMounted(() => {
-  if (useRealPostoperative()) void store.loadRemoteAnalgesiaCases();
-});
+onMounted(() => void store.loadRemoteAnalgesiaCases());
 </script>

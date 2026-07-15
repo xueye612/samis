@@ -1,228 +1,210 @@
 <template>
-  <ModulePageShell title="PACU 预约" description="术后 PACU 床位预约与接收状态">
-    <template #chips>
-      <a-tag color="arcoblue">预约 {{ store.pacuBookings.length }}</a-tag>
-      <a-tag :color="store.pacuBookingsSource === 'remote' ? 'green' : 'gray'">
-        {{ store.pacuBookingsSource === 'remote' ? '真实数据' : '本地数据' }}
-      </a-tag>
-    </template>
-    <template #toolbar>
-      <a-space>
-        <a-button @click="refresh">刷新</a-button>
-        <a-button type="primary" @click="openCreate">新增预约</a-button>
-      </a-space>
-    </template>
-    <a-card class="section-card" :bordered="false" title="预约列表">
-      <a-table :data="store.pacuBookings" row-key="id" :pagination="{ pageSize: 10 }">
-        <template #columns>
-          <a-table-column title="患者" data-index="patientName" :width="100" />
-          <a-table-column title="复苏室" :width="120">
-            <template #cell="{ record }">{{ roomName(record.pacuRoomId) }}</template>
-          </a-table-column>
-          <a-table-column title="床位" data-index="bedId" :width="90" />
-          <a-table-column title="预约时间" data-index="bookingTime" :width="160" />
-          <a-table-column title="预约医师" data-index="bookingDoctor" />
-          <a-table-column title="类型" data-index="bookingType" :width="110" />
-          <a-table-column title="状态" :width="100">
-            <template #cell="{ record }">
-              <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="操作" :width="200" fixed="right">
-            <template #cell="{ record }">
-              <a-space>
-                <a-button size="mini" @click="openEdit(record)" :disabled="record.status !== '待接收'">编辑</a-button>
-                <a-button
-                  size="mini"
-                  status="danger"
-                  @click="onCancel(record)"
-                  :disabled="record.status !== '待接收'"
-                >取消</a-button>
-                <a-button size="mini" type="primary" @click="goCase(record.caseId)">病例</a-button>
-              </a-space>
-            </template>
-          </a-table-column>
-        </template>
-      </a-table>
-    </a-card>
-    <a-modal
+  <ModulePageShell
+    title="PACU预约"
+    description="真实预约、版本、取消原因与OperationCase只读投影"
+    ><template #toolbar
+      ><a-button @click="load">刷新</a-button
+      ><a-button v-if="canManage" type="primary" @click="openCreate"
+        >新增预约</a-button
+      ></template
+    ><a-alert v-if="error" type="error">{{ error }}</a-alert
+    ><a-table :data="bookings" row-key="bookingId"
+      ><template #columns
+        ><a-table-column title="患者"
+          ><template #cell="{ record }">{{
+            record.operationCase?.patientName ?? "-"
+          }}</template></a-table-column
+        ><a-table-column title="手术"
+          ><template #cell="{ record }">{{
+            record.operationCase?.operationName ?? "-"
+          }}</template></a-table-column
+        ><a-table-column title="日期"
+          ><template #cell="{ record }">{{
+            record.operationCase?.operationDate ?? "-"
+          }}</template></a-table-column
+        ><a-table-column
+          title="预约时间"
+          data-index="bookingTime"
+        /><a-table-column
+          title="类型"
+          data-index="bookingType"
+        /><a-table-column title="状态" data-index="status" /><a-table-column
+          title="版本"
+          data-index="version"
+        /><a-table-column title="操作"
+          ><template #cell="{ record }"
+            ><a-space v-if="canManage"
+              ><a-button
+                size="mini"
+                :disabled="record.status !== '待接收'"
+                @click="edit(record)"
+                >编辑</a-button
+              ><a-button
+                size="mini"
+                status="danger"
+                :disabled="record.status !== '待接收'"
+                @click="cancel(record)"
+                >取消</a-button
+              ></a-space
+            ></template
+          ></a-table-column
+        ></template
+      ></a-table
+    ><a-empty
+      v-if="!bookings.length && !error"
+      description="远程暂无PACU预约" /><a-modal
       v-model:visible="visible"
-      :title="editingId ? '编辑预约' : '新增预约'"
-      width="600px"
-      :ok-loading="saving"
+      title="PACU预约"
       @ok="save"
-    >
-      <a-form :model="form" layout="vertical">
-        <a-form-item label="关联病例" required>
-          <a-select
-            v-model="form.caseId"
+      ><a-form :model="form" layout="vertical"
+        ><a-form-item label="手术病例"
+          ><a-select
+            v-model="form.operationId"
             :options="caseOptions"
-            placeholder="选择患者"
-            :disabled="!!editingId"
-          />
-        </a-form-item>
-        <a-row :gutter="12">
-          <a-col :span="12">
-            <a-form-item label="复苏室" required>
-              <a-select v-model="form.pacuRoomId" :options="roomOptions" placeholder="选择 PACU 房间" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="床位（可选）">
-              <a-input v-model="form.bedId" placeholder="如 A-01" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-row :gutter="12">
-          <a-col :span="12">
-            <a-form-item label="预约时间" required>
-              <a-date-picker
-                v-model="form.bookingTime"
-                format="YYYY-MM-DD HH:mm:ss"
-                show-time
-                value-format="YYYY-MM-DD HH:mm:ss"
-                style="width: 100%"
-              />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="类型" required>
-              <a-select v-model="form.bookingType" :options="['常规预约', '紧急预约']" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="预约医师"><a-input v-model="form.bookingDoctor" /></a-form-item>
-      </a-form>
-    </a-modal>
-  </ModulePageShell>
+            :disabled="!!editing" /></a-form-item
+        ><a-form-item label="预约时间"
+          ><a-date-picker
+            v-model="form.bookingTime"
+            show-time
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%" /></a-form-item
+        ><a-form-item label="类型"
+          ><a-select
+            v-model="form.bookingType"
+            :options="['常规预约', '紧急预约']" /></a-form-item
+        ><a-form-item label="PACU房间"
+          ><a-input v-model="form.roomId" /></a-form-item
+        ><a-form-item label="预约医师"
+          ><a-input v-model="form.bookingDoctor" /></a-form-item
+        ><a-form-item label="备注"
+          ><a-textarea v-model="form.remark" /></a-form-item></a-form></a-modal
+  ></ModulePageShell>
 </template>
-
 <script setup lang="ts">
-import dayjs from 'dayjs';
-import { computed, onMounted, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
-import { Message } from '@arco-design/web-vue';
-import ModulePageShell from '@/components/shared/ModulePageShell.vue';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
-import type { PacuBooking } from '@/types/clinicalModules';
-
-const store = useAnesthesiaStore();
-const router = useRouter();
-const visible = ref(false);
-const saving = ref(false);
-const editingId = ref('');
-
+import dayjs from "dayjs";
+import { computed, onMounted, reactive, ref } from "vue";
+import { Message, Modal } from "@arco-design/web-vue";
+import ModulePageShell from "@/components/shared/ModulePageShell.vue";
+import { authApi } from "@/api/auth";
+import { pacuApi } from "@/api/pacu";
+import { loadOperationCases } from "@/services/preoperative/preoperativeFiveFlowsService";
+import {
+  hasPacuPermission,
+  savePacuBooking,
+  cancelPacuBooking,
+} from "@/services/anesthesia/pacuWorkflow";
+import type { OperationCase } from "@/services/anesthesia/adapters/operationInfoAdapter";
+type Booking = {
+  bookingId: string;
+  operationId: string;
+  bookingTime: string;
+  bookingType: string;
+  roomId?: string;
+  bookingDoctor?: string;
+  remark?: string;
+  status: string;
+  version: number;
+  operationCase?: OperationCase;
+};
+const cases = ref<OperationCase[]>([]),
+  bookings = ref<Booking[]>([]),
+  permissions = ref<string[]>([]),
+  error = ref(""),
+  visible = ref(false),
+  editing = ref<Booking | null>(null);
 const form = reactive({
-  caseId: '',
-  pacuRoomId: '',
-  bedId: '',
-  bookingTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-  bookingDoctor: '',
-  bookingType: '常规预约' as PacuBooking['bookingType'],
+  operationId: "",
+  bookingTime: "",
+  bookingType: "常规预约",
+  roomId: "",
+  bookingDoctor: "",
+  remark: "",
 });
-
+const canManage = computed(() =>
+  hasPacuPermission(permissions.value, "pacu.resource.manage"),
+);
 const caseOptions = computed(() =>
-  store.cases.map((item) => ({ label: `${item.patientName} · ${item.surgeryName}`, value: item.id })),
+  cases.value.filter((c) => Boolean(c.operationId)).map((c) => ({
+    label: `${c.patientName ?? "-"} · ${c.operationName ?? "-"} · ${c.operationDate ?? "-"}`,
+    value: String(c.operationId),
+  })),
 );
-const roomOptions = computed(() =>
-  store.pacuRooms.map((item) => ({ label: item.name, value: item.id })),
-);
-
-const roomName = (roomId: string) => store.pacuRooms.find((r) => r.id === roomId)?.name ?? roomId ?? '';
-const statusColor = (status: PacuBooking['status']) =>
-  ({ 待接收: 'orange', 已接收: 'green', 已取消: 'gray' })[status] ?? 'gray';
-const goCase = (caseId: string) => router.push(`/surgery/detail/${caseId}`);
-
-const resetForm = () => {
-  form.caseId = store.cases[0]?.id ?? '';
-  form.pacuRoomId = store.pacuRooms[0]?.id ?? '';
-  form.bedId = '';
-  form.bookingTime = dayjs().format('YYYY-MM-DD HH:mm:ss');
-  form.bookingDoctor = '';
-  form.bookingType = '常规预约';
-};
-
-const openCreate = () => {
-  editingId.value = '';
-  resetForm();
-  visible.value = true;
-};
-
-const openEdit = (record: PacuBooking) => {
-  editingId.value = record.id;
-  form.caseId = record.caseId;
-  form.pacuRoomId = record.pacuRoomId;
-  form.bedId = record.bedId ?? '';
-  form.bookingTime = record.bookingTime;
-  form.bookingDoctor = record.bookingDoctor;
-  form.bookingType = record.bookingType;
-  visible.value = true;
-};
-
-const save = async () => {
-  if (!form.caseId) {
-    Message.warning('请选择关联病例');
-    return;
-  }
-  if (!form.pacuRoomId) {
-    Message.warning('请选择复苏室');
-    return;
-  }
-  if (!form.bookingTime) {
-    Message.warning('请选择预约时间');
-    return;
-  }
-  const patient = store.cases.find((item) => item.id === form.caseId);
-  saving.value = true;
+function rows(raw: unknown) {
+  const r = raw as { list?: Booking[] };
+  return Array.isArray(r?.list) ? r.list : [];
+}
+async function load() {
   try {
-    if (editingId.value) {
-      const patch: Partial<PacuBooking> = {
-        pacuRoomId: form.pacuRoomId,
-        bedId: form.bedId || undefined,
-        bookingTime: form.bookingTime,
-        bookingDoctor: form.bookingDoctor,
-        bookingType: form.bookingType,
-      };
-      await store.updatePacuBooking(editingId.value, patch);
-      Message.success('预约已更新');
-    } else {
-      const payload: PacuBooking = {
-        id: `bk-${Date.now()}`,
-        caseId: form.caseId,
-        patientName: patient?.patientName ?? '',
-        pacuRoomId: form.pacuRoomId,
-        bedId: form.bedId || undefined,
-        bookingTime: form.bookingTime,
-        bookingDoctor: form.bookingDoctor,
-        bookingType: form.bookingType,
-        status: '待接收',
-      };
-      await store.createPacuBooking(payload);
-      Message.success('预约已创建');
-    }
-    visible.value = false;
-  } catch (error) {
-    Message.error(error instanceof Error ? error.message : '保存预约失败');
-  } finally {
-    saving.value = false;
+    bookings.value = rows(await pacuApi.bookingList({ pageSize: 200 }));
+    error.value = "";
+  } catch (e) {
+    bookings.value = [];
+    error.value = e instanceof Error ? e.message : "预约加载失败";
   }
-};
-
-const onCancel = async (record: PacuBooking) => {
-  try {
-    await store.cancelPacuBooking(record.id);
-    Message.success('预约已取消');
-  } catch (error) {
-    Message.error(error instanceof Error ? error.message : '取消预约失败');
-  }
-};
-
-const refresh = async () => {
-  await store.loadRemotePacuBookings();
-  Message.success('已刷新');
-};
-
-onMounted(() => {
-  void store.loadRemotePacuBookings();
+}
+function openCreate() {
+  editing.value = null;
+  Object.assign(form, {
+    operationId: String(cases.value.find((c) => c.operationId)?.operationId ?? ""),
+    bookingTime: dayjs().format("YYYY-MM-DD HH:mm:ss"),
+    bookingType: "常规预约",
+    roomId: "",
+    bookingDoctor: "",
+    remark: "",
+  });
+  visible.value = true;
+}
+function edit(r: Booking) {
+  editing.value = r;
+  Object.assign(form, {
+    operationId: r.operationId,
+    bookingTime: r.bookingTime,
+    bookingType: r.bookingType,
+    roomId: r.roomId ?? "",
+    bookingDoctor: r.bookingDoctor ?? "",
+    remark: r.remark ?? "",
+  });
+  visible.value = true;
+}
+async function save() {
+  await savePacuBooking({
+    bookingId: editing.value?.bookingId,
+    operationId: form.operationId,
+    expectedVersion: editing.value?.version ?? 0,
+    bookingTime: form.bookingTime,
+    bookingType: form.bookingType,
+    roomId: form.roomId,
+    bookingDoctor: form.bookingDoctor,
+    remark: form.remark,
+  });
+  visible.value = false;
+  await load();
+  Message.success("保存并回读成功");
+}
+function cancel(r: Booking) {
+  Modal.confirm({
+    title: "取消预约",
+    content: "确认取消并记录原因？",
+    onOk: async () => {
+      await cancelPacuBooking({
+        bookingId: r.bookingId,
+        operationId: r.operationId,
+        expectedVersion: r.version,
+        reason: "页面取消预约",
+      });
+      await load();
+    },
+  });
+}
+onMounted(async () => {
+  const [c, p] = await Promise.all([
+    loadOperationCases(),
+    authApi.myPermissions(),
+  ]);
+  cases.value = c;
+  permissions.value = Array.isArray(p?.permissions)
+    ? p.permissions.map(String)
+    : [];
+  await load();
 });
 </script>

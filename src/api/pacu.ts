@@ -98,8 +98,8 @@ export const pacuApi = {
   bookingUpdate(data: Record<string, unknown>) {
     return pacuFormPost<void>('/bookingUpdate', data);
   },
-  bookingCancel(id: number | string) {
-    return pacuFormPost<void>('/bookingCancel', { id });
+  bookingCancel(data: Record<string, unknown> | string | number) {
+    return pacuFormPost<void>('/bookingCancel', typeof data === 'object' ? data : { id: data });
   },
 
   bedList(params: { roomId?: string; status?: string; page?: number; pageSize?: number } = {}) {
@@ -152,7 +152,7 @@ export const pacuApi = {
   orderExecutions(orderId: string) {
     return samisRequest<{ list: unknown[] }>(`/pacu/orderExecutions?orderId=${encodeURIComponent(orderId)}`, undefined, { module: 'pacu' });
   },
-  forceDischarge(operationId: string, reason: string, reasonCode: string, approverId?: string) {
-    return pacuFormPost<unknown>('/forceDischarge', { operationId, reason, reasonCode, approverId });
+  forceDischarge(data: Record<string, unknown> | string, reason?: string, reasonCode?: string, approverId?: string) {
+    return pacuFormPost<unknown>('/forceDischarge', typeof data === 'object' ? data : { operationId: data, reason, reasonCode, approverId });
   },
 };

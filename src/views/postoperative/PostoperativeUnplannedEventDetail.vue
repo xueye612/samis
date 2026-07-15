@@ -2,8 +2,8 @@
   <ModulePageShell title="非计划事件管理" description="事件创建、上报、审核、处置和闭环">
     <template #toolbar>
       <a-select v-model="selectedOperationId" style="width: 280px" placeholder="选择手术病例" allow-clear @change="onSelectChange as any">
-        <a-option v-for="item in store.cases" :key="item.id" :value="item.id">
-          {{ item.room }} · {{ item.patientName }} · {{ item.surgeryName }}
+        <a-option v-for="item in cases" :key="String(item.operationId)" :value="String(item.operationId)">
+          {{ item.roomName ?? '—' }} · {{ item.patientName ?? '—' }} · {{ item.operationName ?? '—' }}
         </a-option>
       </a-select>
     </template>
@@ -17,7 +17,7 @@
         <!-- 事件列表 -->
         <a-card class="section-card" :bordered="false" title="事件列表">
           <template #extra>
-            <a-button type="primary" size="small" @click="onCreateDraft">新建事件</a-button>
+            <a-button v-if="canManage" type="primary" size="small" @click="onCreateDraft">新建事件</a-button>
           </template>
           <a-table :data="ue.list" row-key="eventId" :pagination="{ pageSize: 5 }" size="small" @row-click="(record: any) => onRowClick(record)">
             <template #columns>
@@ -51,11 +51,11 @@
           </template>
           <template #extra>
             <a-space>
-              <a-button v-if="ue.canReport" type="primary" :loading="ue.saving" @click="onReport">上报</a-button>
-              <a-button v-if="ue.canStartReview" :loading="ue.saving" @click="onStartReview">开始审核</a-button>
-              <a-button v-if="ue.canConfirm" type="primary" :loading="ue.saving" @click="onConfirm">确认</a-button>
-              <a-button v-if="ue.canExclude" status="warning" :loading="ue.saving" @click="onExclude">排除</a-button>
-              <a-button v-if="ue.canClose" :loading="ue.saving" @click="onClose">关闭</a-button>
+              <a-button v-if="canManage && ue.canReport" type="primary" :loading="ue.saving" @click="onReport">上报</a-button>
+              <a-button v-if="canManage && ue.canStartReview" :loading="ue.saving" @click="onStartReview">开始审核</a-button>
+              <a-button v-if="canManage && ue.canConfirm" type="primary" :loading="ue.saving" @click="onConfirm">确认</a-button>
+              <a-button v-if="canManage && ue.canExclude" status="warning" :loading="ue.saving" @click="onExclude">排除</a-button>
+              <a-button v-if="canManage && ue.canClose" :loading="ue.saving" @click="onClose">关闭</a-button>
             </a-space>
           </template>
 
@@ -74,7 +74,7 @@
           </a-descriptions>
 
           <!-- 草稿编辑表单 -->
-          <a-form v-if="ue.detail.status === 'draft'" :model="draftForm" layout="vertical" style="margin-top: 16px">
+          <a-form v-if="canManage && ue.detail.status === 'draft'" :model="draftForm" layout="vertical" style="margin-top: 16px">
             <a-row :gutter="14">
               <a-col :span="8"><a-form-item label="事件类型"><a-input v-model="draftForm.eventType" placeholder="如 非计划转ICU" /></a-form-item></a-col>
               <a-col :span="6"><a-form-item label="严重程度"><a-select v-model="draftForm.severity"><a-option value="low">低</a-option><a-option value="medium">中</a-option><a-option value="high">高</a-option><a-option value="life_threatening">危及生命</a-option></a-select></a-form-item></a-col>
@@ -93,7 +93,7 @@
           </a-form>
 
           <!-- 审核操作 -->
-          <div v-if="ue.canConfirm || ue.canExclude" style="margin-top: 16px">
+          <div v-if="canManage && (ue.canConfirm || ue.canExclude)" style="margin-top: 16px">
             <a-divider orientation="left">审核操作</a-divider>
             <a-row :gutter="14">
               <a-col :span="20"><a-input v-model="reviewOpinion" placeholder="复核意见（确认时可选，排除时建议填写）" /></a-col>
@@ -107,17 +107,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Message } from '@arco-design/web-vue';
+import { useRoute } from 'vue-router';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import EmptyState from '@/components/shared/EmptyState.vue';
 import StatusTag from '@/components/StatusTag.vue';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
 import { useUnplannedEventStore } from '@/stores/unplannedEvent';
+import { authApi } from '@/api/auth';
+import { loadOperationCases } from '@/services/preoperative/preoperativeFiveFlowsService';
+import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
+import { hasPostoperativePermission } from '@/services/anesthesia/postoperativeWorkflow';
 
-const store = useAnesthesiaStore();
 const ue = useUnplannedEventStore();
 const selectedOperationId = ref('');
+const route = useRoute();
+const cases = ref<OperationCase[]>([]);
+const permissions = ref<string[]>([]);
+const canManage = computed(() => hasPostoperativePermission(permissions.value, 'postop.unplanned.manage'));
 
 const draftForm = ref({ eventType: '', severity: 'medium', discoverySource: '', cause: '', treatment: '', outcome: '' });
 const reviewOpinion = ref('');
@@ -199,4 +206,12 @@ const onClose = async () => {
   if (!reason) return;
   try { await ue.close(reason); Message.success('已关闭'); await ue.loadList(selectedOperationId.value); } catch { Message.error(ue.error ?? '操作失败'); }
 };
+
+onMounted(async () => {
+  const [loadedCases, granted] = await Promise.all([loadOperationCases(), authApi.myPermissions()]);
+  cases.value = loadedCases.filter((item) => Boolean(item.operationId));
+  permissions.value = Array.isArray(granted?.permissions) ? granted.permissions.map(String) : [];
+  const requested = String(route.query.operationId ?? '');
+  if (requested) await onSelectChange(requested);
+});
 </script>

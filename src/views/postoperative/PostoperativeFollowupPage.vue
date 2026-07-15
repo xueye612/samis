@@ -1,244 +1,203 @@
 <template>
-  <ModulePageShell title="术后随访管理" description="疼痛评分、满意度与随访闭环">
-    <template #chips>
-      <a-tag color="arcoblue">随访 {{ store.followUps.length }}</a-tag>
-    </template>
-    <template #toolbar>
-      <a-button :disabled="!form.caseId" @click="refreshDetail">刷新回读</a-button>
-      <a-button type="primary" @click="openCreate">新增随访</a-button>
-    </template>
-    <a-card v-if="detail" class="section-card" :bordered="false" title="OperationCase / 麻醉术后随访">
-      <a-descriptions :column="3" bordered size="small">
-        <a-descriptions-item label="operationId">{{ detail.operationCase.operationId }}</a-descriptions-item>
-        <a-descriptions-item label="患者">{{ detail.operationCase.patientName ?? '-' }}</a-descriptions-item>
-        <a-descriptions-item label="手术">{{ detail.operationCase.operationName ?? '-' }}</a-descriptions-item>
-        <a-descriptions-item label="随访状态">{{ detail.followup?.status ?? '未保存' }}</a-descriptions-item>
-      </a-descriptions>
-      <a-space style="margin-top: 12px">
-        <a-button type="primary" :disabled="detail.followup?.status !== 'draft'" @click="submitCurrent">提交随访</a-button>
-        <a-button :disabled="detail.followup?.status !== 'submitted'" @click="cancelCurrent">撤回/取消</a-button>
-      </a-space>
-    </a-card>
-    <a-card class="section-card" :bordered="false" title="随访记录">
-      <a-table :data="store.followUps" row-key="id" :pagination="{ pageSize: 8 }">
-        <template #columns>
-          <a-table-column title="患者" :width="100">
-            <template #cell="{ record }">{{ patientName(record.caseId) }}</template>
-          </a-table-column>
-          <a-table-column title="类型" data-index="type" />
-          <a-table-column title="VAS" :width="80">
-            <template #cell="{ record }">
-              <a-tag :color="record.vas >= 7 ? 'red' : record.vas >= 4 ? 'orange' : 'green'">{{ record.vas }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="满意度" :width="200">
-            <template #cell="{ record }">{{ formatSatisfaction(record.advice) }}</template>
-          </a-table-column>
-          <a-table-column title="处理意见" data-index="advice" />
-          <a-table-column title="操作" :width="200" fixed="right">
-            <template #cell="{ record }">
-              <a-space>
-                <a-button size="mini" @click="openEdit(record)">编辑</a-button>
-                <a-button size="mini" status="danger" :loading="deletingId === record.id" @click="onDelete(record)">删除</a-button>
-                <a-button size="mini" @click="printMock(record)">打印</a-button>
-              </a-space>
-            </template>
-          </a-table-column>
-        </template>
-      </a-table>
-    </a-card>
-    <a-modal v-model:visible="visible" title="随访记录" width="640px" @ok="save">
-      <a-form :model="form" layout="vertical">
-        <a-form-item label="病例">
-          <a-select v-model="form.caseId" :options="caseOptions" />
-        </a-form-item>
-        <a-form-item label="随访类型">
-          <a-select v-model="form.type" :options="['术后镇痛随访', '全麻术后随访', '区域阻滞术后随访']" />
-        </a-form-item>
-        <a-form-item label="VAS 疼痛评分 (0-10)">
-          <div class="vas-row">
-            <a-slider v-model="form.vas" :min="0" :max="10" :step="1" show-ticks />
-            <strong class="vas-value">{{ form.vas }}</strong>
-          </div>
-        </a-form-item>
-        <a-divider>满意度评价</a-divider>
-        <a-form-item label="麻醉服务">
-          <a-rate v-model="form.satisfactionAnesthesia" allow-half />
-        </a-form-item>
-        <a-form-item label="镇痛效果">
-          <a-rate v-model="form.satisfactionPain" allow-half />
-        </a-form-item>
-        <a-form-item label="整体满意度">
-          <a-rate v-model="form.satisfactionOverall" allow-half />
-        </a-form-item>
-        <a-form-item label="处理意见"><a-textarea v-model="form.advice" /></a-form-item>
-      </a-form>
-    </a-modal>
-  </ModulePageShell>
+  <ModulePageShell
+    title="术后随访管理"
+    description="OperationCase 真值、麻醉随访与护理访视只读联动"
+    ><template #toolbar
+      ><a-select
+        v-model="operationId"
+        :options="caseOptions"
+        style="width: 320px"
+      /><a-button :loading="loading" @click="load">刷新</a-button
+      ><a-button v-if="canManage" type="primary" @click="openEditor">{{
+        detail?.followup ? "修订草稿" : "新增随访"
+      }}</a-button></template
+    ><a-alert v-if="error" type="error">{{ error }}</a-alert
+    ><a-empty
+      v-else-if="!operationId"
+      description="暂无真实手术病例" /><template v-else-if="detail"
+      ><a-card title="手术病例（只读）"
+        ><a-descriptions :column="3" bordered
+          ><a-descriptions-item label="患者">{{
+            detail.operationCase.patientName ?? "-"
+          }}</a-descriptions-item
+          ><a-descriptions-item label="手术">{{
+            detail.operationCase.operationName ?? "-"
+          }}</a-descriptions-item
+          ><a-descriptions-item label="日期">{{
+            detail.operationCase.operationDate ?? "-"
+          }}</a-descriptions-item
+          ><a-descriptions-item label="随访状态">{{
+            detail.followup?.status ?? "未保存"
+          }}</a-descriptions-item
+          ><a-descriptions-item label="版本">{{
+            detail.followup?.version ?? 0
+          }}</a-descriptions-item></a-descriptions
+        ><a-space v-if="canManage" style="margin-top: 12px"
+          ><a-button
+            type="primary"
+            :disabled="detail.followup?.status !== 'draft'"
+            @click="submitCurrent"
+            >提交</a-button
+          ><a-button
+            :disabled="detail.followup?.status !== 'submitted'"
+            @click="cancelCurrent"
+            >撤回</a-button
+          ></a-space
+        ></a-card
+      ><a-card title="护理术后访视摘要（HULI只读）"
+        ><a-descriptions :column="3"
+          ><a-descriptions-item label="来源">{{
+            detail.nursingVisitSummary?.source ?? "huli"
+          }}</a-descriptions-item
+          ><a-descriptions-item label="状态">{{
+            detail.nursingVisitSummary?.status ?? "missing"
+          }}</a-descriptions-item
+          ><a-descriptions-item label="时间">{{
+            detail.nursingVisitSummary?.occurredAt ?? "-"
+          }}</a-descriptions-item></a-descriptions
+        ></a-card
+      ><a-card title="麻醉随访"
+        ><a-empty
+          v-if="!detail.followup"
+          description="尚无麻醉随访"
+        /><a-descriptions v-else :column="3" bordered
+          ><a-descriptions-item label="随访时间">{{
+            detail.followup.followupAt ?? "-"
+          }}</a-descriptions-item
+          ><a-descriptions-item label="方式">{{
+            detail.followup.followupMethod ?? "-"
+          }}</a-descriptions-item
+          ><a-descriptions-item label="VAS">{{
+            detail.followup.painScore ?? "-"
+          }}</a-descriptions-item
+          ><a-descriptions-item label="满意度">{{
+            detail.followup.satisfaction ?? "-"
+          }}</a-descriptions-item
+          ><a-descriptions-item label="备注">{{
+            detail.followup.notes ?? "-"
+          }}</a-descriptions-item></a-descriptions
+        ></a-card
+      ></template
+    ><a-modal v-model:visible="visible" title="麻醉术后随访" @ok="save"
+      ><a-form :model="form" layout="vertical"
+        ><a-form-item label="随访时间"
+          ><a-date-picker
+            v-model="form.followupAt"
+            show-time
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%" /></a-form-item
+        ><a-form-item label="随访方式"
+          ><a-input v-model="form.followupMethod" /></a-form-item
+        ><a-form-item label="VAS"
+          ><a-input-number
+            v-model="form.painScore"
+            :min="0"
+            :max="10" /></a-form-item
+        ><a-form-item label="满意度"
+          ><a-input-number
+            v-model="form.satisfaction"
+            :min="0"
+            :max="5"
+            :step="0.5" /></a-form-item
+        ><a-form-item label="备注"
+          ><a-textarea v-model="form.notes" /></a-form-item></a-form></a-modal
+  ></ModulePageShell>
 </template>
-
 <script setup lang="ts">
-import dayjs from 'dayjs';
-import { computed, onMounted, reactive, ref } from 'vue';
-import { Message } from '@arco-design/web-vue';
-import ModulePageShell from '@/components/shared/ModulePageShell.vue';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
-import { useRealPostoperative } from '@/config/apiFlags';
-import type { PostoperativeFollowUp } from '@/types/anesthesia';
-import type { PostoperativeDetail } from '@/services/anesthesia/postoperativeWorkflow';
-import { cancelFollowup, loadPostoperativeDetail, saveFollowupDraft, submitFollowup } from '@/services/anesthesia/postoperativeWorkflow';
-
-const SAT_PREFIX = '[满意度]';
-
-const store = useAnesthesiaStore();
-const visible = ref(false);
-const editingId = ref('');
-const saving = ref(false);
-const detail = ref<PostoperativeDetail | null>(null);
-
+import dayjs from "dayjs";
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import { Message } from "@arco-design/web-vue";
+import ModulePageShell from "@/components/shared/ModulePageShell.vue";
+import { authApi } from "@/api/auth";
+import type { OperationCase } from "@/services/anesthesia/adapters/operationInfoAdapter";
+import { loadOperationCases } from "@/services/preoperative/preoperativeFiveFlowsService";
+import {
+  cancelFollowup,
+  hasPostoperativePermission,
+  loadPostoperativeDetail,
+  saveFollowupDraft,
+  submitFollowup,
+  type PostoperativeDetail,
+} from "@/services/anesthesia/postoperativeWorkflow";
+const cases = ref<OperationCase[]>([]),
+  permissions = ref<string[]>([]),
+  operationId = ref(""),
+  detail = ref<PostoperativeDetail | null>(null),
+  loading = ref(false),
+  error = ref(""),
+  visible = ref(false);
 const form = reactive({
-  caseId: '',
-  type: '术后镇痛随访' as PostoperativeFollowUp['type'],
-  vas: 3,
-  satisfactionAnesthesia: 4,
-  satisfactionPain: 4,
-  satisfactionOverall: 4,
-  advice: '',
+  followupAt: "",
+  followupMethod: "门诊/电话",
+  painScore: 0,
+  satisfaction: 5,
+  notes: "",
 });
-
-const caseOptions = computed(() =>
-  store.cases.map((item) => ({ label: `${item.patientName} · ${item.surgeryName}`, value: item.id })),
+const canManage = computed(() =>
+  hasPostoperativePermission(permissions.value, "postop.followup.manage"),
 );
-const patientName = (caseId: string) => store.cases.find((item) => item.id === caseId)?.patientName ?? caseId;
-const operationCaseOf = (operationId: string) => {
-  const row = store.cases.find((item) => item.id === operationId);
-  return row ? { operationId: row.id, patientName: row.patientName, operationName: row.surgeryName } : { operationId };
-};
-const refreshDetail = async () => { if (form.caseId) detail.value = await loadPostoperativeDetail(form.caseId, operationCaseOf(form.caseId)); };
-const submitCurrent = async () => { if (form.caseId) detail.value = await submitFollowup(form.caseId); };
-const cancelCurrent = async () => { if (form.caseId) detail.value = await cancelFollowup(form.caseId); };
-
-const parseSatisfaction = (advice: string) => {
-  const match = advice.match(/\[满意度\]\s*麻醉([\d.]+)\/镇痛([\d.]+)\/整体([\d.]+)/);
-  return {
-    anesthesia: match ? Number(match[1]) : 4,
-    pain: match ? Number(match[2]) : 4,
-    overall: match ? Number(match[3]) : 4,
-    note: advice.replace(/\[满意度\][^\n]*\n?/, '').trim(),
-  };
-};
-
-const buildAdvice = () => {
-  const sat = `${SAT_PREFIX} 麻醉${form.satisfactionAnesthesia}/镇痛${form.satisfactionPain}/整体${form.satisfactionOverall}`;
-  const note = form.advice.trim();
-  return note ? `${sat}\n${note}` : sat;
-};
-
-const formatSatisfaction = (advice: string) => {
-  const s = parseSatisfaction(advice);
-  return `麻醉 ${s.anesthesia} · 镇痛 ${s.pain} · 整体 ${s.overall}`;
-};
-
-const openCreate = () => {
-  editingId.value = '';
-  form.caseId = store.cases[0]?.id ?? '';
-  form.type = '术后镇痛随访';
-  form.vas = 3;
-  form.satisfactionAnesthesia = 4;
-  form.satisfactionPain = 4;
-  form.satisfactionOverall = 4;
-  form.advice = '';
-  visible.value = true;
-};
-
-const openEdit = (record: PostoperativeFollowUp) => {
-  editingId.value = record.id;
-  const s = parseSatisfaction(record.advice);
-  form.caseId = record.caseId;
-  form.type = record.type;
-  form.vas = record.vas;
-  form.satisfactionAnesthesia = s.anesthesia;
-  form.satisfactionPain = s.pain;
-  form.satisfactionOverall = s.overall;
-  form.advice = s.note;
-  visible.value = true;
-};
-
-const save = async () => {
-  const nowIso = dayjs().format('YYYY-MM-DD HH:mm:ss');
-  const payload: PostoperativeFollowUp = {
-    id: editingId.value || `fu-${Date.now()}`,
-    caseId: form.caseId,
-    type: form.type,
-    followTime: nowIso,
-    vas: form.vas,
-    nausea: false,
-    headache: false,
-    hoarseness: false,
-    numbness: false,
-    motorDisorder: false,
-    awareness: false,
-    respiratoryDepression: false,
-    reintubation: false,
-    transferredIcu: false,
-    death: false,
-    advice: buildAdvice(),
-  };
-  saving.value = true;
+const caseOptions = computed(() =>
+  cases.value.map((c) => ({
+    label: `${c.patientName ?? "-"} · ${c.operationName ?? "-"} · ${c.operationDate ?? "-"}`,
+    value: String(c.operationId),
+  })),
+);
+async function load() {
+  if (!operationId.value) return;
+  loading.value = true;
+  error.value = "";
   try {
-    if (useRealPostoperative()) {
-      detail.value = await saveFollowupDraft({ operationId: form.caseId, followupAt: nowIso, followupMethod: form.type, painScore: form.vas, satisfaction: form.satisfactionOverall, notes: buildAdvice() });
-    } else {
-      store.upsertFollowUp(payload);
-    }
-    visible.value = false;
-    Message.success('随访记录已保存');
-  } catch (error) {
-    Message.warning(error instanceof Error ? error.message : '保存随访记录失败');
+    detail.value = await loadPostoperativeDetail(operationId.value);
+  } catch (e) {
+    detail.value = null;
+    error.value = e instanceof Error ? e.message : "加载失败";
   } finally {
-    saving.value = false;
+    loading.value = false;
   }
-};
-
-const printMock = (record: PostoperativeFollowUp) => {
-  const name = patientName(record.caseId);
-  Message.info(`打印随访单（Mock）：${name} · VAS ${record.vas} · ${formatSatisfaction(record.advice)}`);
-};
-
-const deletingId = ref('');
-const onDelete = async (record: PostoperativeFollowUp) => {
-  deletingId.value = record.id;
-  try {
-    if (useRealPostoperative()) {
-      await store.deleteFollowupRemote(record.id);
-    } else {
-      store.followUps = store.followUps.filter((item) => item.id !== record.id);
-    }
-    Message.success('随访记录已删除');
-  } catch (error) {
-    Message.warning(error instanceof Error ? error.message : '删除失败');
-  } finally {
-    deletingId.value = '';
-  }
-};
-
-onMounted(() => {
-  if (useRealPostoperative()) { void store.loadRemoteFollowups(); if (form.caseId) void refreshDetail(); }
+}
+function openEditor() {
+  const f = detail.value?.followup;
+  form.followupAt = f?.followupAt ?? dayjs().format("YYYY-MM-DD HH:mm:ss");
+  form.followupMethod = f?.followupMethod ?? "门诊/电话";
+  form.painScore = f?.painScore ?? 0;
+  form.satisfaction = f?.satisfaction ?? 5;
+  form.notes = f?.notes ?? "";
+  visible.value = true;
+}
+async function save() {
+  const f = detail.value?.followup;
+  detail.value = await saveFollowupDraft({
+    operationId: operationId.value,
+    followupId: f?.followupId,
+    expectedVersion: f?.version ?? 0,
+    ...form,
+  });
+  visible.value = false;
+  Message.success("保存并回读成功");
+}
+async function submitCurrent() {
+  const f = detail.value?.followup;
+  if (f) detail.value = await submitFollowup(operationId.value, f.version);
+}
+async function cancelCurrent() {
+  const f = detail.value?.followup;
+  if (f)
+    detail.value = await cancelFollowup(
+      operationId.value,
+      f.version,
+      "页面撤回修订",
+    );
+}
+onMounted(async () => {
+  const [c, p] = await Promise.all([
+    loadOperationCases(),
+    authApi.myPermissions(),
+  ]);
+  cases.value = c;
+  permissions.value = Array.isArray(p?.permissions)
+    ? p.permissions.map(String)
+    : [];
+  operationId.value = String(c[0]?.operationId ?? "");
 });
+watch(operationId, () => void load());
 </script>
-
-<style scoped>
-.vas-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-.vas-row :deep(.arco-slider) {
-  flex: 1;
-}
-.vas-value {
-  min-width: 24px;
-  font-size: var(--font-size-lg);
-  color: var(--color-brand-600);
-}
-</style>
