@@ -1,79 +1,22 @@
 <template>
-  <ModulePageShell title="手术间实时大屏" description="各手术间监护设备在线状态与最近同步时间">
-    <template #chips>
-      <a-tag color="green">在线 {{ statusCount('在线') }}</a-tag>
-      <a-tag color="red">告警 {{ statusCount('告警') }}</a-tag>
-      <a-tag>离线 {{ statusCount('离线') }}</a-tag>
-    </template>
-    <template #stats>
-      <MetricCard label="设备总数" :value="store.monitorDevices.length" icon="IconDesktop" />
-      <MetricCard label="在线" :value="statusCount('在线')" icon="IconCheckCircle" />
-      <MetricCard label="告警" :value="statusCount('告警')" icon="IconExclamationCircle" variant="warn" />
-      <MetricCard label="未处理告警" :value="unhandledAlerts" icon="IconExclamationCircle" :variant="unhandledAlerts ? 'danger' : 'default'" />
-    </template>
+  <ModulePageShell title="设备运行看板" description="注册设备和服务端告警的实时汇总，不使用本地演示设备">
+    <template #toolbar><a-button :loading="loading" @click="load">刷新</a-button></template>
+    <template #chips><a-tag color="green">在线 {{ count('online') }}</a-tag><a-tag color="red">告警 {{ count('alert') }}</a-tag><a-tag>离线 {{ count('offline') }}</a-tag></template>
+    <template #stats><MetricCard label="设备总数" :value="devices.length" icon="IconDesktop" /><MetricCard label="在线" :value="count('online')" icon="IconCheckCircle" /><MetricCard label="告警设备" :value="count('alert')" icon="IconExclamationCircle" variant="warn" /><MetricCard label="未确认告警" :value="alerts.length" icon="IconExclamationCircle" :variant="alerts.length?'danger':'default'" /></template>
+    <a-alert v-if="error" type="error" show-icon style="margin-bottom:12px">{{ error }}</a-alert>
     <a-card class="section-card" :bordered="false" title="设备状态矩阵">
-      <div class="device-grid">
-        <div
-          v-for="device in store.monitorDevices"
-          :key="device.id"
-          class="device-card"
-          :class="`device-card--${deviceStatusClass(device.status)}`"
-        >
-          <div class="device-card__head">
-            <strong>{{ device.name }}</strong>
-            <a-tag :color="deviceStatusColor(device.status)" size="small">{{ device.status }}</a-tag>
-          </div>
-          <div class="device-card__room">{{ device.room }}</div>
-          <div class="device-card__type">{{ device.type }}</div>
-          <div class="device-card__sync">同步 {{ device.lastSync }}</div>
-        </div>
-      </div>
+      <div v-if="devices.length" class="device-grid"><div v-for="device in devices" :key="device.deviceId" class="device-card"><div class="device-head"><strong>{{ device.deviceId }}</strong><a-tag :color="color(device.status)">{{ label(device.status) }}</a-tag></div><div>{{ device.deviceType }} · {{ device.vendor || '厂商未登记' }}</div><div class="muted">最近心跳 {{ device.lastHeartbeatAt || '—' }}</div></div></div>
+      <EmptyState v-else title="暂无设备数据" description="服务端设备注册目录为空" icon="IconDesktop" />
+    </a-card>
+    <a-card class="section-card" :bordered="false" title="未确认告警">
+      <a-table v-if="alerts.length" :data="alerts" :pagination="false" row-key="alertId" size="small"><template #columns><a-table-column title="设备" data-index="deviceId" /><a-table-column title="级别" data-index="severity" /><a-table-column title="告警" data-index="message" /><a-table-column title="发生时间" data-index="occurredAt" /></template></a-table>
+      <EmptyState v-else title="暂无未确认告警" icon="IconCheckCircle" />
     </a-card>
   </ModulePageShell>
 </template>
-
 <script setup lang="ts">
-import { computed } from 'vue';
-import MetricCard from '@/components/MetricCard.vue';
-import ModulePageShell from '@/components/shared/ModulePageShell.vue';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
-import type { MonitorDevice } from '@/types/clinicalModules';
-
-const store = useAnesthesiaStore();
-
-const statusCount = (status: MonitorDevice['status']) => store.monitorDevices.filter((item) => item.status === status).length;
-const unhandledAlerts = computed(() => store.monitorAlerts.filter((item) => !item.handled).length);
-
-const deviceStatusColor = (status: MonitorDevice['status']) => ({
-  在线: 'green',
-  离线: 'gray',
-  告警: 'red',
-}[status] ?? 'gray');
-
-const deviceStatusClass = (status: MonitorDevice['status']) => ({
-  在线: 'online',
-  离线: 'offline',
-  告警: 'alert',
-}[status] ?? 'offline');
+import { onMounted, ref } from 'vue';import MetricCard from '@/components/MetricCard.vue';import ModulePageShell from '@/components/shared/ModulePageShell.vue';import EmptyState from '@/components/shared/EmptyState.vue';import { anesthesiaDeviceV2Api, type DeviceAlertItem, type DeviceRegistryItem } from '@/api/anesthesiaDevice';
+const devices=ref<DeviceRegistryItem[]>([]);const alerts=ref<DeviceAlertItem[]>([]);const loading=ref(false);const error=ref('');const count=(s:string)=>devices.value.filter(v=>v.status===s).length;const label=(v:string)=>({online:'在线',offline:'离线',alert:'告警'}[v]??v);const color=(v:string)=>({online:'green',offline:'gray',alert:'red'}[v]??'gray');
+async function load(){loading.value=true;error.value='';try{const [d,a]=await Promise.all([anesthesiaDeviceV2Api.registryList({pageSize:100}),anesthesiaDeviceV2Api.alertList({status:'active',pageSize:100})]);devices.value=d.list??[];alerts.value=a.list??[];}catch(e){devices.value=[];alerts.value=[];error.value=e instanceof Error?e.message:'加载设备看板失败';}finally{loading.value=false;}}onMounted(load);
 </script>
-
-<style scoped>
-.device-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--space-3);
-}
-.device-card {
-  padding: 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--surface-muted);
-}
-.device-card--online { background: rgb(220 252 231 / 50%); border-color: var(--color-success-100); }
-.device-card--alert { background: rgb(254 242 242 / 80%); border-color: var(--color-danger-100); }
-.device-card--offline { opacity: 0.75; }
-.device-card__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.device-card__room { margin-top: 6px; font-weight: 600; font-size: var(--font-size-sm); }
-.device-card__type { margin-top: 4px; font-size: var(--font-size-xs); color: var(--text-secondary); }
-.device-card__sync { margin-top: 8px; font-size: var(--font-size-xs); color: var(--text-tertiary); }
-</style>
+<style scoped>.device-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}.device-card{display:grid;gap:8px;padding:14px;border:1px solid var(--border);border-radius:var(--radius-md)}.device-head{display:flex;justify-content:space-between;gap:8px}.muted{color:var(--text-secondary);font-size:12px}</style>

@@ -1,58 +1,50 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ samisRequest: vi.fn() }));
-vi.mock('@/api/samisClient', () => ({ samisRequest: mocks.samisRequest }));
+const captured: Array<{ path: string; body?: string }> = [];
+vi.mock('@/api/samisClient', () => ({
+  samisRequest: vi.fn(async (path: string, init?: RequestInit) => {
+    captured.push({ path, body: typeof init?.body === 'string' ? init.body : undefined });
+    return {};
+  }),
+}));
 
-import { anesthesiaHandoverApi, anesthesiaPlanApi } from '@/api/anesthesiaWorkflow';
+const { anesthesiaHandoverApi, anesthesiaSummaryApi } = await import('@/api/anesthesiaWorkflow');
+const body = () => new URLSearchParams(captured[captured.length - 1]?.body ?? '');
 
-function bodyOfCall(): URLSearchParams {
-  const init = mocks.samisRequest.mock.calls[0][1] as RequestInit;
-  return new URLSearchParams(String(init.body));
-}
+describe('P09 anesthesia workflow api', () => {
+  beforeEach(() => { captured.length = 0; });
 
-describe('anesthesia workflow api payloads', () => {
-  beforeEach(() => {
-    mocks.samisRequest.mockReset();
-    mocks.samisRequest.mockResolvedValue({});
-  });
-
-  it('serializes structured anesthesia plan fields instead of dropping them', async () => {
-    await anesthesiaPlanApi.saveDraft({
-      operationId: 'OP-1',
-      alternativeMethods: ['neuraxial'],
-      airwayPlan: { strategy: 'endotracheal' },
-      monitoringPlan: { items: ['ECG', 'SpO2'] },
-      specialRisks: ['difficult_airway'],
-      vascularAccessPlan: [{ site: '左手', type: 'PIV' }],
-      fluidPlanDetail: [{ fluidCode: 'NS', volumeMl: 500 }],
-      transfusionPlan: { required: false },
-      backupPlan: { method: 'LMA' },
-      riskResponsePlan: [{ risk: 'PONV', action: '预防' }],
-    });
-
-    const body = bodyOfCall();
-    expect(JSON.parse(body.get('alternativeMethods') ?? '')).toEqual(['neuraxial']);
-    expect(JSON.parse(body.get('airwayPlan') ?? '')).toEqual({ strategy: 'endotracheal' });
-    expect(JSON.parse(body.get('monitoringPlan') ?? '')).toEqual({ items: ['ECG', 'SpO2'] });
-    expect(JSON.parse(body.get('specialRisks') ?? '')).toEqual(['difficult_airway']);
-    expect(JSON.parse(body.get('vascularAccessPlan') ?? '')).toEqual([{ site: '左手', type: 'PIV' }]);
-    expect(JSON.parse(body.get('fluidPlanDetail') ?? '')).toEqual([{ fluidCode: 'NS', volumeMl: 500 }]);
-    expect(JSON.parse(body.get('transfusionPlan') ?? '')).toEqual({ required: false });
-    expect(JSON.parse(body.get('backupPlan') ?? '')).toEqual({ method: 'LMA' });
-    expect(JSON.parse(body.get('riskResponsePlan') ?? '')).toEqual([{ risk: 'PONV', action: '预防' }]);
-  });
-
-  it('serializes handover checks and pending tasks', async () => {
+  it('serializes all structured handover sections without dropping arrays', async () => {
     await anesthesiaHandoverApi.saveDraft({
-      operationId: 'OP-1',
-      pendingTasks: ['复查血气'],
-      checks: [{ itemCode: 'equipment', result: 'exception', remark: '已切换备用机' }],
+      operationId: 'OP-1', expectedVersion: 2,
+      responsibilities: [{ code: 'ANES', label: '麻醉管理' }],
+      activeProblems: [{ code: 'BP', description: '血压波动' }],
+      riskItems: [{ code: 'AIRWAY', level: 'high' }],
+      equipment: [{ code: 'MON', status: 'normal' }],
+      lines: [{ type: 'IV', site: '左上肢' }],
+      activeMedications: [{ name: '丙泊酚', rate: '10ml/h' }],
+      pendingTasks: [{ code: 'LAB', description: '复查血气' }],
+      checks: [{ itemCode: 'AIRWAY', result: 'exception', remark: '继续观察' }],
     });
+    expect(body().get('expectedVersion')).toBe('2');
+    expect(JSON.parse(body().get('activeProblems') ?? '[]')[0].description).toBe('血压波动');
+    expect(JSON.parse(body().get('checks') ?? '[]')[0]).toMatchObject({ result: 'exception', remark: '继续观察' });
+  });
 
-    const body = bodyOfCall();
-    expect(JSON.parse(body.get('pendingTasks') ?? '')).toEqual(['复查血气']);
-    expect(JSON.parse(body.get('checks') ?? '')).toEqual([
-      { itemCode: 'equipment', result: 'exception', remark: '已切换备用机' },
-    ]);
+  it('uses GET for summary detail and explicit version for generation', async () => {
+    await anesthesiaSummaryApi.detail('OP/1');
+    expect(captured[0]).toEqual({ path: '/anesthesiaSummary/detail?operationId=OP%2F1', body: undefined });
+    await anesthesiaSummaryApi.generate({ operationId: 'OP/1', expectedVersion: 0 });
+    expect(captured[1].path).toBe('/anesthesiaSummary/generate');
+    expect(body().get('expectedVersion')).toBe('0');
+  });
+
+  it('keeps doctor supplement separate from generated payload', async () => {
+    await anesthesiaSummaryApi.saveDraft({
+      summaryVersionId: 'SUMV-1', expectedVersion: 3,
+      doctorSupplement: { effectRating: '优', otherNotes: '保留医生意见' },
+    });
+    expect(JSON.parse(body().get('doctorSupplement') ?? '{}')).toEqual({ effectRating: '优', otherNotes: '保留医生意见' });
+    expect(body().has('generatedPayload')).toBe(false);
   });
 });

@@ -61,6 +61,12 @@ export interface RecordDetailRecord {
   transfusions: RecordDetailTransfusion[];
   ioRecords: RecordDetailIo[];
   labResults: RecordDetailLab[];
+  airwayRecords?: RecordDetailStructuredEntity[];
+  ventilationSegments?: RecordDetailStructuredEntity[];
+  infusionSegments?: RecordDetailStructuredEntity[];
+  transfusionVerifications?: RecordDetailStructuredEntity[];
+  rescueEvents?: RecordDetailStructuredEntity[];
+  rescueActions?: RecordDetailStructuredEntity[];
 }
 
 export interface RecordDetailResponse {
@@ -68,37 +74,48 @@ export interface RecordDetailResponse {
   record: RecordDetailRecord | null;
 }
 
-interface RecordDetailMedication {
+export interface RecordDetailMedication {
   localId?: string; drugName?: string; drugCategory?: string; dose?: unknown;
   doseUnit?: string; route?: string; mode?: string; rate?: string; rateUnit?: string;
   concentration?: string; eventTime?: string; startTime?: string; endTime?: string;
   rowIndex?: number; displayText?: string; executor?: string; isSpecial?: boolean;
   specialNo?: number; specialCategory?: string; specialReason?: string; status?: string;
 }
-interface RecordDetailTimelineEvent {
+export interface RecordDetailTimelineEvent {
   localId?: string; eventType?: string; eventName?: string; eventTime?: string;
   stage?: string; severity?: string; description?: string; treatment?: string; status?: string;
 }
-interface RecordDetailVitalGroup {
+export interface RecordDetailVitalGroup {
   localId?: string; time?: string; source?: string; isCorrected?: boolean;
   HR?: number; SBP?: number; DBP?: number; MAP?: number; SpO2?: number;
   RR?: number; EtCO2?: number; TEMP?: number; BIS?: number; CVP?: number;
 }
-interface RecordDetailFluid {
+export interface RecordDetailFluid {
   localId?: string; fluidName?: string; category?: string; unit?: string;
   volume?: unknown; startTime?: string; endTime?: string; status?: string;
 }
-interface RecordDetailTransfusion {
+export interface RecordDetailTransfusion {
   localId?: string; productName?: string; volume?: unknown; unit?: string;
   startTime?: string; endTime?: string; reaction?: string; bagCount?: number; status?: string;
 }
-interface RecordDetailIo {
+export interface RecordDetailIo {
   localId?: string; ioType?: string; volume?: unknown; unit?: string;
   measureTime?: string; remark?: string; status?: string;
 }
-interface RecordDetailLab {
+export interface RecordDetailLab {
   localId?: string; itemName?: string; itemCode?: string; value?: string; unit?: string;
   measureTime?: string; abnormalFlag?: string; refRange?: string; status?: string;
+}
+export interface RecordDetailStructuredEntity {
+  localId?: string;
+  status?: string;
+  occurredAt?: string;
+  triggeredAt?: string;
+  action?: string;
+  actionType?: string;
+  level?: string;
+  outcome?: string;
+  triggerDescription?: string;
 }
 
 const MED_MODE_REVERSE: Record<string, MedicationRecord['mode']> = {

@@ -8,6 +8,7 @@ import {
   type AnesthesiaPlanApi,
   type AnesthesiaPlanDetailApi,
   type AnesthesiaSummaryApi,
+  type AnesthesiaSummaryDetailApi,
 } from '@/api/anesthesiaWorkflow';
 
 function errorMessage(error: unknown): string {
@@ -137,8 +138,8 @@ export const useAnesthesiaHandoverStore = defineStore('anesthesia-handover-workf
           expectedVersion: current?.version ?? 0,
           ...fields,
         });
-        this.replaceCurrent(saved);
-        return saved;
+        await this.load(this.loadedOperationId);
+        return this.detail?.activeHandover ?? saved;
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -155,15 +156,20 @@ export const useAnesthesiaHandoverStore = defineStore('anesthesia-handover-workf
     },
     async accept() {
       const current = this.requireCurrent();
-      return this.runAction(() => anesthesiaHandoverApi.accept({ handoverVersionId: current.handoverVersionId }));
+      return this.runAction(() => anesthesiaHandoverApi.accept({ handoverVersionId: current.handoverVersionId, expectedVersion: current.version }));
+    },
+    async cancel(reason: string) {
+      const current = this.requireCurrent();
+      if (!reason.trim()) throw new Error('取消原因不能为空');
+      return this.runAction(() => anesthesiaHandoverApi.cancelDraft({ handoverVersionId: current.handoverVersionId, expectedVersion: current.version, reason: reason.trim() }));
     },
     async runAction(action: () => Promise<AnesthesiaHandoverApi>) {
       this.saving = true;
       this.error = null;
       try {
         const saved = await action();
-        this.replaceCurrent(saved);
-        return saved;
+        await this.load(saved.operationId);
+        return this.detail?.activeHandover ?? saved;
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -174,7 +180,7 @@ export const useAnesthesiaHandoverStore = defineStore('anesthesia-handover-workf
     replaceCurrent(activeHandover: AnesthesiaHandoverApi) {
       this.detail = this.detail
         ? { ...this.detail, activeHandover }
-        : { operationId: activeHandover.operationId, activeHandover, currentResponsibleDoctor: null, history: [] };
+        : { operationId: activeHandover.operationId, operationCase: {}, activeHandover, currentResponsibleDoctor: null, history: [] };
     },
     requireCurrent(): AnesthesiaHandoverApi {
       if (!this.detail?.activeHandover) throw new Error('请先保存交班草稿');
@@ -185,18 +191,18 @@ export const useAnesthesiaHandoverStore = defineStore('anesthesia-handover-workf
 
 export const useAnesthesiaSummaryStore = defineStore('anesthesia-summary-workflow', {
   state: () => ({
-    detail: null as AnesthesiaSummaryApi | null,
+    detail: null as AnesthesiaSummaryDetailApi | null,
     loading: false,
     saving: false,
     error: null as string | null,
     loadedOperationId: null as string | null,
   }),
   actions: {
-    async generate(operationId: string) {
+    async load(operationId: string) {
       this.loading = true;
       this.error = null;
       try {
-        this.detail = await anesthesiaSummaryApi.generate(operationId);
+        this.detail = await anesthesiaSummaryApi.detail(operationId);
         this.loadedOperationId = operationId;
         return this.detail;
       } catch (error) {
@@ -207,6 +213,11 @@ export const useAnesthesiaSummaryStore = defineStore('anesthesia-summary-workflo
       } finally {
         this.loading = false;
       }
+    },
+    async generate() {
+      if (!this.loadedOperationId) throw new Error('请先选择手术病例');
+      const current = this.detail?.currentSummary;
+      return this.runAction(() => anesthesiaSummaryApi.generate({ operationId: this.loadedOperationId!, expectedVersion: current?.version ?? 0 }));
     },
     async saveDraft(fields: Record<string, unknown>) {
       const current = this.requireCurrent();
@@ -220,12 +231,30 @@ export const useAnesthesiaSummaryStore = defineStore('anesthesia-summary-workflo
       const current = this.requireCurrent();
       return this.runAction(() => anesthesiaSummaryApi.submit({ summaryVersionId: current.summaryVersionId, expectedVersion: current.version }));
     },
+    async createRevision(reason: string) {
+      const current = this.requireCurrent();
+      if (!reason.trim()) throw new Error('修订原因不能为空');
+      return this.runAction(() => anesthesiaSummaryApi.createRevision({ summaryVersionId: current.summaryVersionId, expectedVersion: current.version, reason: reason.trim() }));
+    },
+    async sign(signatureDocumentId: string) {
+      const current = this.requireCurrent();
+      return this.runAction(() => anesthesiaSummaryApi.sign({ summaryVersionId: current.summaryVersionId, expectedVersion: current.version, signatureDocumentId }));
+    },
+    async markPrinted() {
+      const current = this.requireCurrent();
+      return this.runAction(() => anesthesiaSummaryApi.markPrinted({ summaryVersionId: current.summaryVersionId, expectedVersion: current.version }));
+    },
+    async archive() {
+      const current = this.requireCurrent();
+      return this.runAction(() => anesthesiaSummaryApi.archive({ summaryVersionId: current.summaryVersionId, expectedVersion: current.version }));
+    },
     async runAction(action: () => Promise<AnesthesiaSummaryApi>) {
       this.saving = true;
       this.error = null;
       try {
-        this.detail = await action();
-        return this.detail;
+        const saved = await action();
+        await this.load(saved.operationId);
+        return this.detail?.currentSummary ?? saved;
       } catch (error) {
         this.error = errorMessage(error);
         throw error;
@@ -234,8 +263,8 @@ export const useAnesthesiaSummaryStore = defineStore('anesthesia-summary-workflo
       }
     },
     requireCurrent(): AnesthesiaSummaryApi {
-      if (!this.detail) throw new Error('请先生成麻醉小结');
-      return this.detail;
+      if (!this.detail?.currentSummary) throw new Error('请先生成麻醉小结');
+      return this.detail.currentSummary;
     },
   },
 });

@@ -88,14 +88,31 @@ export interface AnesthesiaHandoverApi {
   priorityNotes: string | null;
   specialNotes: string | null;
   emergencyReason: string | null;
-  pendingTasks: string[];
-  checks: Array<{ itemCode: string; result: 'pending' | 'normal' | 'exception'; remark: string }>;
+  responsibilities: Array<{ code: string; label?: string; description?: string }>;
+  activeProblems: Array<{ code: string; description: string; status?: string }>;
+  riskItems: Array<{ code: string; label?: string; level?: string; action?: string }>;
+  equipment: Array<{ code: string; name?: string; status: string; note?: string }>;
+  lines: Array<{ type: string; site?: string; status?: string; note?: string }>;
+  activeMedications: Array<{ name: string; rate?: string; route?: string; note?: string }>;
+  pendingTasks: Array<{ code: string; description: string; dueAt?: string }>;
+  checks: Array<{ itemCode: string; result: 'pending' | 'confirmed' | 'exception'; remark: string; confirmedBy?: string | null; confirmedAt?: string | null }>;
+  clinicalSnapshot: {
+    snapshotAt?: string;
+    airway?: unknown[];
+    ventilation?: unknown[];
+    activeMedications?: unknown[];
+    io?: unknown[];
+    latestVitals?: unknown[];
+    rescueEvents?: unknown[];
+  } | null;
+  cancelReason: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
 
 export interface AnesthesiaHandoverDetailApi {
   operationId: string;
+  operationCase: import('@/services/anesthesia/adapters/operationInfoAdapter').OperationCase;
   activeHandover: AnesthesiaHandoverApi | null;
   currentResponsibleDoctor: { doctorId: string; doctorName: string; acceptedAt: string | null } | null;
   history: AnesthesiaHandoverApi[];
@@ -124,23 +141,75 @@ export interface AnesthesiaSummaryApi {
   summaryVersionId: string;
   operationId: string;
   version: number;
-  status: 'draft' | 'submitted' | 'signed' | 'cancelled';
-  generatedPayload: unknown;
+  status: 'draft' | 'submitted' | 'signed' | 'archived' | 'cancelled';
+  generatedPayload: AnesthesiaSummaryGeneratedPayload;
+  doctorSupplement: AnesthesiaSummaryDoctorSupplement;
   effectRating: string | null;
   intraoperativeNotes: string | null;
   recoveryNotes: string | null;
   complicationSummary: string | null;
   postoperativeDestination: string | null;
   submittedAt: string | null;
+  signedAt: string | null;
+  printedAt: string | null;
+  archivedAt: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  sourceRecordRevisionId: string | null;
+  sourceContentHash: string | null;
+  contentHash: string | null;
+  signatureDocumentId: string | null;
   revisionReason: string | null;
   createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface AnesthesiaSummaryDoctorSupplement {
+  effectRating?: string | null;
+  intraoperativeNotes?: string | null;
+  recoveryNotes?: string | null;
+  complicationSummary?: string | null;
+  postoperativeDestination?: string | null;
+  otherNotes?: string | null;
+}
+
+export interface AnesthesiaSummaryGeneratedPayload {
+  operationId: string;
+  generatedAt: string;
+  source: { recordRevisionId: string | null; recordContentHash: string | null };
+  case: { diagnosis: string | null; surgeryName: string | null; anesthesiaMethod: string | null; asa: string | null };
+  timeline: { recordStart: string | null; recordEnd: string | null; anesthesiaStart: string | null; anesthesiaEnd: string | null; surgeryStart: string | null; surgeryEnd: string | null; anesthesiaDurationMinutes: number | null; surgeryDurationMinutes: number | null };
+  airway: unknown[];
+  ventilation: unknown[];
+  monitoring: Record<string, { min: number; max: number; unit: string | null }>;
+  medications: unknown[];
+  fluids: unknown[];
+  transfusions: unknown[];
+  ioRecords: unknown[];
+  labAbnormalities: unknown[];
+  events: unknown[];
+  rescueEvents: unknown[];
+  recovery: { status?: string | null; inAt?: string | null; outAt?: string | null; aldreteIn?: number | null; aldreteOut?: number | null } | null;
+  outcome: { postoperativeDestination: string | null };
+}
+
+export interface AnesthesiaSummaryDetailApi {
+  operationId: string;
+  operationCase: import('@/services/anesthesia/adapters/operationInfoAdapter').OperationCase;
+  currentSummary: AnesthesiaSummaryApi | null;
+  history: AnesthesiaSummaryApi[];
 }
 
 export const anesthesiaSummaryApi = {
-  generate(operationId: string, recordRevisionId?: string) { return samisRequest<AnesthesiaSummaryApi>('/anesthesiaSummary/generate', buildFormPost({ operationId, recordRevisionId }), { module: 'anesthesiaRecord' }); },
+  detail(operationId: string) { return samisRequest<AnesthesiaSummaryDetailApi>(`/anesthesiaSummary/detail?operationId=${encodeURIComponent(operationId)}`, undefined, { module: 'anesthesiaRecord' }); },
+  generate(data: { operationId: string; expectedVersion: number }) { return samisRequest<AnesthesiaSummaryApi>('/anesthesiaSummary/generate', buildFormPost(workflowFormFields(data)), { module: 'anesthesiaRecord' }); },
   saveDraft(data: Record<string, unknown>) { return samisRequest<AnesthesiaSummaryApi>('/anesthesiaSummary/saveDraft', buildFormPost(workflowFormFields(data)), { module: 'anesthesiaRecord' }); },
   submit(data: Record<string, unknown>) { return samisRequest<AnesthesiaSummaryApi>('/anesthesiaSummary/submit', buildFormPost(workflowFormFields(data)), { module: 'anesthesiaRecord' }); },
   createRevision(data: Record<string, unknown>) { return samisRequest<AnesthesiaSummaryApi>('/anesthesiaSummary/createRevision', buildFormPost(workflowFormFields(data)), { module: 'anesthesiaRecord' }); },
+  sign(data: Record<string, unknown>) { return samisRequest<AnesthesiaSummaryApi>('/anesthesiaSummary/sign', buildFormPost(workflowFormFields(data)), { module: 'anesthesiaRecord' }); },
+  markPrinted(data: Record<string, unknown>) { return samisRequest<AnesthesiaSummaryApi>('/anesthesiaSummary/markPrinted', buildFormPost(workflowFormFields(data)), { module: 'anesthesiaRecord' }); },
+  archive(data: Record<string, unknown>) { return samisRequest<AnesthesiaSummaryApi>('/anesthesiaSummary/archive', buildFormPost(workflowFormFields(data)), { module: 'anesthesiaRecord' }); },
+  cancel(data: Record<string, unknown>) { return samisRequest<AnesthesiaSummaryApi>('/anesthesiaSummary/cancel', buildFormPost(workflowFormFields(data)), { module: 'anesthesiaRecord' }); },
   history(operationId: string, page = 1, pageSize = 20) {
     return samisRequest<{ list: AnesthesiaSummaryApi[]; total: number }>(
       `/anesthesiaSummary/history?operationId=${encodeURIComponent(operationId)}&page=${page}&page_size=${pageSize}`, undefined, { module: 'anesthesiaRecord' },

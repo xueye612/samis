@@ -134,11 +134,11 @@ export class AnesthesiaSummaryService {
   private loading = false;
   private error: string | null = null;
 
-  async generate(operationId: string): Promise<AnesthesiaSummaryApi | null> {
+  async generate(operationId: string, expectedVersion = 0): Promise<AnesthesiaSummaryApi | null> {
     this.loading = true;
     this.error = null;
     try {
-      this.current = await anesthesiaSummaryApi.generate(operationId);
+      this.current = await anesthesiaSummaryApi.generate({ operationId, expectedVersion });
       return this.current;
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);

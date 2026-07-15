@@ -11,6 +11,8 @@ const api = vi.hoisted(() => ({
   handoverSaveDraft: vi.fn(),
   handoverSubmit: vi.fn(),
   handoverAccept: vi.fn(),
+  handoverCancel: vi.fn(),
+  summaryDetail: vi.fn(),
   summaryGenerate: vi.fn(),
   summarySaveDraft: vi.fn(),
   summarySubmit: vi.fn(),
@@ -29,8 +31,10 @@ vi.mock('@/api/anesthesiaWorkflow', () => ({
     saveDraft: api.handoverSaveDraft,
     submit: api.handoverSubmit,
     accept: api.handoverAccept,
+    cancelDraft: api.handoverCancel,
   },
   anesthesiaSummaryApi: {
+    detail: api.summaryDetail,
     generate: api.summaryGenerate,
     saveDraft: api.summarySaveDraft,
     submit: api.summarySubmit,
@@ -58,16 +62,27 @@ const handover = {
   handoverId: 'HO-1', handoverVersionId: 'HOV-1', operationId: 'OP-1', version: 1,
   handoverType: 'shift_change', status: 'draft' as const, outgoingDoctorId: 'D1', outgoingDoctorName: '甲医生',
   incomingDoctorId: 'D2', incomingDoctorName: '乙医生', handoverAt: null, acceptedAt: null,
-  priorityNotes: '关注血压', specialNotes: '', emergencyReason: null, pendingTasks: ['复查血气'],
-  checks: [{ itemCode: 'equipment', result: 'normal' as const, remark: '' }],
+  priorityNotes: '关注血压', specialNotes: '', emergencyReason: null,
+  responsibilities: [], activeProblems: [], riskItems: [], equipment: [], lines: [], activeMedications: [],
+  pendingTasks: [{ code: 'TASK-1', description: '复查血气' }], clinicalSnapshot: null, cancelReason: null,
+  checks: [{ itemCode: 'equipment', result: 'confirmed' as const, remark: '' }],
   createdAt: '2026-07-11 09:00:00', updatedAt: '2026-07-11 09:00:00',
 };
 
 const summary = {
   summaryId: 'SUM-1', summaryVersionId: 'SUMV-1', operationId: 'OP-1', version: 1,
-  status: 'draft' as const, generatedPayload: { statistics: { medicationCount: 2 } }, effectRating: 'good',
+  status: 'draft' as const,
+  generatedPayload: {
+    operationId: 'OP-1', generatedAt: '2026-07-11 10:00:00', source: { recordRevisionId: 'REV-1', recordContentHash: 'a'.repeat(64) },
+    case: { diagnosis: '诊断', surgeryName: '手术', anesthesiaMethod: '全身麻醉', asa: 'II' },
+    timeline: { recordStart: null, recordEnd: null, anesthesiaStart: null, anesthesiaEnd: null, surgeryStart: null, surgeryEnd: null, anesthesiaDurationMinutes: 60, surgeryDurationMinutes: 45 },
+    airway: [], ventilation: [], monitoring: {}, medications: [], fluids: [], transfusions: [], ioRecords: [], labAbnormalities: [], events: [], rescueEvents: [], recovery: null, outcome: { postoperativeDestination: 'PACU' },
+  }, effectRating: 'good',
+  doctorSupplement: { effectRating: 'good' },
   intraoperativeNotes: '过程平稳', recoveryNotes: '苏醒良好', complicationSummary: '无',
-  postoperativeDestination: 'PACU', submittedAt: null, revisionReason: null, createdAt: '2026-07-11 10:00:00',
+  postoperativeDestination: 'PACU', submittedAt: null, signedAt: null, printedAt: null, archivedAt: null,
+  cancelledAt: null, cancelReason: null, sourceRecordRevisionId: 'REV-1', sourceContentHash: 'a'.repeat(64),
+  contentHash: null, signatureDocumentId: null, revisionReason: null, createdAt: '2026-07-11 10:00:00', updatedAt: '2026-07-11 10:00:00',
 };
 
 describe('anesthesia workflow stores', () => {
@@ -122,9 +137,12 @@ describe('anesthesia workflow stores', () => {
   });
 
   it('validates exception handover checks before calling submit and supports recipient acceptance', async () => {
-    api.handoverDetail.mockResolvedValue({ operationId: 'OP-1', activeHandover: handover, history: [], currentResponsibleDoctor: null });
-    api.handoverSubmit.mockResolvedValue({ ...handover, status: 'submitted' });
-    api.handoverAccept.mockResolvedValue({ ...handover, status: 'accepted' });
+    api.handoverDetail
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, activeHandover: handover, history: [], currentResponsibleDoctor: null })
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, activeHandover: { ...handover, status: 'submitted', version: 2 }, history: [], currentResponsibleDoctor: null })
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, activeHandover: { ...handover, status: 'accepted', version: 3 }, history: [], currentResponsibleDoctor: null });
+    api.handoverSubmit.mockResolvedValue({ ...handover, status: 'submitted', version: 2 });
+    api.handoverAccept.mockResolvedValue({ ...handover, status: 'accepted', version: 3 });
     const store = useAnesthesiaHandoverStore();
     await store.load('OP-1');
 
@@ -135,22 +153,30 @@ describe('anesthesia workflow stores', () => {
     store.detail!.activeHandover!.checks[0].remark = '备用机已切换';
     await store.submit();
     await store.accept();
+    expect(api.handoverAccept).toHaveBeenCalledWith({ handoverVersionId: 'HOV-1', expectedVersion: 2 });
     expect(store.detail?.activeHandover?.status).toBe('accepted');
   });
 
   it('generates, saves and submits a server summary without writing the legacy local summary', async () => {
+    api.summaryDetail
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, currentSummary: null, history: [] })
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, currentSummary: summary, history: [] })
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, currentSummary: { ...summary, effectRating: 'excellent', version: 2 }, history: [] })
+      .mockResolvedValueOnce({ operationId: 'OP-1', operationCase: {}, currentSummary: { ...summary, effectRating: 'excellent', status: 'submitted', version: 3 }, history: [] });
     api.summaryGenerate.mockResolvedValue(summary);
-    api.summarySaveDraft.mockResolvedValue({ ...summary, effectRating: 'excellent' });
-    api.summarySubmit.mockResolvedValue({ ...summary, effectRating: 'excellent', status: 'submitted' });
+    api.summarySaveDraft.mockResolvedValue({ ...summary, effectRating: 'excellent', version: 2 });
+    api.summarySubmit.mockResolvedValue({ ...summary, effectRating: 'excellent', status: 'submitted', version: 3 });
     const store = useAnesthesiaSummaryStore();
 
-    await store.generate('OP-1');
+    await store.load('OP-1');
+    await store.generate();
     await store.saveDraft({ effectRating: 'excellent' });
     await store.submit();
 
     expect(api.summarySaveDraft).toHaveBeenCalledWith(expect.objectContaining({
       summaryVersionId: 'SUMV-1', expectedVersion: 1, effectRating: 'excellent',
     }));
-    expect(store.detail?.status).toBe('submitted');
+    expect(api.summaryGenerate).toHaveBeenCalledWith({ operationId: 'OP-1', expectedVersion: 0 });
+    expect(store.detail?.currentSummary?.status).toBe('submitted');
   });
 });

@@ -1,396 +1,128 @@
 <template>
-  <ModulePageShell title="麻醉小结" description="用药总览、液体/输血统计、关键事件与术中过程汇总">
+  <ModulePageShell title="麻醉小结" description="自动区由服务端临床关系表聚合；医生补充区独立保存并受版本控制">
     <template #toolbar>
-      <a-select v-model="selectedCaseId" style="width: 300px" placeholder="选择患者">
-        <a-option v-for="item in caseOptions" :key="item.id" :value="item.id">{{ item.patientName }} · {{ item.surgeryName }}</a-option>
+      <a-select v-model="selectedOperationId" :loading="caseLoading" style="width: 360px" placeholder="选择手术病例" allow-search>
+        <a-option v-for="item in cases" :key="item.operationId!" :value="item.operationId!">
+          {{ item.patientName || '—' }} · {{ item.operationName || item.plannedOperationName || '—' }}
+        </a-option>
       </a-select>
-      <div v-if="caseItem" class="toolbar-end">
-        <a-space :size="6">
-          <StatusTag :value="caseItem.status" />
-          <a-tag color="arcoblue">{{ caseItem.anesthesiaMethod }}</a-tag>
-        </a-space>
-      </div>
+      <a-button :loading="caseLoading || workflow.loading" @click="reload">刷新</a-button>
+      <a-button v-if="workflow.detail?.history.length" @click="historyVisible = true">版本历史</a-button>
     </template>
 
-    <a-alert v-if="workflow.error" type="error" :title="workflow.error">
-      <template #action><a-button size="mini" @click="loadSummary">重试</a-button></template>
-    </a-alert>
-
-    <template v-if="stats" #stats>
-      <MetricCard label="麻醉时长" :value="durationText(stats.anesthesiaDurationMinutes)" icon="IconClockCircle" :hint="`手术时长 ${durationText(stats.surgeryDurationMinutes)}`" />
-      <MetricCard label="入量合计" :value="`${stats.balance.intake} ml`" icon="IconSwap" :hint="`晶体 ${stats.fluid.crystalloidVolume} / 胶体 ${stats.fluid.colloidVolume} / 血制品 ${stats.fluid.bloodVolume} ml`" />
-      <MetricCard label="出量合计" :value="`${stats.balance.output} ml`" icon="IconDownload" :hint="`尿量 ${stats.output.urine} / 出血 ${stats.output.bloodLoss} / 引流 ${stats.output.drainage} ml`" />
-      <MetricCard label="净平衡" :value="`${stats.balance.net >= 0 ? '+' : ''}${stats.balance.net} ml`" icon="IconArrowRise" :variant="Math.abs(stats.balance.net) > 1500 ? 'warn' : 'default'" hint="入量 − 出量" />
-      <MetricCard
-        label="质控完整性"
-        :value="`${stats.quality.completionRate}%`"
-        icon="IconCheckCircle"
-        :variant="stats.quality.missingCount > 0 ? 'warn' : 'default'"
-        :hint="stats.quality.missingCount > 0 ? `${stats.quality.missingCount} 项待完善` : '检查项已完善'"
-      />
-    </template>
-
-    <template v-if="caseItem && stats">
-      <div class="summary-grid">
-        <a-card class="section-card" :bordered="false" title="用药总览">
-          <template #extra><span class="muted">有效 {{ stats.medication.total }} 条 · 持续 {{ stats.medication.continuousCount }} / 单次 {{ stats.medication.singleCount }}</span></template>
-          <a-table v-if="stats.medication.categories.length" :data="stats.medication.categories" :pagination="false" row-key="category" size="small">
-            <template #columns>
-              <a-table-column title="药品类别" data-index="category" />
-              <a-table-column title="条目" data-index="count" :width="70" align="right" />
-              <a-table-column title="药品明细">
-                <template #cell="{ record }">{{ record.drugs.join('、') }}</template>
-              </a-table-column>
-            </template>
-          </a-table>
-          <EmptyState v-else title="暂无术中用药" icon="IconExperiment" />
-          <div v-if="stats.medication.highAlertCount" class="inline-flags">
-            <a-tag :color="stats.medication.uncheckedHighAlertCount ? 'red' : 'green'">
-              高警示 {{ stats.medication.highAlertCount }} 项{{ stats.medication.uncheckedHighAlertCount ? `（${stats.medication.uncheckedHighAlertCount} 项未核对）` : '·已核对' }}
-            </a-tag>
-          </div>
+    <a-alert v-if="caseError || workflow.error" type="error" show-icon style="margin-bottom: 12px">{{ caseError || workflow.error }}</a-alert>
+    <a-spin :loading="caseLoading || workflow.loading" style="width:100%">
+      <template v-if="selectedCase">
+        <a-card class="section-card" :bordered="false" title="患者与手术信息">
+          <OperationCaseSummary :case-data="workflow.detail?.operationCase || selectedCase" />
         </a-card>
 
-        <a-card class="section-card" :bordered="false" title="液体 / 输血统计">
-          <div class="fluid-stat-row">
-            <div class="fluid-stat"><span class="fluid-stat__label">晶体液</span><strong>{{ stats.fluid.crystalloidVolume }} ml</strong></div>
-            <div class="fluid-stat"><span class="fluid-stat__label">胶体液</span><strong>{{ stats.fluid.colloidVolume }} ml</strong></div>
-            <div class="fluid-stat"><span class="fluid-stat__label">血液制品</span><strong>{{ stats.fluid.bloodVolume }} ml</strong></div>
-            <div class="fluid-stat"><span class="fluid-stat__label">自体血回输</span><strong>{{ stats.fluid.autologousVolume }} ml</strong></div>
-          </div>
-          <a-table v-if="stats.fluid.bloodProducts.length" :data="stats.fluid.bloodProducts" :pagination="false" row-key="id" size="small" class="blood-table">
-            <template #columns>
-              <a-table-column title="血制品" data-index="name" />
-              <a-table-column title="容量" :width="90">
-                <template #cell="{ record }">{{ record.volume }}{{ record.unit }}</template>
-              </a-table-column>
-              <a-table-column title="血型" :width="80">
-                <template #cell="{ record }">{{ record.bloodType || '-' }} {{ record.rh || '' }}</template>
-              </a-table-column>
-              <a-table-column title="核对" :width="90">
-                <template #cell="{ record }"><a-tag :color="record.doubleCheck ? 'green' : 'red'">{{ record.doubleCheck ? '已双核对' : '未核对' }}</a-tag></template>
-              </a-table-column>
-              <a-table-column title="反应" :width="90">
-                <template #cell="{ record }">
-                  <a-tag v-if="record.reaction && record.reaction !== '无'" color="orange">{{ record.reaction }}</a-tag>
-                  <span v-else class="muted">无</span>
-                </template>
-              </a-table-column>
-            </template>
-          </a-table>
-          <EmptyState v-else title="未输注血液制品" icon="IconHeart" />
+        <a-card v-if="!current" class="section-card" :bordered="false" title="尚未生成麻醉小结">
+          <EmptyState title="暂无麻醉小结" description="读取页面不会创建记录；请在临床记录完整后主动生成草稿" icon="IconFile" />
+          <div class="center-action"><a-button type="primary" :loading="workflow.saving" @click="generate">生成小结草稿</a-button></div>
         </a-card>
 
-        <a-card class="section-card summary-grid__full" :bordered="false" title="关键事件汇总">
-          <template #extra><span class="muted">质控事件 {{ stats.event.qualityCount }} · 处理完成率 {{ stats.event.treatmentRate }}%</span></template>
-          <a-timeline v-if="stats.event.items.length">
-            <a-timeline-item
-              v-for="event in stats.event.items"
-              :key="event.id"
-              :dot-color="severityColor(event.severity)"
-            >
-              <div class="event-line">
-                <strong>{{ event.type }}</strong>
-                <a-tag size="small" :color="severityTagColor(event.severity)">{{ event.severity }}</a-tag>
-                <a-tag v-if="event.quality" size="small" color="arcoblue">质控</a-tag>
-                <span class="muted">{{ event.stage }} · {{ event.timeText }}</span>
-              </div>
-              <p class="event-treatment" :class="{ 'event-treatment--missing': !event.hasTreatment }">{{ event.treatment }}</p>
-            </a-timeline-item>
-          </a-timeline>
-          <EmptyState v-else title="术中无特殊事件" icon="IconCheckCircle" />
-        </a-card>
+        <template v-else>
+          <a-card class="section-card" :bordered="false" title="版本与来源">
+            <a-descriptions :column="3" bordered size="small">
+              <a-descriptions-item label="状态"><a-tag :color="statusColor(current.status)">{{ statusLabel(current.status) }}</a-tag></a-descriptions-item>
+              <a-descriptions-item label="版本">{{ current.version }}</a-descriptions-item>
+              <a-descriptions-item label="来源记录版本">{{ current.sourceRecordRevisionId || '—' }}</a-descriptions-item>
+              <a-descriptions-item label="来源哈希">{{ current.sourceContentHash || '—' }}</a-descriptions-item>
+              <a-descriptions-item label="内容哈希">{{ current.contentHash || '草稿未冻结' }}</a-descriptions-item>
+              <a-descriptions-item label="生成时间">{{ current.generatedPayload?.generatedAt || '—' }}</a-descriptions-item>
+            </a-descriptions>
+            <a-alert type="info" style="margin-top:12px">内部签名、打印标记和归档引用已记录；CA、正式 PDF 与正式文档归档由 P12 完成。</a-alert>
+          </a-card>
 
-        <a-card class="section-card summary-grid__full" :bordered="false" title="质控完整性自检">
-          <div class="quality-grid">
-            <div v-for="check in stats.quality.items" :key="check.key" class="quality-item" :class="`quality-item--${check.level}`">
-              <AppIcon :name="check.level === 'ok' ? 'IconCheckCircle' : check.level === 'warn' ? 'IconExclamationCircle' : 'IconInfoCircle'" :size="16" />
-              <div>
-                <div class="quality-item__label">{{ check.label }}</div>
-                <div class="quality-item__detail">{{ check.detail }}</div>
-              </div>
+          <a-card class="section-card" :bordered="false" title="自动聚合区（只读）">
+            <a-descriptions :column="3" bordered size="small">
+              <a-descriptions-item label="术前诊断">{{ payload.case?.diagnosis || '—' }}</a-descriptions-item>
+              <a-descriptions-item label="手术名称">{{ payload.case?.surgeryName || '—' }}</a-descriptions-item>
+              <a-descriptions-item label="麻醉方式">{{ payload.case?.anesthesiaMethod || '—' }}</a-descriptions-item>
+              <a-descriptions-item label="麻醉时长">{{ duration(payload.timeline?.anesthesiaDurationMinutes) }}</a-descriptions-item>
+              <a-descriptions-item label="手术时长">{{ duration(payload.timeline?.surgeryDurationMinutes) }}</a-descriptions-item>
+              <a-descriptions-item label="术后去向">{{ payload.outcome?.postoperativeDestination || '—' }}</a-descriptions-item>
+            </a-descriptions>
+            <div class="metric-grid">
+              <div class="metric"><span>气道</span><strong>{{ payload.airway?.length ?? 0 }}</strong></div>
+              <div class="metric"><span>通气</span><strong>{{ payload.ventilation?.length ?? 0 }}</strong></div>
+              <div class="metric"><span>用药</span><strong>{{ payload.medications?.length ?? 0 }}</strong></div>
+              <div class="metric"><span>液体/输血</span><strong>{{ (payload.fluids?.length ?? 0) + (payload.transfusions?.length ?? 0) }}</strong></div>
+              <div class="metric"><span>出入量</span><strong>{{ payload.ioRecords?.length ?? 0 }}</strong></div>
+              <div class="metric"><span>异常化验</span><strong>{{ payload.labAbnormalities?.length ?? 0 }}</strong></div>
+              <div class="metric"><span>关键事件</span><strong>{{ payload.events?.length ?? 0 }}</strong></div>
+              <div class="metric"><span>抢救事件</span><strong>{{ payload.rescueEvents?.length ?? 0 }}</strong></div>
             </div>
-          </div>
-          <div class="vital-extremes">
-            <span>HR {{ extremeText(stats.vitalExtremes.HR) }} bpm</span>
-            <span>SBP {{ extremeText(stats.vitalExtremes.SBP) }} mmHg</span>
-            <span>SpO₂ {{ extremeText(stats.vitalExtremes.SpO2) }} %</span>
-            <span>体温 {{ extremeText(stats.vitalExtremes.TEMP) }} ℃</span>
-          </div>
-        </a-card>
-      </div>
+            <a-table v-if="monitorRows.length" :data="monitorRows" :pagination="false" row-key="metric" size="small">
+              <template #columns><a-table-column title="监测指标" data-index="metric" /><a-table-column title="最低" data-index="min" /><a-table-column title="最高" data-index="max" /><a-table-column title="单位" data-index="unit" /></template>
+            </a-table>
+            <a-alert v-if="payload.recovery" type="success" style="margin-top:12px">恢复状态：{{ payload.recovery.status || '—' }}；入 PACU：{{ payload.recovery.inAt || '—' }}；出 PACU：{{ payload.recovery.outAt || '—' }}</a-alert>
+          </a-card>
 
-      <a-card class="section-card" :bordered="false" title="麻醉效果与小结">
-        <a-form :model="form" layout="vertical" :disabled="readOnly">
-          <a-row :gutter="16">
-            <a-col :span="8"><a-form-item label="患者"><a-input :model-value="caseItem.patientName" disabled /></a-form-item></a-col>
-            <a-col :span="8"><a-form-item label="麻醉方式"><a-input :model-value="caseItem.anesthesiaMethod" disabled /></a-form-item></a-col>
-            <a-col :span="8">
-              <a-form-item label="麻醉效果">
-                <a-select v-model="form.effectRating">
-                  <a-option value="优">优</a-option>
-                  <a-option value="良">良</a-option>
-                  <a-option value="中">中</a-option>
-                  <a-option value="差">差</a-option>
-                </a-select>
-              </a-form-item>
-            </a-col>
-          </a-row>
-          <a-form-item label="术中记录"><a-textarea v-model="form.intraopNotes" :auto-size="{ minRows: 3 }" /></a-form-item>
-          <a-form-item label="恢复情况"><a-textarea v-model="form.recoveryNotes" :auto-size="{ minRows: 3 }" /></a-form-item>
-          <a-form-item label="并发症/特殊情况"><a-textarea v-model="form.complications" :auto-size="{ minRows: 2 }" /></a-form-item>
-          <a-divider>版本状态</a-divider>
-          <a-space><a-tag>版本 {{ workflow.detail?.version ?? 1 }}</a-tag><a-tag :color="readOnly ? 'green' : 'orange'">{{ readOnly ? '已提交' : '草稿' }}</a-tag></a-space>
-        </a-form>
-        <div class="form-actions">
-          <a-space>
-            <a-button :loading="workflow.saving" :disabled="readOnly" @click="save(false)">保存草稿</a-button>
-            <a-button type="primary" :loading="workflow.saving" :disabled="readOnly" @click="save(true)">提交小结</a-button>
-          </a-space>
-        </div>
-      </a-card>
-    </template>
-    <EmptyState v-else title="请选择患者" description="从上方下拉框选择需要填写麻醉小结的患者" icon="IconFile" />
+          <a-card class="section-card" :bordered="false" title="医生补充区">
+            <a-form :model="form" layout="vertical" :disabled="readOnly">
+              <a-row :gutter="16">
+                <a-col :span="8"><a-form-item label="麻醉效果"><a-select v-model="form.effectRating" allow-clear><a-option value="优">优</a-option><a-option value="良">良</a-option><a-option value="中">中</a-option><a-option value="差">差</a-option></a-select></a-form-item></a-col>
+                <a-col :span="16"><a-form-item label="术后去向"><a-input v-model="form.postoperativeDestination" /></a-form-item></a-col>
+              </a-row>
+              <a-form-item label="术中评价"><a-textarea v-model="form.intraoperativeNotes" :auto-size="{minRows:3}" /></a-form-item>
+              <a-form-item label="恢复评价"><a-textarea v-model="form.recoveryNotes" :auto-size="{minRows:3}" /></a-form-item>
+              <a-form-item label="并发症结论"><a-textarea v-model="form.complicationSummary" :auto-size="{minRows:2}" /></a-form-item>
+              <a-form-item label="其他说明"><a-textarea v-model="form.otherNotes" :auto-size="{minRows:2}" /></a-form-item>
+            </a-form>
+            <div class="form-actions">
+              <a-space wrap>
+                <a-button :disabled="readOnly" :loading="workflow.saving" @click="saveDraft">保存医生补充</a-button>
+                <a-button :disabled="readOnly" :loading="workflow.saving" @click="generate">重新聚合自动区</a-button>
+                <a-button v-if="current.status==='draft'" type="primary" :loading="workflow.saving" @click="submit">提交并冻结</a-button>
+                <a-input v-if="current.status!=='draft'" v-model="revisionReason" style="width:220px" placeholder="修订原因" />
+                <a-button v-if="current.status!=='draft'" :loading="workflow.saving" @click="createRevision">创建修订草稿</a-button>
+                <a-input v-if="current.status==='submitted'" v-model="signatureDocumentId" style="width:220px" placeholder="内部签名引用" />
+                <a-button v-if="current.status==='submitted'" :loading="workflow.saving" @click="sign">记录内部签名</a-button>
+                <a-button v-if="['submitted','signed'].includes(current.status)" :loading="workflow.saving" @click="markPrinted">标记已打印</a-button>
+                <a-button v-if="current.status==='signed'" type="primary" :loading="workflow.saving" @click="archive">归档版本</a-button>
+              </a-space>
+            </div>
+          </a-card>
+        </template>
+      </template>
+      <EmptyState v-else title="暂无手术病例" description="服务端当前没有可生成小结的 OperationCase" icon="IconFile" />
+    </a-spin>
+    <AnesthesiaSummaryHistoryDrawer v-model:visible="historyVisible" :history="workflow.detail?.history ?? []" />
   </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { Message } from '@arco-design/web-vue';
-import AppIcon from '@/components/AppIcon.vue';
-import MetricCard from '@/components/MetricCard.vue';
-import StatusTag from '@/components/StatusTag.vue';
 import EmptyState from '@/components/shared/EmptyState.vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
-import { buildCaseSummaryStats, type VitalExtreme } from '@/services/caseSummaryStats';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
+import OperationCaseSummary from '@/components/preoperative/OperationCaseSummary.vue';
+import AnesthesiaSummaryHistoryDrawer from '@/components/surgery/AnesthesiaSummaryHistoryDrawer.vue';
+import { loadOperationCases } from '@/services/preoperative/preoperativeFiveFlowsService';
+import type { OperationCase } from '@/services/anesthesia/adapters/operationInfoAdapter';
 import { useAnesthesiaSummaryStore } from '@/stores/anesthesiaWorkflow';
-import type { Severity } from '@/types/anesthesia';
 
-const store = useAnesthesiaStore();
-const workflow = useAnesthesiaSummaryStore();
-const caseOptions = computed(() => store.cases.filter((item) => ['已离室', 'PACU', '苏醒中'].includes(item.status)));
-const selectedCaseId = ref(caseOptions.value[0]?.id ?? '');
-
-const caseItem = computed(() => store.cases.find((item) => item.id === selectedCaseId.value));
-const readOnly = computed(() => ['submitted', 'signed', 'cancelled'].includes(workflow.detail?.status ?? ''));
-const stats = computed(() => (caseItem.value ? buildCaseSummaryStats(caseItem.value, { summarySigned: readOnly.value }) : undefined));
-
-const form = reactive({
-  intraopNotes: '',
-  recoveryNotes: '',
-  complications: '',
-  effectRating: '优',
-});
-
-function hydrateForm() {
-  const target = workflow.detail;
-  if (target) {
-    Object.assign(form, {
-      intraopNotes: target.intraoperativeNotes ?? '',
-      recoveryNotes: target.recoveryNotes ?? '',
-      complications: target.complicationSummary ?? '',
-      effectRating: target.effectRating ?? '优',
-    });
-    return;
-  }
-  if (caseItem.value) {
-    Object.assign(form, {
-      intraopNotes: '麻醉过程平稳',
-      recoveryNotes: '苏醒良好',
-      complications: '无',
-      effectRating: '优',
-    });
-  }
-}
-
-async function loadSummary() {
-  if (!selectedCaseId.value) return;
-  try { await workflow.generate(selectedCaseId.value); hydrateForm(); } catch { /* store exposes the error */ }
-}
-
-watch(selectedCaseId, loadSummary, { immediate: true });
-
-const durationText = (minutes?: number) => {
-  if (minutes === undefined) return '—';
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return h ? `${h}h ${m}m` : `${m}m`;
-};
-
-const extremeText = (extreme: VitalExtreme) => {
-  if (extreme.min === undefined || extreme.max === undefined) return '—';
-  return extreme.min === extreme.max ? `${extreme.min}` : `${extreme.min}~${extreme.max}`;
-};
-
-const severityColor = (severity: Severity) => {
-  if (severity === '危急') return 'rgb(220 38 38)';
-  if (severity === '重度') return 'rgb(234 88 12)';
-  if (severity === '中度') return 'rgb(234 179 8)';
-  return 'rgb(148 163 184)';
-};
-
-const severityTagColor = (severity: Severity) => {
-  if (severity === '危急' || severity === '重度') return 'red';
-  if (severity === '中度') return 'orange';
-  return 'gray';
-};
-
-const save = async (submit: boolean) => {
-  if (!workflow.detail) await loadSummary();
-  try {
-    await workflow.saveDraft({
-      effectRating: form.effectRating,
-      intraoperativeNotes: form.intraopNotes,
-      recoveryNotes: form.recoveryNotes,
-      complicationSummary: form.complications,
-      postoperativeDestination: caseItem.value?.transferTo ?? 'PACU',
-    });
-    if (submit) await workflow.submit();
-    hydrateForm();
-    Message.success(submit ? '麻醉小结已提交并锁定当前版本' : '麻醉小结草稿已保存');
-  } catch { /* store exposes the error */ }
-};
+const workflow=useAnesthesiaSummaryStore();const cases=ref<OperationCase[]>([]);const selectedOperationId=ref('');const caseLoading=ref(false);const caseError=ref('');const historyVisible=ref(false);const revisionReason=ref('');const signatureDocumentId=ref('');
+const selectedCase=computed(()=>cases.value.find(v=>v.operationId===selectedOperationId.value)??null);const current=computed(()=>workflow.detail?.currentSummary??null);const payload=computed(()=>current.value?.generatedPayload??({} as NonNullable<typeof current.value>['generatedPayload']));
+const readOnly=computed(()=>current.value?.status!=='draft');const monitorRows=computed(()=>Object.entries(payload.value.monitoring??{}).map(([metric,value])=>({metric,...value})));
+const form=reactive({effectRating:'',intraoperativeNotes:'',recoveryNotes:'',complicationSummary:'',postoperativeDestination:'',otherNotes:''});
+const statusLabel=(value:string)=>({draft:'草稿',submitted:'已提交',signed:'已签名',archived:'已归档',cancelled:'已取消'}[value]??value);const statusColor=(value:string)=>({draft:'orange',submitted:'arcoblue',signed:'green',archived:'purple',cancelled:'red'}[value]??'gray');const duration=(value?:number|null)=>value==null?'—':`${Math.floor(value/60)}小时${value%60}分`;
+function hydrate(){const s=current.value?.doctorSupplement??{};Object.assign(form,{effectRating:s.effectRating??current.value?.effectRating??'',intraoperativeNotes:s.intraoperativeNotes??current.value?.intraoperativeNotes??'',recoveryNotes:s.recoveryNotes??current.value?.recoveryNotes??'',complicationSummary:s.complicationSummary??current.value?.complicationSummary??'',postoperativeDestination:s.postoperativeDestination??current.value?.postoperativeDestination??'',otherNotes:s.otherNotes??''});}
+async function loadCases(){caseLoading.value=true;caseError.value='';try{cases.value=await loadOperationCases();if(!selectedOperationId.value)selectedOperationId.value=String(cases.value[0]?.operationId??'');}catch(e){cases.value=[];caseError.value=e instanceof Error?e.message:'加载病例失败';}finally{caseLoading.value=false;}}
+async function loadSummary(){if(!selectedOperationId.value)return;try{await workflow.load(selectedOperationId.value);hydrate();}catch{/* store显示错误 */}}
+async function reload(){await loadCases();await loadSummary();}
+async function generate(){try{await workflow.generate();hydrate();Message.success('自动区已由服务端聚合并回读');}catch{/* store显示错误 */}}
+async function saveDraft(){try{await workflow.saveDraft({doctorSupplement:{...form}});hydrate();Message.success('医生补充已保存并回读');}catch{/* store显示错误 */}}
+async function submit(){try{await workflow.submit();hydrate();Message.success('小结已提交并冻结');}catch{/* store显示错误 */}}
+async function createRevision(){try{await workflow.createRevision(revisionReason.value);revisionReason.value='';hydrate();Message.success('修订草稿已创建');}catch(e){Message.error(e instanceof Error?e.message:'创建修订失败');}}
+async function sign(){if(!signatureDocumentId.value.trim()){Message.warning('请填写内部签名引用');return;}try{await workflow.sign(signatureDocumentId.value.trim());hydrate();Message.success('内部签名状态已记录');}catch{/* store显示错误 */}}
+async function markPrinted(){try{await workflow.markPrinted();hydrate();Message.success('打印状态已记录');}catch{/* store显示错误 */}}
+async function archive(){try{await workflow.archive();hydrate();Message.success('小结版本已归档');}catch{/* store显示错误 */}}
+watch(selectedOperationId,loadSummary);onMounted(loadCases);
 </script>
 
 <style scoped>
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-
-.summary-grid__full {
-  grid-column: 1 / -1;
-}
-
-.inline-flags {
-  margin-top: var(--space-3);
-}
-
-.fluid-stat-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
-}
-
-.fluid-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-muted);
-}
-
-.fluid-stat__label {
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-}
-
-.fluid-stat strong {
-  font-size: var(--font-size-lg);
-  color: var(--text-primary);
-}
-
-.blood-table {
-  margin-top: var(--space-2);
-}
-
-.event-line {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.event-treatment {
-  margin: 4px 0 0;
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.event-treatment--missing {
-  color: var(--danger);
-}
-
-.quality-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-3);
-}
-
-.quality-item {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-
-.quality-item--ok {
-  border-color: var(--color-success-100);
-  background: var(--color-success-100);
-}
-
-.quality-item--warn {
-  border-color: var(--color-warning-100);
-  background: rgb(255 247 237);
-}
-
-.quality-item--ok :deep(svg) {
-  color: var(--color-success-600);
-}
-
-.quality-item--warn :deep(svg) {
-  color: var(--warning);
-}
-
-.quality-item--na :deep(svg) {
-  color: var(--text-tertiary);
-}
-
-.quality-item__label {
-  font-weight: 600;
-  font-size: var(--font-size-sm);
-  color: var(--text-primary);
-}
-
-.quality-item__detail {
-  margin-top: 2px;
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
-}
-
-.vital-extremes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
-  padding-top: var(--space-3);
-  border-top: 1px dashed var(--border);
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
-}
-
-.form-actions {
-  margin-top: var(--space-5);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border);
-}
-
-@media (max-width: 1100px) {
-  .summary-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .fluid-stat-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
+.center-action{text-align:center;margin-top:16px}.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.metric{display:flex;justify-content:space-between;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm)}.metric span{color:var(--text-secondary)}.form-actions{margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}@media(max-width:900px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
