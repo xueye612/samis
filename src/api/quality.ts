@@ -32,6 +32,14 @@ export interface QualityIndicatorApi {
   warningRule: { operator: '<' | '>' | '<=' | '>='; value: number } | null;
   met: boolean;
   status: 'normal' | 'warning' | 'abnormal' | 'no-data';
+  denominatorDefinition: string;
+  numeratorDefinition: string;
+  exclusions: string[];
+  timeWindow: { anchor: string; granularity: string; timezone: string };
+  evidenceFields: string[];
+  severity: string;
+  drilldown: { denominator: boolean; numerator: boolean; defect: boolean };
+  remediationAction: string;
 }
 
 export interface QualityCaseSummaryApi {
@@ -161,8 +169,16 @@ export interface IndicatorResultApi { indicatorCode: string; indicatorName: stri
 export interface QualityOperationCaseApi { operationId: string; patientName?: string | null; departmentName?: string | null; operationName?: string | null; anesthesiologistName?: string | null; [key: string]: unknown; }
 export interface QualityDrilldownCaseApi { operationId: string; operationCase: QualityOperationCaseApi; riskLevel: string; indicatorResults: IndicatorResultApi[]; defectCount: number; latestDefectStatus: string | null; moduleSummaries?: Record<string, unknown>; }
 export interface QualityCaseListApi { list: QualityDrilldownCaseApi[]; items?: QualityDrilldownCaseApi[]; total: number; page?: number; pageSize?: number; }
-export interface DefectRecordApi { defectId: string; operationId: string; indicatorCode: string; severity: string; description: string; owner: string | null; status: 'open'|'rectifying'|'resolved'|'closed'; rectification: string | null; reviewedBy: string | null; reviewedAt: string | null; }
+export interface DefectRecordApi { defectId: string; operationId: string; indicatorCode: string; severity: string; description: string; owner: string | null; status: 'open'|'rectifying'|'resolved'|'closed'; version: number; rectification: string | null; reviewedBy: string | null; reviewedAt: string | null; rectifiedBy?: string | null; rectifiedAt?: string | null; reviewOpinion?: string | null; closedBy?: string | null; closedAt?: string | null; sourceModule?: string | null; sourceRecordId?: string | null; evidenceSnapshot?: Record<string, unknown> | null; }
 export interface DefectListApi { list: DefectRecordApi[]; total: number; page: number; pageSize: number; }
+export interface OperationalReportSeriesApi { name?: string; date?: string; count: number; rate: number; }
+export interface OperationalReportApi {
+  scope: { total: number; completed: number; completionRate: number; startDate: string | null; endDate: string | null };
+  workload: OperationalReportSeriesApi[];
+  methods: OperationalReportSeriesApi[];
+  operations: { departments: OperationalReportSeriesApi[]; rooms: OperationalReportSeriesApi[] };
+  drilldown: Array<{ operationId: string; operationCase: QualityOperationCaseApi; completed: boolean; riskLevel: string; defectCount: number }>;
+}
 
 function buildQuery(params: QualityFilterQuery = {}): string {
   const query = new URLSearchParams();
@@ -188,12 +204,13 @@ export const qualityApi = {
   indicatorSummary(params: Record<string, string | number | undefined> = {}) { const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!=='')q.set(k,String(v));});return samisRequest<Array<Record<string,unknown>>>(`/quality/indicatorSummary${q.size?`?${q}`:''}`,{method:'GET'},{module:'quality'}); },
   defectCreate(data: Record<string, unknown>) { return samisRequest<DefectRecordApi>('/quality/defectCreate', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
   defectUpdate(data: Record<string, unknown>) { return samisRequest<DefectRecordApi>('/quality/defectUpdate', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
-  defectSubmitRectification(data: { defectId: number | string; rectification: string }) { return samisRequest<DefectRecordApi>('/quality/defectSubmitRectification', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
-  defectReviewResolution(data: { defectId: number | string; approved: boolean; reviewOpinion?: string; reviewedBy?: string }) { return samisRequest<DefectRecordApi>('/quality/defectReviewResolution', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
-  defectClose(data: Record<string, unknown>) { return samisRequest<DefectRecordApi>('/quality/defectClose', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
+  defectSubmitRectification(data: { defectId: number | string; expectedVersion: number; rectification: string }) { return samisRequest<DefectRecordApi>('/quality/defectSubmitRectification', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
+  defectReviewResolution(data: { defectId: number | string; expectedVersion: number; approved: boolean; reviewOpinion: string }) { return samisRequest<DefectRecordApi>('/quality/defectReviewResolution', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
+  defectClose(data: { defectId: number | string; expectedVersion: number; reason: string }) { return samisRequest<DefectRecordApi>('/quality/defectClose', buildFormPost(flatFormFieldsFromRecord(data)), { module:'quality' }); },
   defectList(params: Record<string, string | number | undefined> = {}) { const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!=='')q.set(k,String(v));});return samisRequest<DefectListApi>(`/quality/defectList${q.size?`?${q}`:''}`,{method:'GET'},{module:'quality'}); },
   defectDetail(defectId: string) { return samisRequest<DefectRecordApi>(`/quality/defectDetail?defectId=${encodeURIComponent(defectId)}`,{method:'GET'},{module:'quality'}); },
   defectsByOperationId(operationId: string) { return samisRequest<DefectRecordApi[]>(`/quality/defectsByOperationId?operationId=${encodeURIComponent(operationId)}`,{method:'GET'},{module:'quality'}); },
+  operationalReport(params: Record<string, string | number | undefined> = {}) { const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!=='')q.set(k,String(v));});return samisRequest<OperationalReportApi>(`/quality/operationalReport${q.size?`?${q}`:''}`,{method:'GET'},{module:'quality'}); },
   /** 26 指标列表（rate/target/met/status）。 */
   getIndicators(params: QualityFilterQuery = {}) {
     return samisRequest<QualityIndicatorApi[]>(`/quality/indicators${buildQuery(params)}`, {

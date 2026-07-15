@@ -16,6 +16,7 @@ export async function loadQualityCase(operationId: string): Promise<QualityDrill
   return qualityApi.caseDetail(operationId);
 }
 export async function createQualityDefect(input: Record<string,unknown>): Promise<DefectRecordApi> { return qualityApi.defectCreate(defectWritePayload(input)); }
-export async function updateQualityDefect(input: Record<string,unknown>): Promise<DefectRecordApi> { return qualityApi.defectUpdate(defectWritePayload(input)); }
-export async function closeQualityDefect(input: Record<string,unknown>): Promise<DefectRecordApi> { return qualityApi.defectClose(defectWritePayload(input)); }
+export async function submitQualityRectification(input: { defectId: string; expectedVersion: number; rectification: string }): Promise<DefectRecordApi> { return qualityApi.defectSubmitRectification(input); }
+export async function reviewQualityDefect(input: { defectId: string; expectedVersion: number; approved: boolean; reviewOpinion: string }): Promise<DefectRecordApi> { return qualityApi.defectReviewResolution(input); }
+export async function closeQualityDefect(input: { defectId: string; expectedVersion: number; reason: string }): Promise<DefectRecordApi> { return qualityApi.defectClose(input); }
 export async function loadQualityDefects(params: Record<string,string|number|undefined> = {}): Promise<DefectListApi> { if (!useRealQuality()) return { list: [], total: 0, page: 1, pageSize: 20 }; return qualityApi.defectList(params); }
