@@ -71,6 +71,12 @@ export interface QualityReportIndicatorApi {
   rate: number | string;
   displayValue: string;
   status: 'normal' | 'warning' | 'abnormal' | 'no-data';
+  denominatorDefinition: string;
+  numeratorDefinition: string;
+  exclusions: string[];
+  timeWindow: { anchor: string; granularity: string; timezone: string };
+  evidenceFields: string[];
+  severity: string;
 }
 
 export interface QualityReportPeriodApi {
