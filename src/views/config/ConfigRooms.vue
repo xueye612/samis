@@ -316,3 +316,8 @@ onMounted(async () => {
   await reload();
 });
 </script>
+
+<style scoped>
+.cap-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.scope-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+</style>

@@ -155,3 +155,7 @@ function statusColor(s: string): string { return ({ enabled: 'green', paused: 'o
 
 onMounted(async () => { await loadPermissions(); await reload(); });
 </script>
+
+<style scoped>
+.scope-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+</style>

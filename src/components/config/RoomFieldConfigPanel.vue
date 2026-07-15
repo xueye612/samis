@@ -147,3 +147,8 @@ async function onSave() {
   }
 }
 </script>
+
+<style scoped>
+:deep(.arco-table-th) { font-size: var(--font-size-xs); }
+:deep(.arco-table-td) { font-size: var(--font-size-sm); }
+</style>

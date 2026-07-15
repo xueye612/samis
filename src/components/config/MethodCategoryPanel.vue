@@ -116,3 +116,7 @@ function toPayload(): Record<string, unknown> {
   };
 }
 </script>
+
+<style scoped>
+.cap-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+</style>
