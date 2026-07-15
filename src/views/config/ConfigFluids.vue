@@ -42,9 +42,10 @@
           <a-col :span="8"><a-form-item label="规格"><a-input v-model="form.specification" /></a-form-item></a-col>
         </a-row>
         <a-row :gutter="12">
-          <a-col :span="8"><a-form-item label="默认单位"><a-input v-model="form.defaultUnit" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="默认速度"><a-input v-model="form.defaultRate" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="统计分类"><a-input v-model="form.statisticalCategory" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="默认容量"><a-input v-model="form.defaultVolume" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="默认单位"><a-input v-model="form.defaultUnit" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="默认速度"><a-input v-model="form.defaultRate" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="统计分类"><a-input v-model="form.statisticalCategory" /></a-form-item></a-col>
         </a-row>
         <a-row :gutter="12">
           <a-col :span="8"><a-form-item label="适用场景"><a-input v-model="form.applicableScenario" /></a-form-item></a-col>
@@ -61,7 +62,6 @@
         <template v-else>
           <a-row :gutter="12">
             <a-col :span="8"><a-form-item label="分类"><a-input v-model="form.fluidType" /></a-form-item></a-col>
-            <a-col :span="8"><a-form-item label="默认容量"><a-input v-model="form.defaultVolume" /></a-form-item></a-col>
           </a-row>
         </template>
         <a-form-item label="适用范围">
@@ -127,7 +127,7 @@ async function reload() {
 function codeKey() { return activeEntity.value === 'fluid' ? 'fluidCode' : 'productCode'; }
 function nameKey() { return activeEntity.value === 'fluid' ? 'fluidName' : 'productName'; }
 function blank() {
-  const b: Record<string, any> = { code: '', name: '', specification: '', defaultUnit: '', defaultRate: '', statisticalCategory: '', applicableScenario: '', isCountInput: false, sortNo: 0, remark: '', expectedVersion: 1, scopes: [] };
+  const b: Record<string, any> = { id: 0, code: '', name: '', specification: '', defaultVolume: '', defaultUnit: '', defaultRate: '', statisticalCategory: '', applicableScenario: '', isCountInput: false, sortNo: 0, remark: '', expectedVersion: 1, scopes: [] };
   if (activeEntity.value === 'blood') { b.bloodTypeRequirement = ''; b.doubleCheck = true; b.productCategory = ''; }
   else { b.fluidType = ''; b.defaultVolume = ''; }
   return b;
@@ -136,7 +136,9 @@ function openCreate() { isCreate.value = true; Object.assign(form, blank()); edi
 function openEdit(r: any) {
   isCreate.value = false;
   const b = blank();
+  b.id = r.id;
   b.code = r[codeKey()]; b.name = r[nameKey()]; b.specification = r.specification ?? ''; b.defaultUnit = r.defaultUnit ?? ''; b.defaultRate = r.defaultRate ?? '';
+  b.defaultVolume = r.defaultVolume ?? '';
   b.statisticalCategory = r.statisticalCategory ?? ''; b.applicableScenario = r.applicableScenario ?? ''; b.isCountInput = !!r.isCountInput; b.sortNo = r.sortNo ?? 0;
   b.remark = r.remark ?? ''; b.expectedVersion = r.version;
   if (activeEntity.value === 'blood') { b.bloodTypeRequirement = r.bloodTypeRequirement ?? ''; b.doubleCheck = !!r.doubleCheck; b.productCategory = r.productCategory ?? ''; }
@@ -153,6 +155,7 @@ async function onSave() {
     payload[codeKey()] = form.code.trim(); payload[nameKey()] = form.name.trim();
     if (form.id) { payload.id = form.id; payload.expectedVersion = form.expectedVersion; }
     payload.specification = form.specification || null; payload.defaultUnit = form.defaultUnit || null;
+    payload.defaultVolume = form.defaultVolume || null;
     payload.defaultRate = form.defaultRate || null; payload.statisticalCategory = form.statisticalCategory || null;
     payload.applicableScenario = form.applicableScenario || null; payload.isCountInput = form.isCountInput ? 1 : 0;
     payload.sortNo = form.sortNo; payload.remark = form.remark || null;

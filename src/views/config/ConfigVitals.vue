@@ -112,7 +112,7 @@ async function reload() {
   finally { loading.value = false; }
 }
 function blank() {
-  return { code: '', shortCode: '', itemName: '', unit: '', normalRange: '', lowerLimit: null, upperLimit: null, defaultValue: '',
+  return { id: 0, code: '', shortCode: '', itemName: '', unit: '', normalRange: '', lowerLimit: null, upperLimit: null, defaultValue: '',
     chartEnabled: true, chartColor: '', chartSymbol: '', decimalPlaces: 0, samplingIntervalSeconds: null, qualityAttribute: '',
     sortNo: 0, remark: '', expectedVersion: 1, scopes: [] };
 }
@@ -136,6 +136,7 @@ async function onSave() {
     const payload: Record<string, any> = { entityType: ENTITY };
     Object.assign(payload, form);
     if (!isCreate.value) { payload.id = form.id; payload.expectedVersion = form.expectedVersion; }
+    else { delete payload.id; delete payload.expectedVersion; }
     payload.scopes = (form.scopes || []).filter((s: any) => s.scopeCode?.trim()).map((s: any) => ({ scopeType: s.scopeType, scopeCode: s.scopeCode.trim(), scopeName: s.scopeName || null }));
     await saveClinicalDictionary(payload); Message.success('保存成功'); await reload(); editorVisible.value = false;
   } catch (e) { if (e instanceof ClinicalConflictError) Message.warning('数据已被其他人修改，请刷新后重试'); else if (e instanceof Error) Message.error(e.message); }

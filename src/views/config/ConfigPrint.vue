@@ -53,14 +53,27 @@
           <a-button type="dashed" size="small" @click="form.scopes.push({ scopeType: 'anesthesia_method', scopeCode: '', scopeName: '' })">添加范围</a-button>
         </a-form-item>
         <a-form-item label="模板字段（原子保存，支持 section/code/name/type/unit/default/placeholder/required/print/sort/optionGroup/displayRule/validationRule）">
-          <div v-for="(f, idx) in form.fields" :key="idx" class="field-row">
-            <a-input v-model="f.fieldCode" placeholder="字段编码" :style="{ width: '100px' }" />
-            <a-input v-model="f.fieldName" placeholder="名称" :style="{ flex: 1 }" />
-            <a-select v-model="f.fieldType" :style="{ width: '90px' }" :options="fieldTypeOptions" />
-            <a-input v-model="f.unit" placeholder="单位" :style="{ width: '70px' }" />
-            <a-input v-model="f.defaultValue" placeholder="默认值" :style="{ width: '80px' }" />
-            <a-input-number v-model="f.sortNo" placeholder="排序" :style="{ width: '60px' }" :min="0" />
-            <a-button status="danger" size="small" @click="form.fields.splice(idx, 1)">移除</a-button>
+          <div v-for="(f, idx) in form.fields" :key="idx" class="field-card">
+            <a-row :gutter="8">
+              <a-col :span="5"><a-input v-model="f.sectionCode" placeholder="分区编码" /></a-col>
+              <a-col :span="5"><a-input v-model="f.fieldCode" placeholder="字段编码*" /></a-col>
+              <a-col :span="6"><a-input v-model="f.fieldName" placeholder="字段名称*" /></a-col>
+              <a-col :span="5"><a-select v-model="f.fieldType" :options="fieldTypeOptions" /></a-col>
+              <a-col :span="3"><a-button status="danger" size="small" @click="form.fields.splice(idx, 1)">移除</a-button></a-col>
+            </a-row>
+            <a-row :gutter="8" class="field-card-row">
+              <a-col :span="4"><a-input v-model="f.unit" placeholder="单位" /></a-col>
+              <a-col :span="5"><a-input v-model="f.defaultValue" placeholder="默认值" /></a-col>
+              <a-col :span="6"><a-input v-model="f.placeholder" placeholder="输入提示" /></a-col>
+              <a-col :span="5"><a-input v-model="f.optionGroupCode" placeholder="选项组编码" /></a-col>
+              <a-col :span="4"><a-input-number v-model="f.sortNo" placeholder="排序" :min="0" /></a-col>
+            </a-row>
+            <a-row :gutter="8" class="field-card-row">
+              <a-col :span="10"><a-input v-model="f.displayRule" placeholder="显示规则 JSON" /></a-col>
+              <a-col :span="10"><a-input v-model="f.validationRule" placeholder="校验规则 JSON" /></a-col>
+              <a-col :span="2"><a-tooltip content="必填"><a-switch v-model="f.isRequired" /></a-tooltip></a-col>
+              <a-col :span="2"><a-tooltip content="打印"><a-switch v-model="f.isPrint" /></a-tooltip></a-col>
+            </a-row>
           </div>
           <a-button type="dashed" size="small" @click="addField">添加字段</a-button>
         </a-form-item>
@@ -116,7 +129,10 @@ async function reload() {
   catch (e) { items.value = []; source.value = 'local'; loadError.value = e instanceof Error ? e.message : '未知错误'; }
   finally { loading.value = false; }
 }
-function addField() { form.fields.push({ fieldCode: '', fieldName: '', fieldType: 'text', unit: '', defaultValue: '', sortNo: form.fields.length + 1 }); }
+function addField() {
+  form.fields.push({ sectionCode: '', fieldCode: '', fieldName: '', fieldType: 'text', unit: '', defaultValue: '', placeholder: '',
+    isRequired: false, isPrint: true, sortNo: form.fields.length + 1, optionGroupCode: '', displayRule: '', validationRule: '' });
+}
 function blank() {
   return { id: 0, templateCode: '', templateName: '', templateType: '', isDefault: false,
     applicableAnesthesiaMethod: '', applicableDepartment: '', applicableSurgeryType: '',
@@ -131,8 +147,11 @@ function openEdit(r: any) {
     applicableDepartment: r.applicableDepartment ?? '', applicableSurgeryType: r.applicableSurgeryType ?? '',
     sortNo: r.sortNo ?? 0, remark: r.remark ?? '', expectedVersion: r.version,
     fields: (r.fields || []).map((f: any) => ({
+      sectionCode: f.sectionCode ?? '',
       fieldCode: f.fieldCode ?? '', fieldName: f.fieldName ?? '', fieldType: f.fieldType ?? 'text',
-      unit: f.unit ?? '', defaultValue: f.defaultValue ?? '', sortNo: f.sortNo ?? 0,
+      unit: f.unit ?? '', defaultValue: f.defaultValue ?? '', placeholder: f.placeholder ?? '',
+      isRequired: !!f.isRequired, isPrint: f.isPrint == null ? true : !!f.isPrint, sortNo: f.sortNo ?? 0,
+      optionGroupCode: f.optionGroupCode ?? '', displayRule: ruleText(f.displayRule), validationRule: ruleText(f.validationRule),
     })),
     scopes: (r.scopes || []).map((s: any) => ({ scopeType: s.scopeType ?? 'anesthesia_method', scopeCode: s.scopeCode ?? '', scopeName: s.scopeName ?? '' })),
   });
@@ -149,8 +168,11 @@ async function onSave() {
       applicableAnesthesiaMethod: form.applicableAnesthesiaMethod || null, applicableDepartment: form.applicableDepartment || null,
       applicableSurgeryType: form.applicableSurgeryType || null, sortNo: form.sortNo, remark: form.remark || null,
       fields: (form.fields || []).filter((f: any) => f.fieldCode?.trim()).map((f: any) => ({
+        sectionCode: f.sectionCode || null,
         fieldCode: f.fieldCode.trim(), fieldName: f.fieldName || null, fieldType: f.fieldType || 'text',
-        unit: f.unit || null, defaultValue: f.defaultValue || null, sortNo: f.sortNo ?? 0,
+        unit: f.unit || null, defaultValue: f.defaultValue || null, placeholder: f.placeholder || null,
+        isRequired: !!f.isRequired, isPrint: !!f.isPrint, sortNo: f.sortNo ?? 0,
+        optionGroupCode: f.optionGroupCode || null, displayRule: f.displayRule || null, validationRule: f.validationRule || null,
       })),
       scopes: (form.scopes || []).filter((s: any) => s.scopeCode?.trim()).map((s: any) => ({ scopeType: s.scopeType, scopeCode: s.scopeCode.trim(), scopeName: s.scopeName || null })),
     };
@@ -158,6 +180,10 @@ async function onSave() {
     await saveClinicalDictionary(payload); Message.success('保存成功'); await reload(); editorVisible.value = false;
   } catch (e) { if (e instanceof ClinicalConflictError) Message.warning('数据已被其他人修改，请刷新后重试'); else if (e instanceof Error) Message.error(e.message); }
   finally { saving.value = false; }
+}
+function ruleText(value: unknown): string {
+  if (value == null || value === '') return '';
+  return typeof value === 'string' ? value : JSON.stringify(value);
 }
 function onChangeStatus(r: any, to: 'enabled'|'paused'|'disabled') { statusTarget.value = { id: Number(r.id), version: Number(r.version), toStatus: to }; statusReason.value = ''; statusVisible.value = true; }
 function needsReason(t: string) { return t === 'paused' || t === 'disabled'; }
@@ -176,5 +202,6 @@ onMounted(async () => { await loadPerms(); await reload(); });
 </script>
 <style scoped>
 .scope-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
-.field-row { display: flex; gap: 4px; margin-bottom: 8px; align-items: center; }
+.field-card { border: 1px solid var(--color-border-2); border-radius: 6px; padding: 10px; margin-bottom: 10px; width: 100%; }
+.field-card-row { margin-top: 8px; }
 </style>

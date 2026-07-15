@@ -33,7 +33,7 @@
       </a-table>
     </a-card>
 
-    <a-drawer :visible="editorVisible" :width="640" :title="isCreate ? '新增药品' : '编辑药品'" :mask-closable="false" unmount-on-close @cancel="editorVisible = false">
+    <a-drawer :visible="editorVisible" :width="760" :title="isCreate ? '新增药品' : '编辑药品'" :mask-closable="false" unmount-on-close @cancel="editorVisible = false">
       <a-form :model="form" layout="vertical">
         <a-row :gutter="12">
           <a-col :span="8"><a-form-item label="编码" required><a-input v-model="form.drugCode" :disabled="!isCreate" /></a-form-item></a-col>
@@ -57,15 +57,30 @@
           <a-col :span="6"><a-form-item label="默认途径"><a-input v-model="form.defaultRoute" /></a-form-item></a-col>
         </a-row>
         <a-row :gutter="12">
-          <a-col :span="8"><a-form-item label="默认模式"><a-input v-model="form.defaultMode" /></a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="默认速率单位"><a-input v-model="form.defaultRateUnit" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="默认剂量"><a-input v-model="form.defaultDose" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="默认剂量单位"><a-input v-model="form.defaultDoseUnit" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="默认模式"><a-input v-model="form.defaultMode" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="默认速率单位"><a-input v-model="form.defaultRateUnit" /></a-form-item></a-col>
+        </a-row>
+        <a-row :gutter="12">
           <a-col :span="8"><a-form-item label="统计分类"><a-input v-model="form.statisticalCategory" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="拼音码"><a-input v-model="form.pinyinCode" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="排序"><a-input-number v-model="form.sortOrder" :min="0" /></a-form-item></a-col>
         </a-row>
         <a-row :gutter="12">
           <a-col :span="6"><a-form-item label="高警示"><a-switch v-model="form.isHighAlert" /></a-form-item></a-col>
           <a-col :span="6"><a-form-item label="麻醉药品"><a-switch v-model="form.isAnesthesiaDrug" /></a-form-item></a-col>
           <a-col :span="6"><a-form-item label="抢救药"><a-switch v-model="form.isRescueDrug" /></a-form-item></a-col>
           <a-col :span="6"><a-form-item label="血管活性"><a-switch v-model="form.isVasoactive" /></a-form-item></a-col>
+        </a-row>
+        <a-row :gutter="12">
+          <a-col :span="6"><a-form-item label="默认特殊用药"><a-switch v-model="form.defaultIsSpecial" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="允许人工覆盖"><a-switch v-model="form.allowManualOverride" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="特殊分类"><a-input v-model="form.specialCategory" /></a-form-item></a-col>
+        </a-row>
+        <a-row :gutter="12">
+          <a-col :span="12"><a-form-item label="特殊用药原因模板"><a-input v-model="form.specialReasonTemplate" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="特殊用药显示模板"><a-input v-model="form.specialDisplayTemplate" /></a-form-item></a-col>
         </a-row>
         <a-row :gutter="12">
           <a-col :span="6"><a-form-item label="抗凝"><a-switch v-model="form.isAnticoagulant" /></a-form-item></a-col>
@@ -136,10 +151,11 @@ async function reload() {
   finally { loading.value = false; }
 }
 function blank() {
-  return { drugCode: '', drugName: '', drugAlias: '', genericName: '', brandName: '', drugCategory: '', specification: '', concentration: '', dosageForm: '',
+  return { id: 0, drugCode: '', drugName: '', drugAlias: '', genericName: '', brandName: '', drugCategory: '', specification: '', concentration: '', dosageForm: '',
     minDose: null, maxDose: null, defaultUnit: '', defaultRoute: '', defaultMode: '', defaultRateUnit: '', defaultDose: null, defaultDoseUnit: '',
     isHighAlert: false, isAnesthesiaDrug: false, isRescueDrug: false, isVasoactive: false, isAnticoagulant: false, isObstetricDrug: false, isElectrolyteDrug: false, isControlledDrug: false,
-    statisticalCategory: '', remark: '', expectedVersion: 1, scopes: [] };
+    defaultIsSpecial: false, specialCategory: '', specialReasonTemplate: '', specialDisplayTemplate: '', allowManualOverride: false,
+    statisticalCategory: '', pinyinCode: '', sortOrder: 0, remark: '', expectedVersion: 1, scopes: [] };
 }
 function openCreate() { isCreate.value = true; Object.assign(form, blank()); editorVisible.value = true; }
 function openEdit(r: any) {
@@ -150,7 +166,10 @@ function openEdit(r: any) {
     defaultMode: r.defaultMode ?? '', defaultRateUnit: r.defaultRateUnit ?? '', defaultDose: r.defaultDose ?? null, defaultDoseUnit: r.defaultDoseUnit ?? '',
     isHighAlert: !!r.isHighAlert, isAnesthesiaDrug: !!r.isAnesthesiaDrug, isRescueDrug: !!r.isRescueDrug, isVasoactive: !!r.isVasoactive,
     isAnticoagulant: !!r.isAnticoagulant, isObstetricDrug: !!r.isObstetricDrug, isElectrolyteDrug: !!r.isElectrolyteDrug, isControlledDrug: !!r.isControlledDrug,
-    statisticalCategory: r.statisticalCategory ?? '', remark: r.remark ?? '', expectedVersion: r.version,
+    defaultIsSpecial: !!r.defaultIsSpecial, specialCategory: r.specialCategory ?? '', specialReasonTemplate: r.specialReasonTemplate ?? '',
+    specialDisplayTemplate: r.specialDisplayTemplate ?? '', allowManualOverride: !!r.allowManualOverride,
+    statisticalCategory: r.statisticalCategory ?? '', pinyinCode: r.pinyinCode ?? '', sortOrder: r.sortOrder ?? 0,
+    remark: r.remark ?? '', expectedVersion: r.version,
     scopes: (r.scopes || []).map((s: any) => ({ scopeType: s.scopeType ?? 'applicable_scope', scopeCode: s.scopeCode ?? '', scopeName: s.scopeName ?? '' })),
   });
   editorVisible.value = true;
@@ -163,6 +182,7 @@ async function onSave() {
     const payload: Record<string, any> = { entityType: ENTITY };
     Object.assign(payload, form);
     if (!isCreate.value) { payload.id = form.id; payload.expectedVersion = form.expectedVersion; }
+    else { delete payload.id; delete payload.expectedVersion; }
     payload.scopes = (form.scopes || []).filter((s: any) => s.scopeCode?.trim()).map((s: any) => ({ scopeType: s.scopeType, scopeCode: s.scopeCode.trim(), scopeName: s.scopeName || null }));
     const postPromise = saveClinicalDictionary(payload);
     await postPromise;
