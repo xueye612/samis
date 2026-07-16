@@ -28,18 +28,18 @@
     </a-layout-sider>
     <a-layout class="app-main">
       <a-layout-header class="app-header">
-        <div class="app-header-main">
+        <div class="app-header-main header-title-area">
           <div class="header-title-block">
             <h1 class="header-title">{{ route.meta.title || moduleLabel }}</h1>
             <p class="header-subtitle">{{ moduleDescription }}</p>
           </div>
-          <a-breadcrumb>
+          <a-breadcrumb class="header-breadcrumb">
             <a-breadcrumb-item>{{ moduleLabel }}</a-breadcrumb-item>
             <a-breadcrumb-item>{{ route.meta.title }}</a-breadcrumb-item>
           </a-breadcrumb>
         </div>
-        <a-space class="header-actions" :size="8">
-          <a-popover trigger="click" position="bottom">
+        <div class="header-actions">
+          <a-popover trigger="click" position="bottom" class="header-search-area">
             <a-input-search size="small" class="header-search" placeholder="查找病人..." readonly @click.stop />
             <template #content>
               <div class="search-popover">
@@ -54,46 +54,72 @@
               </div>
             </template>
           </a-popover>
-          <a-select
-            :model-value="store.currentDoctorName"
-            class="doctor-select"
-            size="small"
-            :options="store.doctorOptions.map((item) => ({ label: item, value: item }))"
-            @change="(value) => store.setCurrentDoctor(String(value))"
-          />
-          <a-badge :count="pendingTodos" :max-count="99">
-            <a-button type="outline" size="small" aria-label="消息通知" @click="router.push('/workbench/todos')">
-              <template #icon><icon-exclamation-circle /></template>
-            </a-button>
-          </a-badge>
-          <a-popover trigger="click" position="bottom">
-            <a-button type="outline" size="small">
-              <template #icon><icon-schedule /></template>
-              我的手术
-            </a-button>
-            <template #content>
-              <div class="my-surgery-popover">
-                <div class="popover-title">
-                  <strong>{{ store.currentDoctorName }} 今日负责</strong>
-                  <a-tag v-if="activeDoctorCase" color="green" size="small">进行中</a-tag>
+
+          <div class="header-quick-area">
+            <a-popover trigger="click" position="bottom">
+              <a-button type="outline" size="small" class="header-action-btn">
+                <template #icon><icon-schedule /></template>
+                我的手术
+              </a-button>
+              <template #content>
+                <div class="my-surgery-popover">
+                  <div class="popover-title">
+                    <strong>{{ store.currentDoctorName }} 今日负责</strong>
+                    <a-tag v-if="activeDoctorCase" color="green" size="small">进行中</a-tag>
+                  </div>
+                  <a-empty v-if="!doctorCases.length" description="今日暂无排班" />
+                  <button v-for="item in doctorCases" :key="item.id" class="my-surgery-item" type="button" @click="router.push(`/surgery/detail/${item.id}`)">
+                    <span><strong>{{ item.room }}</strong> {{ timeRange(item) }}</span>
+                    <span class="surgery-name">{{ item.patientName }} · {{ item.surgeryName }}</span>
+                  </button>
                 </div>
-                <a-empty v-if="!doctorCases.length" description="今日暂无排班" />
-                <button v-for="item in doctorCases" :key="item.id" class="my-surgery-item" type="button" @click="router.push(`/surgery/detail/${item.id}`)">
-                  <span><strong>{{ item.room }}</strong> {{ timeRange(item) }}</span>
-                  <span class="surgery-name">{{ item.patientName }} · {{ item.surgeryName }}</span>
+              </template>
+            </a-popover>
+
+            <a-badge :count="store.qualityDefects.length" :max-count="99" class="header-badge-btn">
+              <a-button type="outline" size="small" class="header-action-btn" @click="router.push('/quality/defects')">
+                <template #icon><icon-exclamation-circle /></template>
+                质控缺陷
+              </a-button>
+            </a-badge>
+          </div>
+
+          <a-popover trigger="click" position="br" class="header-more-area">
+            <a-badge :count="pendingTodos" :max-count="99" class="header-badge-btn">
+              <a-button type="outline" size="small" class="header-action-btn">
+                <template #icon><icon-unordered-list /></template>
+                更多
+              </a-button>
+            </a-badge>
+            <template #content>
+              <div class="header-more-panel">
+                <div class="header-more-section">
+                  <span class="header-more-label">当前医生</span>
+                  <a-select
+                    :model-value="store.currentDoctorName"
+                    size="small"
+                    class="header-more-select"
+                    :options="store.doctorOptions.map((item) => ({ label: item, value: item }))"
+                    @change="(value) => store.setCurrentDoctor(String(value))"
+                  />
+                </div>
+                <div v-if="sessionRoomGroup || sessionRoom" class="header-more-section">
+                  <span class="header-more-label">手术间</span>
+                  <div class="header-more-tags">
+                    <a-tag v-if="sessionRoomGroup" size="small" color="arcoblue">{{ sessionRoomGroup }}</a-tag>
+                    <a-tag v-if="sessionRoom" size="small">{{ sessionRoom }}</a-tag>
+                  </div>
+                </div>
+                <button type="button" class="header-more-link" @click="router.push('/workbench/todos')">
+                  <icon-exclamation-circle />
+                  <span class="header-more-link-text">消息通知</span>
+                  <a-badge v-if="pendingTodos" :count="pendingTodos" :max-count="99" class="header-more-link-badge" />
                 </button>
               </div>
             </template>
           </a-popover>
-          <a-badge :count="store.qualityDefects.length" :max-count="99">
-            <a-button type="outline" size="small" @click="router.push('/quality/defects')">
-              <template #icon><icon-exclamation-circle /></template>
-              质控缺陷
-            </a-button>
-          </a-badge>
-          <a-tag v-if="sessionRoomGroup" size="small" color="arcoblue">{{ sessionRoomGroup }}</a-tag>
-          <a-tag v-if="sessionRoom" size="small">{{ sessionRoom }}</a-tag>
-          <a-dropdown trigger="click">
+
+          <a-dropdown trigger="click" class="header-user-area">
             <a-space :size="6" class="header-user-trigger">
               <span class="header-user-name">{{ userDisplayName }}</span>
               <a-avatar :size="32" class="header-avatar" aria-label="用户菜单">{{ userAvatarText }}</a-avatar>
@@ -105,7 +131,7 @@
               <a-doption @click="logout">退出登录</a-doption>
             </template>
           </a-dropdown>
-        </a-space>
+        </div>
       </a-layout-header>
       <div v-if="secondaryNavItems.length" class="app-subnav" :class="{ 'app-subnav--workflow': activeMenu === 'surgery' }">
         <div v-if="activeMenu === 'surgery'" class="surgery-subnav" :aria-label="`${moduleLabel}二级导航`">
@@ -277,13 +303,20 @@ const timeRange = (item: { scheduledStart?: string; plannedStart: string; schedu
 .app-main { min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
 .record-focus-shell :deep(.app-sider), .record-focus-shell :deep(.app-header), .record-focus-shell :deep(.app-subnav), .record-focus-shell :deep(.app-footer) { display: none !important; }
 .record-focus-shell :deep(.app-content) { padding: 12px; }
+.header-title-area { min-width: 0; }
 .header-title-block { margin-bottom: 2px; }
-.header-title { margin: 0; color: var(--text-primary); font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+.header-title { margin: 0; color: var(--text-primary); font-size: 18px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (min-width: 1440px) { .header-title { font-size: 20px; } }
-.header-subtitle { margin: 2px 0 0; color: var(--text-tertiary); font-size: var(--font-size-xs); }
-.header-actions { flex-shrink: 0; flex-wrap: wrap; }
-.header-search { width: 160px; cursor: pointer; }
-@media (min-width: 1440px) { .header-search { width: 180px; } }
+.header-subtitle { margin: 2px 0 0; color: var(--text-tertiary); font-size: var(--font-size-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.header-breadcrumb { margin-top: 4px; }
+/* 头部动作区：单行不换行，按 区划(搜索/快捷/更多/用户) 组织，杜绝重叠与裁切 */
+.header-actions { display: flex; align-items: center; flex-wrap: nowrap; flex-shrink: 0; gap: 10px; min-width: 0; }
+.header-quick-area { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.header-action-btn { flex-shrink: 0; }
+/* 徽标计数偏移在外侧，给相邻控件留出净空，避免覆盖文字 */
+.header-badge-btn { margin-right: 6px; }
+.header-search { width: 168px; cursor: pointer; flex-shrink: 0; }
+@media (min-width: 1440px) { .header-search { width: 200px; } }
 .subnav-group-label { display: inline-flex; align-items: center; align-self: stretch; margin-left: 8px; padding: 0 4px; color: var(--text-tertiary); font-size: var(--font-size-xs); font-weight: 700; white-space: nowrap; }
 .subnav-group-label:first-child { margin-left: 0; }
 .subnav-group-label::after { content: ''; width: 1px; height: 14px; margin-left: 8px; background: var(--border); }
@@ -305,10 +338,20 @@ const timeRange = (item: { scheduledStart?: string; plannedStart: string; schedu
 .sider-nav-item.active { border-color: var(--color-brand-100); background: var(--primary-soft); color: var(--primary); font-weight: 600; }
 .sider-nav-item.active::before { content: ''; position: absolute; left: -1px; top: 8px; bottom: 8px; width: 3px; border-radius: 999px; background: var(--primary); }
 .sider-nav-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.header-user-name { font-size: var(--font-size-sm); color: var(--text-secondary); max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-user-name { font-size: var(--font-size-sm); color: var(--text-secondary); max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (min-width: 1440px) { .header-user-name { max-width: 100px; } }
+.header-user-area { flex-shrink: 0; }
 .header-user-trigger { cursor: pointer; }
 .header-avatar { background: var(--primary); color: var(--surface); font-size: 13px; cursor: pointer; box-shadow: var(--shadow-xs); flex-shrink: 0; }
+/* “更多”面板：低优先级入口集中收拢 */
+.header-more-panel { width: 240px; display: flex; flex-direction: column; gap: 12px; padding: 4px 2px; }
+.header-more-section { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.header-more-label { color: var(--text-tertiary); font-size: var(--font-size-xs); white-space: nowrap; }
+.header-more-select { width: 140px; }
+.header-more-tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.header-more-link { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font-size: var(--font-size-sm); cursor: pointer; text-align: left; transition: background 0.12s ease, border-color 0.12s ease; }
+.header-more-link:hover { border-color: var(--border); background: var(--surface-muted); color: var(--text-primary); }
+.header-more-link-text { flex: 1; }
 .app-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 18px; border-top: 1px solid var(--border); background: rgb(255 255 255 / 86%); color: var(--text-tertiary); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; }
 .app-persistence-loading { min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text-tertiary); }
 </style>

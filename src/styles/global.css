@@ -9,7 +9,6 @@
 body {
   margin: 0;
   background: var(--medical-bg);
-  overflow-x: hidden;
   font-size: var(--font-size-md);
   color: var(--text-primary);
 }
@@ -95,6 +94,8 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .app-header-main {
