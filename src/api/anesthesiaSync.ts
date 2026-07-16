@@ -51,6 +51,41 @@ export interface BatchSaveResponse {
   results: PushBatchResultItem[];
 }
 
+export interface LatestDeviceRawApi {
+  localId?: string;
+  serverId?: string;
+  operationId?: string;
+  deviceId?: string | null;
+  sourceDevice?: string | null;
+  deviceType?: string | null;
+  collectTime?: string | null;
+  createdAt?: string | null;
+  hr?: number | string | null;
+  pulse?: number | string | null;
+  sbp?: number | string | null;
+  dbp?: number | string | null;
+  mapValue?: number | string | null;
+  spo2?: number | string | null;
+  temperature?: number | string | null;
+  respiration?: number | string | null;
+  bis?: number | string | null;
+  etco2?: number | string | null;
+  ventMode?: string | null;
+  tidalVolume?: number | string | null;
+  respiratoryRate?: number | string | null;
+  fio2?: number | string | null;
+  peep?: number | string | null;
+  peakPressure?: number | string | null;
+  plateauPressure?: number | string | null;
+  minuteVolume?: number | string | null;
+  airwayPressure?: number | string | null;
+}
+
+export interface LatestDeviceDataApi {
+  monitor: LatestDeviceRawApi | null;
+  ventilator: LatestDeviceRawApi | null;
+}
+
 function postJson<T>(path: string, body: unknown) {
   return samisRequest<T>(path, {
     method: 'POST',
@@ -134,7 +169,7 @@ export const anesthesiaDeviceApi = {
     return postJson<BatchSaveResponse>('/anesthesiaDevice/batchPushVentilatorData', body);
   },
   getLatestDeviceData(operationId: string) {
-    return samisRequest<unknown>(`/anesthesiaDevice/getLatestDeviceData?operationId=${encodeURIComponent(operationId)}`);
+    return samisRequest<LatestDeviceDataApi>(`/anesthesiaDevice/getLatestDeviceData?operationId=${encodeURIComponent(operationId)}`);
   },
 };
 

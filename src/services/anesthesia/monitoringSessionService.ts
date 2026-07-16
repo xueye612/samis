@@ -132,7 +132,6 @@ export async function persistMonitoringRegistry(registry: MonitoringSessionRegis
     memoryRegistry = { sessions: {} };
     return;
   }
-  memoryRegistry = { ...registry, sessions };
   await db.settings.put({
     key: MONITORING_SESSION_SETTINGS_KEY,
     value: JSON.stringify({ sessions, mockBoundRecordLocalId: registry.mockBoundRecordLocalId }),

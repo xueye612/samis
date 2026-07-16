@@ -184,6 +184,7 @@
             </div>
 
             <template v-if="!toolboxCollapsed">
+            <RecordRealtimeDevicePanel :state="realtimeDeviceState" />
             <RecordQuickToolbar
               :record="current"
               :entries="sheetQuickActions.entries"
@@ -484,7 +485,7 @@ import {
   readMonitorDisplayIntervalMinutes,
   resolveMonitorDisplayIntervalMinutes,
 } from '@/services/anesthesia/monitorMockService';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AnesthesiaTemplateApplyModal from '@/components/anesthesia/record/AnesthesiaTemplateApplyModal.vue';
 import AnesthesiaTemplateSelector from '@/components/anesthesia/record/AnesthesiaTemplateSelector.vue';
@@ -499,6 +500,7 @@ import RecordRecentEntries from '@/components/anesthesia/record/RecordRecentEntr
 import RecordQuickToolbar from '@/components/anesthesia/record/RecordQuickToolbar.vue';
 import RecordQualityPanel from '@/components/anesthesia/record/RecordQualityPanel.vue';
 import RecordDeviceWorkbenchPanel from '@/components/anesthesia/record/RecordDeviceWorkbenchPanel.vue';
+import RecordRealtimeDevicePanel from '@/components/anesthesia/record/RecordRealtimeDevicePanel.vue';
 import StructuredClinicalEntitiesPanel from '@/components/anesthesia/record/StructuredClinicalEntitiesPanel.vue';
 import RecordWorkstationTopbar from '@/components/anesthesia/record/RecordWorkstationTopbar.vue';
 import RecordSheetQuickStrip from '@/components/anesthesia/record/RecordSheetQuickStrip.vue';
@@ -523,6 +525,11 @@ import {
   getMonitoringRegistry,
   resolveMonitoringViewUi,
 } from '@/services/anesthesia/monitoringSessionService';
+import {
+  createRealtimeDevicePoller,
+  emptyRealtimeDeviceState,
+  type RealtimeDevicePoller,
+} from '@/services/anesthesia/realtimeDeviceData';
 import { buildRecordReturnTarget, buildRecordRoute, normalizeRecordEntrySource } from '@/services/recordNavigation';
 import { buildRecordPagination } from '@/services/recordPaginationEngine';
 import {
@@ -735,6 +742,22 @@ const inspectUiSmokeLocalState = async (operationId: string) => {
 };
 
 const selectedId = ref(String(route.params.id || store.currentDoctorActiveCase?.id || store.myTodayCases[0]?.id || store.cases[0]?.id || ''));
+const realtimeDeviceState = ref(emptyRealtimeDeviceState(selectedId.value));
+let realtimeDevicePoller: RealtimeDevicePoller | null = null;
+const stopRealtimeDevicePolling = () => {
+  realtimeDevicePoller?.stop();
+  realtimeDevicePoller = null;
+};
+const restartRealtimeDevicePolling = (operationId: string) => {
+  stopRealtimeDevicePolling();
+  realtimeDeviceState.value = emptyRealtimeDeviceState(operationId);
+  if (!operationId) return;
+  realtimeDevicePoller = createRealtimeDevicePoller({
+    operationId,
+    onState: (state) => { realtimeDeviceState.value = state; },
+  });
+  realtimeDevicePoller.start();
+};
 const activeTab = ref(String((store.recordDrafts[selectedId.value] as { selectedTab?: string } | undefined)?.selectedTab ?? 'patient'));
 const keyword = ref('');
 const queueRoomFilter = ref('');
@@ -898,7 +921,13 @@ const sheetQuickActions = computed(() => {
     rescueModeActive.value,
   );
 });
-const monitoringViewUi = computed(() => resolveMonitoringViewUi(selectedId.value, getMonitoringRegistry()));
+const monitoringViewUi = computed(() => {
+  // 监护会话注册表是模块级运行态；同步状态变化作为响应式版本信号，
+  // 确保启动、暂停、恢复和停止后立即重新投影视图。
+  void syncState.value.monitorRunning;
+  void syncState.value.ventilatorRunning;
+  return resolveMonitoringViewUi(selectedId.value, getMonitoringRegistry());
+});
 const deviceCollectingActive = computed(() => (
   monitoringViewUi.value.mockTicking || monitoringViewUi.value.monitoringPaused
 ));
@@ -1175,6 +1204,7 @@ watch(
   { immediate: true },
 );
 watch(selectedId, async (id) => {
+  restartRealtimeDevicePolling(id);
   if (!store.localPersistenceReady || !id) return;
   await store.setActiveAnesthesiaRecordScope(id);
   caseSheetReady.value = false;
@@ -1183,7 +1213,8 @@ watch(selectedId, async (id) => {
   store.syncRecordDocument(id);
   store.setRecordPageDraft(id, livePageNo.value);
   caseSheetReady.value = true;
-});
+}, { immediate: true });
+onBeforeUnmount(stopRealtimeDevicePolling);
 watch(livePageNo, (page) => {
   if (!selectedId.value) return;
   store.setRecordPageDraft(selectedId.value, page);

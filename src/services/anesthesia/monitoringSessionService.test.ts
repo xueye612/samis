@@ -1,11 +1,24 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildMonitoringSessionFromCase,
+  getMonitoringRegistry,
+  markMockTicking,
   prepareScopeSwitchHint,
+  persistMonitoringRegistry,
   resolveMonitoringViewUi,
+  saveSession,
   type MonitoringSessionRegistry,
 } from './monitoringSessionService';
 import type { SurgeryCase } from '@/types/anesthesia';
+
+const localDbMocks = vi.hoisted(() => ({
+  put: vi.fn(async (_row: { value: string }) => undefined),
+  delete: vi.fn(async (_key: string) => undefined),
+}));
+
+vi.mock('@/services/anesthesia/localDb', () => ({
+  getAnesthesiaLocalDb: () => ({ settings: localDbMocks }),
+}));
 
 const baseCase = (id: string, name: string): SurgeryCase => ({
   id,
@@ -52,5 +65,19 @@ describe('monitoringSessionService', () => {
     expect(ui.hasMonitorSession).toBe(true);
     expect(ui.monitoringPaused).toBe(true);
     expect(ui.resumePending).toBe(true);
+  });
+
+  it('持久化运行中会话时仅清理落盘副本，不覆盖内存运行态', async () => {
+    const session = buildMonitoringSessionFromCase(baseCase('case-persist-running', '李四'));
+    session.monitorActive = true;
+    saveSession(session);
+    markMockTicking(session, true);
+
+    await persistMonitoringRegistry();
+
+    expect(resolveMonitoringViewUi('case-persist-running', getMonitoringRegistry()).monitorRunning).toBe(true);
+    const lastPutCall = localDbMocks.put.mock.calls[localDbMocks.put.mock.calls.length - 1];
+    const persisted = JSON.parse(String(lastPutCall?.[0]?.value));
+    expect(persisted.sessions['case-persist-running'].mockTicking).toBe(false);
   });
 });
