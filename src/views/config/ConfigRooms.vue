@@ -1,11 +1,8 @@
 <template>
   <ModulePageShell title="手术间管理" description="维护手术间结构化配置、能力、生命周期与医院字段配置" shell-class="config-rooms-page">
-    <a-card class="section-card" :bordered="false">
-      <template #title>
-        <a-space>
-          <span>手术间列表</span>
-          <a-tag :color="source === 'remote' ? 'green' : 'gray'">{{ source === 'remote' ? '真实数据' : '本地' }}</a-tag>
-        </a-space>
+    <ConfigTableShell title="手术间列表">
+      <template #title-tag>
+        <a-tag :color="source === 'remote' ? 'green' : 'gray'">{{ source === 'remote' ? '真实数据' : '本地' }}</a-tag>
       </template>
       <template #extra>
         <a-space>
@@ -15,23 +12,25 @@
         </a-space>
       </template>
 
-      <a-alert v-if="loadError" type="error" show-icon style="margin-bottom: 12px">
-        加载手术间失败：{{ loadError }}。可点击刷新重试。
-      </a-alert>
-      <a-alert v-else-if="!loading && source === 'remote' && !rooms.length" type="warning" show-icon style="margin-bottom: 12px">
-        远程暂无手术间数据，表格为空属正常状态，可在本页新增。
-      </a-alert>
-      <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom: 12px">
-        无手术间配置权限（config.room.manage）；仅可查看，写动作已禁用。
-      </a-alert>
+      <template #alerts>
+        <a-alert v-if="loadError" type="error" show-icon style="margin-bottom: 12px">
+          加载手术间失败：{{ loadError }}。可点击刷新重试。
+        </a-alert>
+        <a-alert v-else-if="!loading && source === 'remote' && !rooms.length" type="warning" show-icon style="margin-bottom: 12px">
+          远程暂无手术间数据，表格为空属正常状态，可在本页新增。
+        </a-alert>
+        <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom: 12px">
+          无手术间配置权限（config.room.manage）；仅可查看，写动作已禁用。
+        </a-alert>
+      </template>
 
-      <a-table :data="rooms" row-key="roomId" :loading="loading" :pagination="false" size="medium">
+      <a-table :data="rooms" row-key="roomId" :loading="loading" :pagination="false" size="medium" :scroll="{ x: tableScrollX }">
         <template #empty>
           <a-empty description="暂无手术间" />
         </template>
         <template #columns>
           <a-table-column v-for="group in tableFieldGroups" :key="group.groupName" :title="group.groupName">
-            <a-table-column v-for="field in group.fields" :key="field.fieldCode" :title="field.displayName">
+            <a-table-column v-for="field in group.fields" :key="field.fieldCode" :title="field.displayName" :width="fieldWidth(field.fieldCode)">
               <template #cell="{ record }">
                 <span v-if="field.fieldCode === 'capabilities'">
                   <a-tag v-for="cap in record.capabilities" :key="cap.capabilityType + cap.capabilityCode">
@@ -39,24 +38,18 @@
                   </a-tag>
                 </span>
                 <a-tag v-else-if="field.fieldCode === 'status'" :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
-                <span v-else>{{ formatCell(record, field.fieldCode) }}</span>
+                <span v-else class="cell-ellipsis" :title="formatCell(record, field.fieldCode)">{{ formatCell(record, field.fieldCode) }}</span>
               </template>
             </a-table-column>
           </a-table-column>
-          <a-table-column title="操作" :width="280" :fixed="rooms.length ? 'right' : undefined">
+          <a-table-column title="操作" :width="160" :fixed="rooms.length ? 'right' : undefined">
             <template #cell="{ record }">
-              <a-space wrap>
-                <a-button size="small" @click="openHistory(record)">历史</a-button>
-                <a-button v-if="canManage" size="small" @click="openEdit(record)">编辑</a-button>
-                <a-button v-if="canManage && record.status === 'enabled'" size="small" @click="onChangeStatus(record, 'paused')">暂停</a-button>
-                <a-button v-if="canManage && record.status === 'paused'" size="small" @click="onChangeStatus(record, 'enabled')">启用</a-button>
-                <a-button v-if="canManage && record.status !== 'disabled'" size="small" status="warning" @click="onChangeStatus(record, 'disabled')">停用</a-button>
-              </a-space>
+              <ConfigRowActions :actions="rowActions(record)" @action="(key: string) => onRowAction(record, key)" />
             </template>
           </a-table-column>
         </template>
       </a-table>
-    </a-card>
+    </ConfigTableShell>
 
     <RoomEditorDrawer
       :visible="editorVisible"
@@ -98,6 +91,8 @@
 import { Message } from '@arco-design/web-vue';
 import { computed, onMounted, ref } from 'vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import ConfigTableShell from '@/components/config/ConfigTableShell.vue';
+import ConfigRowActions, { type ConfigRowAction } from '@/components/config/ConfigRowActions.vue';
 import RoomEditorDrawer from '@/components/config/RoomEditorDrawer.vue';
 import RoomHistoryDrawer from '@/components/config/RoomHistoryDrawer.vue';
 import RoomFieldConfigPanel from '@/components/config/RoomFieldConfigPanel.vue';
@@ -182,6 +177,21 @@ const tableFields = computed<RoomFieldConfigEntry[]>(() => {
 });
 const tableFieldGroups = computed(() => groupRoomTableFields(tableFields.value));
 
+/** 各字段统一列宽，杜绝表头逐字竖排；系统关键字段（编码/名称/状态/版本/能力）保持核心宽度。 */
+const FIELD_WIDTHS: Record<string, number> = {
+  roomCode: 160, roomName: 170, shortName: 110, roomType: 120,
+  roomGroupId: 120, roomGroupName: 130, campus: 110, floor: 90,
+  location: 130, cleanLevel: 110, capabilities: 220,
+  defaultAnesthesiaMachine: 160, defaultMonitor: 150, defaultWorkstation: 150,
+  stationCapacity: 90, openTime: 100, closeTime: 100,
+  schedulePreference: 130, staffPreference: 130, sortNo: 80,
+  remark: 160, version: 80, status: 100,
+};
+function fieldWidth(code: string): number {
+  return FIELD_WIDTHS[code] ?? 130;
+}
+const tableScrollX = computed(() => tableFields.value.reduce((sum, f) => sum + fieldWidth(f.fieldCode), 0) + 160);
+
 function defaultLabel(code: string): string {
   const map: Record<string, string> = {
     roomCode: '手术间编码', roomName: '手术间名称', shortName: '简称', roomType: '类型',
@@ -261,6 +271,23 @@ function onChangeStatus(room: RoomConfiguration, toStatus: 'enabled' | 'paused' 
   statusTarget.value = { room, toStatus };
   statusReason.value = '';
   statusModalVisible.value = true;
+}
+
+function rowActions(room: RoomConfiguration): ConfigRowAction[] {
+  return [
+    { key: 'edit', label: '编辑', primary: true, hidden: !canManage.value },
+    { key: 'history', label: '历史' },
+    { key: 'pause', label: '暂停', hidden: !canManage.value || room.status !== 'enabled' },
+    { key: 'enable', label: '启用', hidden: !canManage.value || room.status !== 'paused' },
+    { key: 'disable', label: '停用', danger: true, hidden: !canManage.value || room.status === 'disabled' },
+  ];
+}
+function onRowAction(room: RoomConfiguration, key: string) {
+  if (key === 'edit') openEdit(room);
+  else if (key === 'history') openHistory(room);
+  else if (key === 'pause') onChangeStatus(room, 'paused');
+  else if (key === 'enable') onChangeStatus(room, 'enabled');
+  else if (key === 'disable') onChangeStatus(room, 'disabled');
 }
 
 function needsReason(toStatus: string): boolean {

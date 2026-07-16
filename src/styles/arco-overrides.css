@@ -15,12 +15,33 @@
   color: var(--text-secondary);
   font-weight: 600;
   font-size: var(--font-size-sm);
+  white-space: nowrap;
 }
 
 .arco-table-td {
   color: var(--text-primary);
   border-bottom-color: var(--border);
   font-size: var(--font-size-sm);
+}
+
+/* 固定列（尤其右侧操作列）保持与表体一致的背景，避免滚动时穿透 */
+.arco-table-col-fixed-right,
+.arco-table-cell-fixed-right {
+  background: var(--surface);
+}
+
+.arco-table-tr:hover .arco-table-col-fixed-right,
+.arco-table-tr:hover .arco-table-cell-fixed-right {
+  background: var(--primary-soft);
+}
+
+/* 统一长文本单行省略：配合 title 属性实现 hover 查看完整内容 */
+.cell-ellipsis {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .arco-table-size-medium .arco-table-th,

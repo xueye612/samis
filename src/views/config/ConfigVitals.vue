@@ -1,36 +1,32 @@
 <template>
   <ModulePageShell title="生命体征字典" description="维护含采集频率、设备来源、质控属性、正常范围、阈值、图表和状态的生命体征" shell-class="config-vitals-page">
-    <a-card :bordered="false">
-      <template #title><a-space><span>生命体征列表</span><a-tag :color="source === 'remote' ? 'green' : 'gray'">{{ source === 'remote' ? '真实数据' : '本地' }}</a-tag></a-space></template>
+    <ConfigTableShell title="生命体征列表">
+      <template #title-tag><a-tag :color="source === 'remote' ? 'green' : 'gray'">{{ source === 'remote' ? '真实数据' : '本地' }}</a-tag></template>
       <template #extra><a-space><a-button @click="reload" :loading="loading">刷新</a-button><a-button v-if="canManage" type="primary" @click="openCreate">新增</a-button></a-space></template>
-      <a-alert v-if="loadError" type="error" show-icon style="margin-bottom:12px">加载失败：{{ loadError }}。</a-alert>
-      <a-alert v-else-if="!loading && source === 'remote' && !items.length" type="warning" show-icon style="margin-bottom:12px">远程暂无数据。</a-alert>
-      <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom:12px">无配置权限；仅可查看。</a-alert>
-      <a-table :data="(items as any)" row-key="id" :loading="loading" :pagination="false" size="medium">
+      <template #alerts>
+        <a-alert v-if="loadError" type="error" show-icon style="margin-bottom:12px">加载失败：{{ loadError }}。</a-alert>
+        <a-alert v-else-if="!loading && source === 'remote' && !items.length" type="warning" show-icon style="margin-bottom:12px">远程暂无数据。</a-alert>
+        <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom:12px">无配置权限；仅可查看。</a-alert>
+      </template>
+      <a-table :data="(items as any)" row-key="id" :loading="loading" :pagination="false" size="medium" :scroll="{ x: 1110 }">
         <template #empty><a-empty description="暂无生命体征" /></template>
         <template #columns>
-          <a-table-column title="编码"><template #cell="{ record }">{{ record.code }}</template></a-table-column>
-          <a-table-column title="名称"><template #cell="{ record }">{{ record.itemName }}</template></a-table-column>
-          <a-table-column title="单位"><template #cell="{ record }">{{ record.unit || '—' }}</template></a-table-column>
-          <a-table-column title="正常范围"><template #cell="{ record }">{{ record.normalRange || '—' }}</template></a-table-column>
-          <a-table-column title="采集频率(秒)"><template #cell="{ record }">{{ record.samplingIntervalSeconds || '—' }}</template></a-table-column>
-          <a-table-column title="质控属性"><template #cell="{ record }">{{ record.qualityAttribute || '—' }}</template></a-table-column>
-          <a-table-column title="版本" :width="70"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
+          <a-table-column title="编码" :width="150"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.code">{{ record.code }}</span></template></a-table-column>
+          <a-table-column title="名称" :width="160"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.itemName">{{ record.itemName }}</span></template></a-table-column>
+          <a-table-column title="单位" :width="90"><template #cell="{ record }">{{ record.unit || '—' }}</template></a-table-column>
+          <a-table-column title="正常范围" :width="130"><template #cell="{ record }">{{ record.normalRange || '—' }}</template></a-table-column>
+          <a-table-column title="采集频率(秒)" :width="130"><template #cell="{ record }">{{ record.samplingIntervalSeconds || '—' }}</template></a-table-column>
+          <a-table-column title="质控属性" :width="120"><template #cell="{ record }">{{ record.qualityAttribute || '—' }}</template></a-table-column>
+          <a-table-column title="版本" :width="80"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
           <a-table-column title="状态" :width="90"><template #cell="{ record }"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template></a-table-column>
-          <a-table-column title="操作" :width="280">
+          <a-table-column title="操作" :width="140" fixed="right">
             <template #cell="{ record }">
-              <a-space wrap>
-                <a-button size="small" @click="openHistory(record)">历史</a-button>
-                <a-button v-if="canManage" size="small" @click="openEdit(record)">编辑</a-button>
-                <a-button v-if="canManage && record.status === 'enabled'" size="small" @click="onChangeStatus(record, 'paused')">暂停</a-button>
-                <a-button v-if="canManage && record.status === 'paused'" size="small" @click="onChangeStatus(record, 'enabled')">启用</a-button>
-                <a-button v-if="canManage && record.status !== 'disabled'" size="small" status="warning" @click="onChangeStatus(record, 'disabled')">停用</a-button>
-              </a-space>
+              <ConfigRowActions :actions="rowActions(record)" @action="(key: string) => onRowAction(record, key)" />
             </template>
           </a-table-column>
         </template>
       </a-table>
-    </a-card>
+    </ConfigTableShell>
     <a-drawer :visible="editorVisible" :width="600" :title="isCreate ? '新增生命体征' : '编辑生命体征'" :mask-closable="false" unmount-on-close @cancel="editorVisible = false">
       <a-form :model="form" layout="vertical">
         <a-row :gutter="12">
@@ -89,6 +85,8 @@
 import { Message } from '@arco-design/web-vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import ConfigTableShell from '@/components/config/ConfigTableShell.vue';
+import ConfigRowActions, { type ConfigRowAction } from '@/components/config/ConfigRowActions.vue';
 import { authApi } from '@/api/auth';
 import { loadClinicalDictionary, saveClinicalDictionary, changeClinicalDictionaryStatus, loadClinicalDictionaryHistory, canManageClinical, ClinicalConflictError } from '@/services/configuration/clinicalDictionaryService';
 import { useRealAnesthesiaDict } from '@/config/apiFlags';
@@ -143,6 +141,23 @@ async function onSave() {
   finally { saving.value = false; }
 }
 function onChangeStatus(r: any, to: 'enabled'|'paused'|'disabled') { statusTarget.value = { id: Number(r.id), version: Number(r.version), toStatus: to }; statusReason.value = ''; statusVisible.value = true; }
+
+function rowActions(r: any): ConfigRowAction[] {
+  return [
+    { key: 'edit', label: '编辑', primary: true, hidden: !canManage.value },
+    { key: 'history', label: '历史' },
+    { key: 'pause', label: '暂停', hidden: !canManage.value || r.status !== 'enabled' },
+    { key: 'enable', label: '启用', hidden: !canManage.value || r.status !== 'paused' },
+    { key: 'disable', label: '停用', danger: true, hidden: !canManage.value || r.status === 'disabled' },
+  ];
+}
+function onRowAction(r: any, key: string) {
+  if (key === 'edit') openEdit(r);
+  else if (key === 'history') openHistory(r);
+  else if (key === 'pause') onChangeStatus(r, 'paused');
+  else if (key === 'enable') onChangeStatus(r, 'enabled');
+  else if (key === 'disable') onChangeStatus(r, 'disabled');
+}
 function needsReason(t: string) { return t === 'paused' || t === 'disabled'; }
 async function confirmStatus() {
   const t = statusTarget.value; if (!t) return;

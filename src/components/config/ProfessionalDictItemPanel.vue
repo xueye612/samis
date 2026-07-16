@@ -1,11 +1,8 @@
 <template>
   <ModulePageShell :title="title" :description="description" :shell-class="`config-${entityType}-page`">
-    <a-card :bordered="false">
-      <template #title>
-        <a-space>
-          <span>{{ title }}</span>
-          <a-tag :color="source === 'remote' ? 'green' : 'gray'">{{ source === 'remote' ? '真实数据' : '本地' }}</a-tag>
-        </a-space>
+    <ConfigTableShell :title="title">
+      <template #title-tag>
+        <a-tag :color="source === 'remote' ? 'green' : 'gray'">{{ source === 'remote' ? '真实数据' : '本地' }}</a-tag>
       </template>
       <template #extra>
         <a-space>
@@ -13,35 +10,31 @@
           <a-button v-if="canManage" type="primary" @click="openCreate">新增</a-button>
         </a-space>
       </template>
-      <a-alert v-if="loadError" type="error" show-icon style="margin-bottom: 12px">加载失败：{{ loadError }}。可点击刷新重试。</a-alert>
-      <a-alert v-else-if="!loading && source === 'remote' && !items.length" type="warning" show-icon style="margin-bottom: 12px">远程暂无数据，表格为空属正常状态。</a-alert>
-      <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom: 12px">无配置权限；仅可查看。</a-alert>
+      <template #alerts>
+        <a-alert v-if="loadError" type="error" show-icon style="margin-bottom: 12px">加载失败：{{ loadError }}。可点击刷新重试。</a-alert>
+        <a-alert v-else-if="!loading && source === 'remote' && !items.length" type="warning" show-icon style="margin-bottom: 12px">远程暂无数据，表格为空属正常状态。</a-alert>
+        <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom: 12px">无配置权限；仅可查看。</a-alert>
+      </template>
 
-      <a-table :data="items" row-key="id" :loading="loading" :pagination="false" size="medium">
+      <a-table :data="items" row-key="id" :loading="loading" :pagination="false" size="medium" :scroll="{ x: 940 }">
         <template #empty><a-empty :description="`暂无${title}`" /></template>
         <template #columns>
-          <a-table-column title="编码" data-index="itemCode" />
-          <a-table-column title="名称" data-index="itemName" />
-          <a-table-column v-if="isEvent" title="分类"><template #cell="{ record }">{{ record.profile?.eventCategory || '—' }}</template></a-table-column>
-          <a-table-column v-if="isEvent" title="严重程度"><template #cell="{ record }">{{ record.profile?.severity || '—' }}</template></a-table-column>
-          <a-table-column v-if="isScore" title="评分类型"><template #cell="{ record }">{{ record.profile?.scoreType || '—' }}</template></a-table-column>
-          <a-table-column v-if="isScore" title="规则维度数"><template #cell="{ record }">{{ ruleDimCount(record) }}</template></a-table-column>
+          <a-table-column title="编码" :width="200"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.itemCode">{{ record.itemCode }}</span></template></a-table-column>
+          <a-table-column title="名称" :width="170"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.itemName">{{ record.itemName }}</span></template></a-table-column>
+          <a-table-column v-if="isEvent" title="分类" :width="130"><template #cell="{ record }">{{ record.profile?.eventCategory || '—' }}</template></a-table-column>
+          <a-table-column v-if="isEvent" title="严重程度" :width="110"><template #cell="{ record }">{{ record.profile?.severity || '—' }}</template></a-table-column>
+          <a-table-column v-if="isScore" title="评分类型" :width="120"><template #cell="{ record }">{{ record.profile?.scoreType || '—' }}</template></a-table-column>
+          <a-table-column v-if="isScore" title="规则维度数" :width="100"><template #cell="{ record }">{{ ruleDimCount(record) }}</template></a-table-column>
           <a-table-column title="版本" :width="80"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
-          <a-table-column title="状态" :width="100"><template #cell="{ record }"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template></a-table-column>
-          <a-table-column title="操作" :width="260">
+          <a-table-column title="状态" :width="90"><template #cell="{ record }"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template></a-table-column>
+          <a-table-column title="操作" :width="140" fixed="right">
             <template #cell="{ record }">
-              <a-space wrap>
-                <a-button size="small" @click="openHistory(record)">历史</a-button>
-                <a-button v-if="canManage" size="small" @click="openEdit(record)">编辑</a-button>
-                <a-button v-if="canManage && record.status === 'enabled'" size="small" @click="onChangeStatus(record, 'paused')">暂停</a-button>
-                <a-button v-if="canManage && record.status === 'paused'" size="small" @click="onChangeStatus(record, 'enabled')">启用</a-button>
-                <a-button v-if="canManage && record.status !== 'disabled'" size="small" status="warning" @click="onChangeStatus(record, 'disabled')">停用</a-button>
-              </a-space>
+              <ConfigRowActions :actions="rowActions(record)" @action="(key: string) => onRowAction(record, key)" />
             </template>
           </a-table-column>
         </template>
       </a-table>
-    </a-card>
+    </ConfigTableShell>
 
     <a-drawer :visible="editorVisible" :width="560" :title="isCreate ? `新增${title}` : `编辑${title}`" :mask-closable="false" unmount-on-close @cancel="editorVisible = false">
       <a-form :model="form" layout="vertical">
@@ -102,6 +95,8 @@
 import { Message } from '@arco-design/web-vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import ConfigTableShell from '@/components/config/ConfigTableShell.vue';
+import ConfigRowActions, { type ConfigRowAction } from '@/components/config/ConfigRowActions.vue';
 import { authApi } from '@/api/auth';
 import {
   loadProfessionalItems, saveProfessionalItem, changeProfessionalStatusConfig, loadProfessionalHistory,
@@ -205,6 +200,23 @@ async function onSave() {
 
 function onChangeStatus(item: ProfessionalDictItem, toStatus: 'enabled' | 'paused' | 'disabled') {
   statusTarget.value = { item, toStatus }; statusReason.value = ''; statusVisible.value = true;
+}
+
+function rowActions(item: ProfessionalDictItem): ConfigRowAction[] {
+  return [
+    { key: 'edit', label: '编辑', primary: true, hidden: !canManage.value },
+    { key: 'history', label: '历史' },
+    { key: 'pause', label: '暂停', hidden: !canManage.value || item.status !== 'enabled' },
+    { key: 'enable', label: '启用', hidden: !canManage.value || item.status !== 'paused' },
+    { key: 'disable', label: '停用', danger: true, hidden: !canManage.value || item.status === 'disabled' },
+  ];
+}
+function onRowAction(item: ProfessionalDictItem, key: string) {
+  if (key === 'edit') openEdit(item);
+  else if (key === 'history') openHistory(item);
+  else if (key === 'pause') onChangeStatus(item, 'paused');
+  else if (key === 'enable') onChangeStatus(item, 'enabled');
+  else if (key === 'disable') onChangeStatus(item, 'disabled');
 }
 function needsReason(t: string) { return t === 'paused' || t === 'disabled'; }
 async function confirmStatus() {

@@ -1,11 +1,8 @@
 <template>
   <ModulePageShell title="麻醉人员管理" description="维护含工号、职称、专业组、授权、岗位、工作区、有效期与状态的结构化人员" shell-class="config-staff-page">
-    <a-card class="section-card" :bordered="false">
-      <template #title>
-        <a-space>
-          <span>人员列表</span>
-          <a-tag :color="source === 'remote' ? 'green' : 'gray'">{{ source === 'remote' ? '真实数据' : '本地' }}</a-tag>
-        </a-space>
+    <ConfigTableShell title="人员列表">
+      <template #title-tag>
+        <a-tag :color="source === 'remote' ? 'green' : 'gray'">{{ source === 'remote' ? '真实数据' : '本地' }}</a-tag>
       </template>
       <template #extra>
         <a-space>
@@ -14,38 +11,34 @@
         </a-space>
       </template>
 
-      <a-alert v-if="loadError" type="error" show-icon style="margin-bottom: 12px">加载人员失败：{{ loadError }}。可点击刷新重试。</a-alert>
-      <a-alert v-else-if="!loading && source === 'remote' && !staff.length" type="warning" show-icon style="margin-bottom: 12px">远程暂无人员数据，表格为空属正常状态，可在本页新增。</a-alert>
-      <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom: 12px">无人员配置权限（config.staff.manage）；仅可查看，写动作已禁用。</a-alert>
+      <template #alerts>
+        <a-alert v-if="loadError" type="error" show-icon style="margin-bottom: 12px">加载人员失败：{{ loadError }}。可点击刷新重试。</a-alert>
+        <a-alert v-else-if="!loading && source === 'remote' && !staff.length" type="warning" show-icon style="margin-bottom: 12px">远程暂无人员数据，表格为空属正常状态，可在本页新增。</a-alert>
+        <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom: 12px">无人员配置权限（config.staff.manage）；仅可查看，写动作已禁用。</a-alert>
+      </template>
 
-      <a-table :data="staff" row-key="id" :loading="loading" :pagination="false" size="medium">
+      <a-table :data="staff" row-key="id" :loading="loading" :pagination="false" size="medium" :scroll="{ x: 1040 }">
         <template #empty><a-empty description="暂无人员" /></template>
         <template #columns>
-          <a-table-column title="工号" data-index="gh" />
-          <a-table-column title="姓名" data-index="name" />
-          <a-table-column title="职称" ><template #cell="{ record }">{{ record.title || '—' }}</template></a-table-column>
-          <a-table-column title="专业组"><template #cell="{ record }">{{ record.professionalGroup || '—' }}</template></a-table-column>
-          <a-table-column title="适用范围">
+          <a-table-column title="工号" :width="140"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.gh">{{ record.gh }}</span></template></a-table-column>
+          <a-table-column title="姓名" :width="120"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.name">{{ record.name }}</span></template></a-table-column>
+          <a-table-column title="职称" :width="120"><template #cell="{ record }">{{ record.title || '—' }}</template></a-table-column>
+          <a-table-column title="专业组" :width="140"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.professionalGroup">{{ record.professionalGroup || '—' }}</span></template></a-table-column>
+          <a-table-column title="适用范围" :width="180">
             <template #cell="{ record }">
               <a-tag v-for="sc in record.scopes" :key="sc.scopeType + sc.scopeCode">{{ sc.scopeCode }}</a-tag>
             </template>
           </a-table-column>
           <a-table-column title="版本" :width="80"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
           <a-table-column title="状态" :width="100"><template #cell="{ record }"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template></a-table-column>
-          <a-table-column title="操作" :width="240">
+          <a-table-column title="操作" :width="140" fixed="right">
             <template #cell="{ record }">
-              <a-space wrap>
-                <a-button size="small" @click="openHistory(record)">历史</a-button>
-                <a-button v-if="canManage" size="small" @click="openEdit(record)">编辑</a-button>
-                <a-button v-if="canManage && record.status === 'enabled'" size="small" @click="onChangeStatus(record, 'paused')">暂停</a-button>
-                <a-button v-if="canManage && record.status === 'paused'" size="small" @click="onChangeStatus(record, 'enabled')">启用</a-button>
-                <a-button v-if="canManage && record.status !== 'disabled'" size="small" status="warning" @click="onChangeStatus(record, 'disabled')">停用</a-button>
-              </a-space>
+              <ConfigRowActions :actions="rowActions(record)" @action="(key: string) => onRowAction(record, key)" />
             </template>
           </a-table-column>
         </template>
       </a-table>
-    </a-card>
+    </ConfigTableShell>
 
     <StaffConfigurationPanel :visible="editorVisible" :staff="editing" @cancel="editorVisible = false" @saved="onSaved" />
     <a-modal :visible="statusVisible" :title="statusTarget ? statusLabel(statusTarget.toStatus) + '人员' : '状态变更'" :ok-loading="statusSaving" :mask-closable="false" @cancel="statusVisible = false" @ok="confirmStatus">
@@ -74,6 +67,8 @@
 import { Message } from '@arco-design/web-vue';
 import { computed, onMounted, ref } from 'vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import ConfigTableShell from '@/components/config/ConfigTableShell.vue';
+import ConfigRowActions, { type ConfigRowAction } from '@/components/config/ConfigRowActions.vue';
 import StaffConfigurationPanel from '@/components/config/StaffConfigurationPanel.vue';
 import { authApi } from '@/api/auth';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
@@ -135,6 +130,23 @@ async function onSaved() {
 
 function onChangeStatus(s: StaffProfile, toStatus: 'enabled' | 'paused' | 'disabled') {
   statusTarget.value = { staff: s, toStatus }; statusReason.value = ''; statusVisible.value = true;
+}
+
+function rowActions(s: StaffProfile): ConfigRowAction[] {
+  return [
+    { key: 'edit', label: '编辑', primary: true, hidden: !canManage.value },
+    { key: 'history', label: '历史' },
+    { key: 'pause', label: '暂停', hidden: !canManage.value || s.status !== 'enabled' },
+    { key: 'enable', label: '启用', hidden: !canManage.value || s.status !== 'paused' },
+    { key: 'disable', label: '停用', danger: true, hidden: !canManage.value || s.status === 'disabled' },
+  ];
+}
+function onRowAction(s: StaffProfile, key: string) {
+  if (key === 'edit') openEdit(s);
+  else if (key === 'history') openHistory(s);
+  else if (key === 'pause') onChangeStatus(s, 'paused');
+  else if (key === 'enable') onChangeStatus(s, 'enabled');
+  else if (key === 'disable') onChangeStatus(s, 'disabled');
 }
 function needsReason(t: string) { return t === 'paused' || t === 'disabled'; }
 async function confirmStatus() {

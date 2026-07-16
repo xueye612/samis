@@ -17,54 +17,57 @@
       <a-alert v-else-if="!loading && source === 'remote' && !categories.length" type="warning" show-icon style="margin-bottom: 12px">远程暂无麻醉方式大类，可在本页新增。</a-alert>
       <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom: 12px">无麻醉方式配置权限（config.method.manage）；仅可查看。</a-alert>
 
-      <a-row :gutter="16">
-        <a-col :span="7">
-          <div style="font-weight: 600; margin-bottom: 8px">大类</div>
-          <a-list :bordered="false" :split="false" size="small">
-            <a-list-item v-for="cat in categories" :key="cat.id" :class="{ active: selectedCatId === cat.id }" style="cursor: pointer" @click="selectedCatId = cat.id">
-              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
-                <span>{{ cat.categoryName }} <a-tag size="small" :color="statusColor(cat.status)">{{ statusLabel(cat.status) }}</a-tag></span>
+      <div class="method-layout">
+        <div class="method-category-col">
+          <div class="method-col-head">大类</div>
+          <div class="method-category-list">
+            <div
+              v-for="cat in categories"
+              :key="cat.id"
+              class="method-category-item"
+              :class="{ active: selectedCatId === cat.id }"
+              @click="selectedCatId = cat.id"
+            >
+              <div class="method-category-main">
+                <span class="method-category-name">{{ cat.categoryName }}</span>
+                <a-tag size="small" :color="statusColor(cat.status)">{{ statusLabel(cat.status) }}</a-tag>
               </div>
-              <template #actions>
-                <a-button v-if="canManage" size="mini" @click.stop="openCategoryEdit(cat)">编辑</a-button>
-                <a-button size="mini" @click.stop="openCategoryHistory(cat)">历史</a-button>
-                <a-button v-if="canManage && cat.status === 'enabled'" size="mini" @click.stop="onChangeCategoryStatus(cat, 'paused')">暂停</a-button>
-                <a-button v-if="canManage && cat.status === 'paused'" size="mini" @click.stop="onChangeCategoryStatus(cat, 'enabled')">启用</a-button>
-                <a-button v-if="canManage && cat.status !== 'disabled'" size="mini" status="warning" @click.stop="onChangeCategoryStatus(cat, 'disabled')">停用</a-button>
-              </template>
-            </a-list-item>
-          </a-list>
-        </a-col>
-        <a-col :span="17">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
-            <span style="font-weight: 600">{{ selectedCat ? `${selectedCat.categoryName} · 子项` : '子项列表' }}</span>
+              <ConfigRowActions :actions="categoryActions(cat)" @action="(key: string) => onCategoryAction(cat, key)" />
+            </div>
+          </div>
+        </div>
+        <div class="method-children-col">
+          <div class="method-children-head">
+            <span class="method-children-title">{{ selectedCat ? `${selectedCat.categoryName} · 子项` : '子项列表' }}</span>
             <a-button v-if="canManage && selectedCat" type="primary" size="small" @click="openChildCreate">新增子项</a-button>
           </div>
           <a-empty v-if="!selectedCat" description="请先选择或新增麻醉方式大类" />
-          <a-table v-else :data="childrenOfSelected" row-key="id" :loading="loading" :pagination="false" size="medium">
+          <a-table
+            v-else
+            :data="childrenOfSelected"
+            row-key="id"
+            :loading="loading"
+            :pagination="false"
+            size="medium"
+            :scroll="{ x: 980 }"
+          >
             <template #columns>
-              <a-table-column title="编码" data-index="itemCode" />
-              <a-table-column title="名称" data-index="itemName" />
-              <a-table-column title="气道策略"><template #cell="{ record }">{{ record.profile?.airwayStrategy || '—' }}</template></a-table-column>
-              <a-table-column title="默认模板"><template #cell="{ record }">{{ record.profile?.defaultTemplateCode || '—' }}</template></a-table-column>
-              <a-table-column title="排序" :width="70"><template #cell="{ record }">{{ record.sortNo }}</template></a-table-column>
-              <a-table-column title="版本" :width="70"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
+              <a-table-column title="编码" :width="180"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.itemCode">{{ record.itemCode }}</span></template></a-table-column>
+              <a-table-column title="名称" :width="160"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.itemName">{{ record.itemName }}</span></template></a-table-column>
+              <a-table-column title="气道策略" :width="130"><template #cell="{ record }">{{ record.profile?.airwayStrategy || '—' }}</template></a-table-column>
+              <a-table-column title="默认模板" :width="140"><template #cell="{ record }">{{ record.profile?.defaultTemplateCode || '—' }}</template></a-table-column>
+              <a-table-column title="排序" :width="80"><template #cell="{ record }">{{ record.sortNo }}</template></a-table-column>
+              <a-table-column title="版本" :width="80"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
               <a-table-column title="状态" :width="90"><template #cell="{ record }"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template></a-table-column>
-              <a-table-column title="操作" :width="250">
+              <a-table-column title="操作" :width="140" fixed="right">
                 <template #cell="{ record }">
-                  <a-space wrap>
-                    <a-button size="mini" @click="openChildHistory(record)">历史</a-button>
-                    <a-button v-if="canManage" size="mini" @click="openChildEdit(record)">编辑</a-button>
-                    <a-button v-if="canManage && record.status === 'enabled'" size="mini" @click="onChangeChildStatus(record, 'paused')">暂停</a-button>
-                    <a-button v-if="canManage && record.status === 'paused'" size="mini" @click="onChangeChildStatus(record, 'enabled')">启用</a-button>
-                    <a-button v-if="canManage && record.status !== 'disabled'" size="mini" status="warning" @click="onChangeChildStatus(record, 'disabled')">停用</a-button>
-                  </a-space>
+                  <ConfigRowActions :actions="childActions(record)" @action="(key: string) => onChildAction(record, key)" />
                 </template>
               </a-table-column>
             </template>
           </a-table>
-        </a-col>
-      </a-row>
+        </div>
+      </div>
     </a-card>
 
     <MethodCategoryPanel :visible="editorVisible" :item="editingChild" :categories="categories" @cancel="editorVisible = false" @saved="onChildSaved" />
@@ -104,6 +107,7 @@
 import { Message } from '@arco-design/web-vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
+import ConfigRowActions, { type ConfigRowAction } from '@/components/config/ConfigRowActions.vue';
 import MethodCategoryPanel from '@/components/config/MethodCategoryPanel.vue';
 import { authApi } from '@/api/auth';
 import {
@@ -200,6 +204,40 @@ function onChangeChildStatus(item: ProfessionalDictItem, toStatus: 'enabled' | '
 function onChangeCategoryStatus(cat: MethodCategory, toStatus: 'enabled' | 'paused' | 'disabled') {
   statusTarget.value = { kind: 'category', id: cat.id, version: cat.version, toStatus }; statusReason.value = ''; statusVisible.value = true;
 }
+
+function categoryActions(cat: MethodCategory): ConfigRowAction[] {
+  return [
+    { key: 'edit', label: '编辑', primary: true, hidden: !canManage.value },
+    { key: 'history', label: '历史' },
+    { key: 'pause', label: '暂停', hidden: !canManage.value || cat.status !== 'enabled' },
+    { key: 'enable', label: '启用', hidden: !canManage.value || cat.status !== 'paused' },
+    { key: 'disable', label: '停用', danger: true, hidden: !canManage.value || cat.status === 'disabled' },
+  ];
+}
+function onCategoryAction(cat: MethodCategory, key: string) {
+  if (key === 'edit') openCategoryEdit(cat);
+  else if (key === 'history') openCategoryHistory(cat);
+  else if (key === 'pause') onChangeCategoryStatus(cat, 'paused');
+  else if (key === 'enable') onChangeCategoryStatus(cat, 'enabled');
+  else if (key === 'disable') onChangeCategoryStatus(cat, 'disabled');
+}
+
+function childActions(item: ProfessionalDictItem): ConfigRowAction[] {
+  return [
+    { key: 'edit', label: '编辑', primary: true, hidden: !canManage.value },
+    { key: 'history', label: '历史' },
+    { key: 'pause', label: '暂停', hidden: !canManage.value || item.status !== 'enabled' },
+    { key: 'enable', label: '启用', hidden: !canManage.value || item.status !== 'paused' },
+    { key: 'disable', label: '停用', danger: true, hidden: !canManage.value || item.status === 'disabled' },
+  ];
+}
+function onChildAction(item: ProfessionalDictItem, key: string) {
+  if (key === 'edit') openChildEdit(item);
+  else if (key === 'history') openChildHistory(item);
+  else if (key === 'pause') onChangeChildStatus(item, 'paused');
+  else if (key === 'enable') onChangeChildStatus(item, 'enabled');
+  else if (key === 'disable') onChangeChildStatus(item, 'disabled');
+}
 function needsReason(t: string) { return t === 'paused' || t === 'disabled'; }
 async function confirmStatus() {
   const t = statusTarget.value; if (!t) return;
@@ -222,5 +260,78 @@ onMounted(async () => { await loadPermissions(); await reload(); });
 </script>
 
 <style scoped>
-:deep(.arco-list-item.active) { background: rgba(15, 131, 255, 0.08); }
+.method-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.method-category-col {
+  min-width: 0;
+}
+.method-col-head {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.method-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 560px;
+  overflow-y: auto;
+}
+.method-category-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.method-category-item:hover {
+  border-color: var(--color-brand-100);
+  background: var(--surface-muted);
+}
+.method-category-item.active {
+  border-color: var(--color-brand-200);
+  background: var(--primary-soft);
+}
+.method-category-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.method-category-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.method-children-col {
+  min-width: 0;
+}
+.method-children-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.method-children-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 1024px) {
+  .method-layout {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

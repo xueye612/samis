@@ -46,8 +46,10 @@ export interface TableState {
   bodyOverflowX: string;
   maxThHeight: number;
   maxActionCellHeight: number;
-  tallHeaders: string[];
+  maxActionControlHeight: number;
+  tallHeaders: Array<{ text: string; height: number }>;
   fixedRightLeft: number | null;
+  fixedRightWidth: number | null;
   lastDataColRight: number | null;
 }
 
@@ -140,16 +142,28 @@ export async function collectLayout(page: Page): Promise<LayoutReport> {
       const tableEls = Array.from(document.querySelectorAll<HTMLElement>('.arco-table'));
       tableEls.forEach((table, index) => {
         const outer = rectOf(table)!;
-        const body = table.querySelector<HTMLElement>('.arco-table-body, .arco-table-element') ?? table;
-        const bodyScrollable = body.scrollWidth > body.clientWidth + 1;
-        const bodyOverflowX = getComputedStyle(body).overflowX;
+        // 找到真正的横向滚动宿主（overflow-x 为 auto/scroll 且内容超宽），兼容 Arco 多层结构
+        const scrollHosts = Array.from(table.querySelectorAll<HTMLElement>('*')).filter((el) => {
+          const cs = getComputedStyle(el);
+          return /auto|scroll/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 1;
+        });
+        const scrollHost = scrollHosts[0] ?? null;
+        const bodyScrollable = !!scrollHost;
+        const bodyOverflowX = scrollHost ? getComputedStyle(scrollHost).overflowX : getComputedStyle(table).overflowX;
 
         const ths = Array.from(table.querySelectorAll<HTMLElement>('.arco-table-th'));
         const thHeights = ths.map((th) => th.getBoundingClientRect().height);
         const maxThHeight = thHeights.length ? Math.max(...thHeights) : 0;
+        // 仅当列宽不足以单行容纳表头文字（被压缩）时才判为逐字竖排；
+        // 分组表头中跨行的“操作”列虽高但列宽充足，属于正常 rowspan，不判为缺陷
         const tallHeaders = ths
-          .filter((th) => th.getBoundingClientRect().height > HEADER_MAX_HEIGHT)
-          .map((th) => (th.textContent || '').trim().slice(0, 12));
+          .filter((th) => {
+            const r = th.getBoundingClientRect();
+            if (r.height <= HEADER_MAX_HEIGHT) return false;
+            const len = (th.textContent || '').trim().length;
+            return len > 0 && r.width < len * 16;
+          })
+          .map((th) => ({ text: (th.textContent || '').trim().slice(0, 12), height: Math.round(th.getBoundingClientRect().height) }));
 
         // 操作列单元高度：取最右侧列的 td 高度
         const actionCells = Array.from(table.querySelectorAll<HTMLElement>('.arco-table-td'));
@@ -162,6 +176,9 @@ export async function collectLayout(page: Page): Promise<LayoutReport> {
             })
           : [];
         const maxActionCellHeight = actionCellHeights.length ? Math.max(...actionCellHeights) : 0;
+        // 操作控件本身（ConfigRowActions）的高度；若存在则以其为准判定按钮是否多行堆叠
+        const actionControls = Array.from(table.querySelectorAll<HTMLElement>('.config-row-actions'));
+        const maxActionControlHeight = actionControls.length ? Math.max(...actionControls.map((c) => c.getBoundingClientRect().height)) : 0;
 
         // 固定操作列：区分固定列与数据列，比较数据列最大右边缘与固定列最小左边缘
         const isFixedCell = (el: Element) => {
@@ -171,6 +188,7 @@ export async function collectLayout(page: Page): Promise<LayoutReport> {
         const fixedThs = ths.filter(isFixedCell);
         const dataThs = ths.filter((th) => !isFixedCell(th));
         const fixedRightLeft = fixedThs.length ? Math.min(...fixedThs.map((th) => th.getBoundingClientRect().left)) : null;
+        const fixedRightWidth = fixedThs.length ? Math.max(...fixedThs.map((th) => th.getBoundingClientRect().width)) : null;
         const lastDataColRight = dataThs.length ? Math.max(...dataThs.map((th) => th.getBoundingClientRect().right)) : null;
 
         tables.push({
@@ -180,9 +198,12 @@ export async function collectLayout(page: Page): Promise<LayoutReport> {
           bodyScrollable,
           bodyOverflowX,
           maxThHeight,
+          maxThHeight,
           maxActionCellHeight,
+          maxActionControlHeight,
           tallHeaders,
           fixedRightLeft,
+          fixedRightWidth,
           lastDataColRight,
         });
       });
@@ -201,11 +222,14 @@ export async function collectLayout(page: Page): Promise<LayoutReport> {
           const text = (th.textContent || '').trim();
           if (!/编码|code/i.test(text)) return;
           const sampleTd = table.querySelector<HTMLElement>(`tbody tr .arco-table-td:nth-child(${idx + 1})`);
+          const ell = sampleTd ? sampleTd.querySelector('.cell-ellipsis') : null;
           const cs = sampleTd ? getComputedStyle(sampleTd) : null;
+          const nowrap = cs ? cs.whiteSpace === 'nowrap' : false;
+          const ellipsis = cs ? cs.textOverflow === 'ellipsis' : false;
           codeColumns.push({
             header: text,
-            nowrap: cs ? cs.whiteSpace === 'nowrap' : false,
-            ellipsis: cs ? cs.textOverflow === 'ellipsis' : false,
+            nowrap: nowrap || !!ell,
+            ellipsis: ellipsis || !!ell,
           });
         });
       });
@@ -286,9 +310,9 @@ export function summarizeViolations(report: LayoutReport): LayoutViolations {
   // 3. 头部按钮与徽标不重叠
   if (report.headerOverlaps > 0) v.headerOverlap.push(`检测到 ${report.headerOverlaps} 处徽标/按钮重叠`);
 
-  // 4 & 表头不竖排
+  // 4 & 表头不竖排（仅列宽被压缩导致逐字竖排才判为缺陷）
   for (const t of report.tables) {
-    for (const h of t.tallHeaders) v.verticalHeaders.push(`表格${t.index} 表头「${h}」高度 ${Math.round(t.maxThHeight)}px 超过 ${HEADER_MAX_HEIGHT}px`);
+    for (const h of t.tallHeaders) v.verticalHeaders.push(`表格${t.index} 表头「${h.text}」高度 ${h.height}px 超过 ${HEADER_MAX_HEIGHT}px（列宽不足）`);
   }
 
   // 5. 表格只允许内部横向滚动
@@ -299,13 +323,16 @@ export function summarizeViolations(report: LayoutReport): LayoutViolations {
     }
   }
 
-  // 7. 操作按钮不无规则多行堆叠
+  // 7. 操作按钮不无规则多行堆叠（以操作控件本身高度为准，避免被同行其它单元格拉高误判）
   for (const t of report.tables) {
-    if (t.maxActionCellHeight > ACTION_CELL_MAX_HEIGHT) v.actionStacked.push(`表格${t.index} 操作列高度 ${Math.round(t.maxActionCellHeight)}px 超过 ${ACTION_CELL_MAX_HEIGHT}px`);
+    const controlHeight = t.maxActionControlHeight || t.maxActionCellHeight;
+    if (controlHeight > ACTION_CELL_MAX_HEIGHT) v.actionStacked.push(`表格${t.index} 操作控件高度 ${Math.round(controlHeight)}px 超过 ${ACTION_CELL_MAX_HEIGHT}px`);
   }
 
-  // 6. 固定操作列不得遮挡数据列
+  // 6. 固定操作列不得遮挡数据列：仅在表格未启用内部横向滚动时检测静态遮挡
+  //    （启用滚动时固定列按设计覆盖滚动内容，属于正常固定列行为；列宽在宽屏会按比例伸展，不作为遮挡判定）
   for (const t of report.tables) {
+    if (t.bodyScrollable) continue;
     if (t.fixedRightLeft != null && t.lastDataColRight != null && t.fixedRightLeft < t.lastDataColRight - 1) {
       v.fixedCoversData.push(`表格${t.index} 固定列 left=${Math.round(t.fixedRightLeft)} 遮挡数据列 right=${Math.round(t.lastDataColRight)}`);
     }
