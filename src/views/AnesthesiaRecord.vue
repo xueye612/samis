@@ -98,7 +98,7 @@
 
       <main class="record-center">
         <div class="record-workspace">
-          <section class="sheet-workbench">
+          <section ref="sheetWorkbenchRef" class="sheet-workbench">
             <RecordSheetQuickStrip
               :entries="sheetQuickActions.entries"
               :primary-events="sheetQuickActions.primaryEvents"
@@ -184,25 +184,29 @@
             </div>
 
             <template v-if="!toolboxCollapsed">
-            <RecordRealtimeDevicePanel :state="realtimeDeviceState" />
-            <RecordQuickToolbar
-              :record="current"
-              :entries="sheetQuickActions.entries"
-              :monitor-running="syncState.monitorRunning"
-              :ventilator-running="syncState.ventilatorRunning"
-              :conflict-count="syncState.conflictCount"
-              :show-device="recordActions.showDeviceControls && showDeviceSimulationControls"
-              @entry="handleSheetEntry"
-              @stop-pump="stopPump"
-              @open-data="openDataList"
-              @toggle-monitor="toggleMonitorMock"
-              @toggle-ventilator="toggleVentilatorMock"
-              @import-vitals="importVitals"
-              @open-sync-detail="syncDetailVisible = true"
-              @open-conflicts="conflictPanelVisible = true"
-              @open-quality="runQuality"
-            />
+            <div class="toolbox-pinned-zone no-print">
+              <RecordRealtimeDevicePanel :state="realtimeDeviceState" />
+              <RecordRealtimeWaveformPlaceholder />
+              <RecordQuickToolbar
+                :record="current"
+                :entries="sheetQuickActions.entries"
+                :monitor-running="syncState.monitorRunning"
+                :ventilator-running="syncState.ventilatorRunning"
+                :conflict-count="syncState.conflictCount"
+                :show-device="recordActions.showDeviceControls && showDeviceSimulationControls"
+                @entry="handleSheetEntry"
+                @stop-pump="stopPump"
+                @open-data="openDataList"
+                @toggle-monitor="toggleMonitorMock"
+                @toggle-ventilator="toggleVentilatorMock"
+                @import-vitals="importVitals"
+                @open-sync-detail="syncDetailVisible = true"
+                @open-conflicts="conflictPanelVisible = true"
+                @open-quality="runQuality"
+              />
+            </div>
 
+            <div class="toolbox-flow-zone">
             <IntraopWorkflowPanel
               :stage="currentStage"
               :stage-options="scenarioContext.stageOptions"
@@ -308,6 +312,7 @@
                 />
               </a-collapse-item>
             </a-collapse>
+            </div>
             </template>
           </aside>
         </div>
@@ -501,6 +506,7 @@ import RecordQuickToolbar from '@/components/anesthesia/record/RecordQuickToolba
 import RecordQualityPanel from '@/components/anesthesia/record/RecordQualityPanel.vue';
 import RecordDeviceWorkbenchPanel from '@/components/anesthesia/record/RecordDeviceWorkbenchPanel.vue';
 import RecordRealtimeDevicePanel from '@/components/anesthesia/record/RecordRealtimeDevicePanel.vue';
+import RecordRealtimeWaveformPlaceholder from '@/components/anesthesia/record/RecordRealtimeWaveformPlaceholder.vue';
 import StructuredClinicalEntitiesPanel from '@/components/anesthesia/record/StructuredClinicalEntitiesPanel.vue';
 import RecordWorkstationTopbar from '@/components/anesthesia/record/RecordWorkstationTopbar.vue';
 import RecordSheetQuickStrip from '@/components/anesthesia/record/RecordSheetQuickStrip.vue';
@@ -808,7 +814,25 @@ const conflictPanelVisible = ref(false);
 const syncDetailVisible = ref(false);
 const caseSheetReady = ref(false);
 const livePageNo = ref(1);
-const sheetZoom = ref(1);
+// 纸面适宽：以 A4 横向内容设计宽度为基准，根据 sheet-workbench 实际可用宽度动态计算缩放。
+// 用户手动缩放后置 userZoomed，ResizeObserver 仅在非手动态生效，避免反复重置手动缩放。
+const SHEET_DESIGN_WIDTH = 1120;
+const sheetWorkbenchRef = ref<HTMLElement | null>(null);
+const sheetWorkbenchWidth = ref(0);
+const userZoomed = ref(false);
+const manualSheetZoom = ref(1);
+let sheetWorkbenchObserver: ResizeObserver | null = null;
+const fitClamp = (value: number) => Math.min(1, Math.max(0.75, Number(value.toFixed(2))));
+const autoFitZoom = computed(() => {
+  const available = sheetWorkbenchWidth.value;
+  if (!available) return 1;
+  return fitClamp(available / SHEET_DESIGN_WIDTH);
+});
+const sheetZoom = computed(() => (userZoomed.value ? manualSheetZoom.value : autoFitZoom.value));
+const syncSheetWorkbenchWidth = () => {
+  const el = sheetWorkbenchRef.value;
+  if (el) sheetWorkbenchWidth.value = el.clientWidth;
+};
 const BASE_SHEET_SKELETON_HEIGHT = 720;
 const sheetSkeletonHeightPx = computed(() => {
   const multiPageBoost = livePageCount.value > 1 ? 40 : 0;
@@ -1215,6 +1239,10 @@ watch(selectedId, async (id) => {
   caseSheetReady.value = true;
 }, { immediate: true });
 onBeforeUnmount(stopRealtimeDevicePolling);
+onBeforeUnmount(() => {
+  sheetWorkbenchObserver?.disconnect();
+  sheetWorkbenchObserver = null;
+});
 watch(livePageNo, (page) => {
   if (!selectedId.value) return;
   store.setRecordPageDraft(selectedId.value, page);
@@ -1245,6 +1273,13 @@ const selectCase = (id: string) => {
 };
 
 onMounted(async () => {
+  // 纸面适宽：观测 sheet-workbench 可用宽度，仅在非手动缩放态驱动 autoFitZoom
+  await nextTick();
+  if (sheetWorkbenchRef.value && typeof ResizeObserver !== 'undefined') {
+    syncSheetWorkbenchWidth();
+    sheetWorkbenchObserver = new ResizeObserver(() => syncSheetWorkbenchWidth());
+    sheetWorkbenchObserver.observe(sheetWorkbenchRef.value);
+  }
   await loadRecordPermissions();
   if (showE2eActions.value) {
     (window as Window & { __samisAnesthesiaE2E?: Record<string, unknown> }).__samisAnesthesiaE2E = {
@@ -1387,9 +1422,9 @@ const patientRiskTags = (item: SurgeryCase) => {
   return tags;
 };
 const clampZoom = (value: number) => Math.min(1.2, Math.max(0.75, Number(value.toFixed(2))));
-const increaseSheetZoom = () => { sheetZoom.value = clampZoom(sheetZoom.value + 0.05); };
-const decreaseSheetZoom = () => { sheetZoom.value = clampZoom(sheetZoom.value - 0.05); };
-const fitSheetWidth = () => { sheetZoom.value = 0.9; };
+const increaseSheetZoom = () => { userZoomed.value = true; manualSheetZoom.value = clampZoom(sheetZoom.value + 0.05); };
+const decreaseSheetZoom = () => { userZoomed.value = true; manualSheetZoom.value = clampZoom(sheetZoom.value - 0.05); };
+const fitSheetWidth = () => { userZoomed.value = false; syncSheetWorkbenchWidth(); };
 const startRecord = () => {
   if (!requireCurrent()) return;
   store.startAnesthesiaRecord(selectedId.value);
@@ -2089,6 +2124,23 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 .record-toolbox.collapsed {
   align-self: start;
   max-height: none;
+}
+
+/* 实时设备区 + 波形占位 + 快捷录入：常驻工具箱顶部，不随内容滚动消失 */
+.toolbox-pinned-zone {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  gap: 8px;
+  padding-bottom: 8px;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+/* 低频工具：工作流/关键时间/最近/事件详情/折叠组，在工具箱内继续滚动 */
+.toolbox-flow-zone {
+  display: grid;
+  gap: 8px;
 }
 
 .toolbox-head {
