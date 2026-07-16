@@ -76,6 +76,18 @@ export async function stopVentilatorMockFromWorkbench(page: Page) {
   await page.locator('.device-line[data-device="ventilator"] button').click();
 }
 
+export async function startMonitorMockFromQuickToolbar(page: Page) {
+  const button = page.locator('.device-quick').getByRole('button', { name: '启监护仪' });
+  await expect(button).toBeVisible({ timeout: 10_000 });
+  await button.click();
+}
+
+export async function stopMonitorMockFromQuickToolbar(page: Page) {
+  const button = page.locator('.device-quick').getByRole('button', { name: '停监护仪' });
+  await expect(button).toBeVisible({ timeout: 10_000 });
+  await button.click();
+}
+
 export async function getRecordSheetBox(page: Page) {
   return page.locator('.live-record-card').first().boundingBox();
 }

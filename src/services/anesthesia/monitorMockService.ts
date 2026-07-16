@@ -255,7 +255,8 @@ export function startMonitorMockService(
     bootCase.device.collectStatus = resolveCollectStatus(simulationMode);
   }
 
-  setTimeout(rawTick, rawIntervalMs);
+  // 启动后立即采集首帧；后续仍按配置间隔采集，避免用户点击“启监护仪”后长时间空白。
+  void rawTick();
   return {
     stop: () => {
       stopped = true;

@@ -9,6 +9,35 @@ async function mockData<T>(path: string, init?: RequestInit) {
 }
 
 describe('samisMockRouter', () => {
+  it('往返保存麻醉记录单实时设备数据源配置', async () => {
+    const path = '/quality/configSet';
+    const post = (value: 'simulation' | 'real') => mockData<{ key: string; value: string; scope: string }>(
+      path,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          key: 'device_realtime_data_source',
+          value,
+          scope: 'global',
+        }).toString(),
+      },
+    );
+
+    try {
+      expect(await post('real')).toMatchObject({
+        key: 'device_realtime_data_source',
+        value: 'real',
+        scope: 'global',
+      });
+      expect(await mockData<{ value: string }>(
+        '/quality/configGet?key=device_realtime_data_source&scope=global',
+      )).toMatchObject({ value: 'real' });
+    } finally {
+      await post('simulation');
+    }
+  });
+
   it('为本地模拟页面提供结构化权限上下文', async () => {
     const data = await mockData<{ permissions: string[]; role: string; groupid: number | null }>(
       '/auth/myPermissions',

@@ -2619,7 +2619,7 @@ onBeforeUnmount(() => {
   --sheet-left-total: 86px;
   --chart-status-row: 15px;
   --chart-scale-gutter: 46px;
-  font-size: 8.5px;
+  font-size: 9.5px;
   box-shadow: none;
 }
 
@@ -2667,7 +2667,7 @@ onBeforeUnmount(() => {
 .live-record-card.is-print-mode :deep(.paper-picker-label),
 .live-record-card.is-print-mode :deep(.paper-field-value),
 .live-record-card.is-print-mode :deep(.paper-picker-readonly) {
-  font-size: 9px;
+  font-size: 9.5px;
   line-height: 1.05;
 }
 
@@ -2958,13 +2958,13 @@ onBeforeUnmount(() => {
 }
 
 .live-record-card.is-print-mode .sheet-band {
-  min-height: calc(var(--rows, 3) * 10.5px);
+  min-height: calc(var(--rows, 3) * 11px);
 }
 
 .live-record-card.is-print-mode .band-track,
 .live-record-card.is-print-mode .medication-band,
 .live-record-card.is-print-mode .monitor-band {
-  min-height: calc(var(--rows, 3) * 10.5px);
+  min-height: calc(var(--rows, 3) * 11px);
 }
 
 .live-record-card.is-print-mode .band-side {
@@ -2975,7 +2975,7 @@ onBeforeUnmount(() => {
 }
 
 .live-record-card.is-print-mode .band-labels span {
-  min-height: 10.5px;
+  min-height: 11px;
   padding: 1px 2px;
   font-size: 8.5px;
   line-height: 1.05;
@@ -3400,7 +3400,7 @@ onBeforeUnmount(() => {
 .live-record-card.is-print-mode .vital-chart,
 .live-record-card.is-print-mode .chart-layout,
 .live-record-card.is-print-mode .chart-area {
-  min-height: 140px;
+  min-height: 225px;
 }
 
 .live-record-card.is-print-mode :deep(.chart-legend-panel) {
@@ -3659,11 +3659,11 @@ onBeforeUnmount(() => {
 .live-record-card.is-print-mode :deep(.record-footer-summary.is-print) {
   gap: 2px;
   padding-top: 1px;
-  font-size: 8.5px;
+  font-size: 9px;
 }
 
 .live-record-card.is-print-mode :deep(.footer-io-print-table table) {
-  font-size: 8.5px;
+  font-size: 9px;
 }
 
 .live-record-card.is-print-mode :deep(.footer-io-print-table th),
@@ -4121,7 +4121,7 @@ onBeforeUnmount(() => {
 }
 
 .live-record-card.is-print-mode .sheet-band {
-  min-height: calc(var(--rows, 3) * 10.5px);
+  min-height: calc(var(--rows, 3) * 11px);
 }
 
 .live-record-card.is-print-mode .band-side {
@@ -4132,7 +4132,7 @@ onBeforeUnmount(() => {
 }
 
 .live-record-card.is-print-mode .band-labels span {
-  min-height: 10.5px;
+  min-height: 11px;
   padding: 1px 2px;
   font-size: 8.5px;
   line-height: 1.05;
@@ -4141,7 +4141,7 @@ onBeforeUnmount(() => {
 .live-record-card.is-print-mode .vital-chart,
 .live-record-card.is-print-mode .chart-layout,
 .live-record-card.is-print-mode .chart-area {
-  min-height: 140px;
+  min-height: 225px;
 }
 
 .live-record-card.is-print-mode .chart-status-symbol {

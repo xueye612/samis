@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
 import { watchConsoleErrors } from './helpers/consoleErrorWatcher';
-import { getRecordSheetBox, openAnesthesiaRecord, startMonitorMockFromWorkbench, stopMonitorMockFromWorkbench } from './helpers/anesthesiaRecord';
+import { getRecordSheetBox, openAnesthesiaRecord, startMonitorMockFromQuickToolbar, stopMonitorMockFromQuickToolbar } from './helpers/anesthesiaRecord';
 
 test.describe('麻醉记录单打印与状态栏', () => {
   test.setTimeout(90_000);
@@ -8,28 +10,35 @@ test.describe('麻醉记录单打印与状态栏', () => {
   test('状态栏存在且不挤压打印主体，打印媒体下隐藏', async ({ page }) => {
     const watcher = watchConsoleErrors(page);
     await openAnesthesiaRecord(page);
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    }));
 
     await expect(page.locator('.record-status-bar')).toBeVisible();
     // 顶栏采用 inline 单槽摘要（.sync-summary），不再渲染多枚 .sync-chip
     await expect(page.locator('.record-status-bar .sync-summary')).toBeVisible();
 
-    const beforeBox = await getRecordSheetBox(page);
+    const beforeBox = await page.locator('.sheet-workbench').boundingBox();
+    const beforeDeviceBox = await page.getByTestId('record-realtime-device-panel').boundingBox();
     expect(beforeBox?.width).toBeGreaterThan(200);
 
-    await startMonitorMockFromWorkbench(page);
+    await startMonitorMockFromQuickToolbar(page);
     await expect(page.locator('.record-status-bar .sync-summary')).toBeVisible({ timeout: 15_000 });
 
-    const duringBox = await getRecordSheetBox(page);
+    const duringBox = await page.locator('.sheet-workbench').boundingBox();
+    const duringDeviceBox = await page.getByTestId('record-realtime-device-panel').boundingBox();
     if (beforeBox && duringBox) {
-      expect(Math.abs(duringBox.width - beforeBox.width)).toBeLessThan(24);
-      expect(Math.abs(duringBox.height - beforeBox.height)).toBeLessThan(48);
+      // 1280px 临界视口允许适宽缩放取整带来的单级变化，但不得超过 2.5% 工作区宽度。
+      expect(Math.abs(duringBox.width - beforeBox.width)).toBeLessThan(32);
     }
+    expect(beforeDeviceBox?.height).toBe(210);
+    expect(duringDeviceBox?.height).toBe(210);
 
     await page.emulateMedia({ media: 'print' });
     await expect(page.locator('.record-status-bar')).toBeHidden();
 
     await page.emulateMedia({ media: 'screen' });
-    await stopMonitorMockFromWorkbench(page);
+    await stopMonitorMockFromQuickToolbar(page);
     watcher.assertNoSevereErrors();
   });
 
@@ -39,7 +48,7 @@ test.describe('麻醉记录单打印与状态栏', () => {
       localStorage.setItem('samis.e2e', '1');
     });
     await openAnesthesiaRecord(page);
-    await startMonitorMockFromWorkbench(page);
+    await startMonitorMockFromQuickToolbar(page);
 
     // 顶栏动作区已由 .top-primary-actions 改为 .clinical-actions，打印为直接按钮
     await page.locator('.record-workstation-topbar .clinical-actions').getByRole('button', { name: '打印' }).click();
@@ -58,6 +67,43 @@ test.describe('麻醉记录单打印与状态栏', () => {
     await expect(page.locator('.print-preview-shell .paper-picker-field.is-editable')).toHaveCount(0);
     await expect(page.locator('.print-preview-page button, .print-preview-page .arco-btn, .print-preview-page input, .print-preview-page select, .print-preview-page textarea')).toHaveCount(0);
     await expect(page.locator('.print-preview-shell .live-record-card').first()).toBeVisible();
+
+    const printPage = page.locator('.print-preview-page').first();
+    const printPages = page.locator('.print-preview-pages');
+    for (const requiredText of [
+      '姓名', '性别', '年龄', '手术日期', '术前诊断', '拟施手术', '麻醉方法',
+      '麻醉医师', '手术医师', '巡回护士', '洗手护士', '输液', '输血', '监测',
+      '出入量', '麻醉诱导用药', '辅助及特殊用药', '手术关键操作', '术后镇痛',
+    ]) {
+      await expect(printPage, `打印预览缺少：${requiredText}`).toContainText(requiredText);
+    }
+    for (const requiredText of ['麻醉效果', '去向', '镇痛方式', '交班情况', '签名', '完成时间']) {
+      await expect(printPages, `打印末页缺少：${requiredText}`).toContainText(requiredText);
+    }
+
+    // A4 横向页面必须充分利用纸面，不能把完整记录压缩成上方小块并留下大面积页底空白。
+    const firstPageGeometry = await page.locator('.print-preview-page').first().evaluate((pageElement) => {
+      const pageRect = pageElement.getBoundingClientRect();
+      const field = pageElement.querySelector('.paper-field-value');
+      return {
+        aspect: pageRect.width / pageRect.height,
+        fieldFontSize: field ? Number.parseFloat(getComputedStyle(field).fontSize) : 0,
+      };
+    });
+    const lastPageGeometry = await page.locator('.print-preview-page').last().evaluate((pageElement) => {
+      const pageRect = pageElement.getBoundingClientRect();
+      const footerRect = pageElement.querySelector('.record-footer-summary')?.getBoundingClientRect();
+      return { bottomGap: footerRect ? pageRect.bottom - footerRect.bottom : Number.POSITIVE_INFINITY };
+    });
+    expect(firstPageGeometry.aspect).toBeGreaterThan(1.38);
+    expect(firstPageGeometry.aspect).toBeLessThan(1.45);
+    expect(lastPageGeometry.bottomGap, '末页签名区溢出 A4 纸张底部').toBeGreaterThanOrEqual(0);
+    expect(lastPageGeometry.bottomGap).toBeLessThan(55);
+    expect(firstPageGeometry.fieldFontSize).toBeGreaterThanOrEqual(9.5);
+
+    fs.mkdirSync(path.resolve('test-results/record-design'), { recursive: true });
+    await printPage.screenshot({ path: path.resolve('test-results/record-design/record-print-a4-page-1.png') });
+    await page.locator('.print-preview-page').last().screenshot({ path: path.resolve('test-results/record-design/record-print-a4-last-page.png') });
 
     watcher.assertNoSevereErrors();
   });

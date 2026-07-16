@@ -5,48 +5,55 @@
         <strong>实时设备数值</strong>
         <span>{{ latestCollectLabel }}</span>
       </div>
-      <a-tag :color="freshnessColor" size="small" data-testid="device-freshness">{{ freshnessLabel }}</a-tag>
+      <div class="device-head-tags">
+        <a-tag :color="!sourceReady ? 'gray' : sourceMode === 'simulation' ? 'orange' : 'blue'" size="small" data-testid="device-source-mode">
+          {{ !sourceReady ? '配置读取中' : sourceMode === 'simulation' ? '模拟数据' : '真实设备' }}
+        </a-tag>
+        <a-tag :color="freshnessColor" size="small" data-testid="device-freshness">{{ freshnessLabel }}</a-tag>
+      </div>
     </header>
 
-    <a-alert v-if="state.error" type="warning" show-icon class="realtime-device-error">
-      实时刷新失败，保留最近数据：{{ state.error }}
-    </a-alert>
+    <div class="realtime-device-content">
+      <a-alert v-if="state.error" type="warning" show-icon class="realtime-device-error">
+        实时刷新失败，保留最近数据：{{ state.error }}
+      </a-alert>
 
-    <template v-if="state.data.monitor || state.data.ventilator">
-      <div v-if="state.data.monitor" class="device-section" data-testid="monitor-live-values">
-        <div class="device-section-title">
-          <strong>监护仪</strong>
-          <span>{{ sourceLabel(state.data.monitor.deviceId, state.data.monitor.sourceDevice) }}</span>
-        </div>
-        <div class="metric-grid">
-          <div v-for="metric in monitorMetrics" :key="metric.label" class="metric-cell">
-            <span>{{ metric.label }}</span>
-            <strong>{{ metric.value }}</strong>
-            <small>{{ metric.unit }}</small>
+      <template v-if="state.data.monitor || state.data.ventilator">
+        <div v-if="state.data.monitor" class="device-section" data-testid="monitor-live-values">
+          <div class="device-section-title">
+            <strong>监护仪</strong>
+            <span>{{ sourceLabel(state.data.monitor.deviceId, state.data.monitor.sourceDevice) }}</span>
+          </div>
+          <div class="metric-grid">
+            <div v-for="metric in monitorMetrics" :key="metric.label" class="metric-cell">
+              <span>{{ metric.label }}</span>
+              <strong>{{ metric.value }}</strong>
+              <small>{{ metric.unit }}</small>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div v-if="state.data.ventilator" class="device-section" data-testid="ventilator-live-values">
-        <div class="device-section-title">
-          <strong>呼吸机</strong>
-          <span>{{ sourceLabel(state.data.ventilator.deviceId, state.data.ventilator.sourceDevice) }}</span>
-        </div>
-        <div class="vent-mode-row">
-          <span>模式</span><strong>{{ state.data.ventilator.ventMode || '—' }}</strong>
-        </div>
-        <div class="metric-grid metric-grid--ventilator">
-          <div v-for="metric in ventilatorMetrics" :key="metric.label" class="metric-cell">
-            <span>{{ metric.label }}</span>
-            <strong>{{ metric.value }}</strong>
-            <small>{{ metric.unit }}</small>
+        <div v-if="state.data.ventilator" class="device-section" data-testid="ventilator-live-values">
+          <div class="device-section-title">
+            <strong>呼吸机</strong>
+            <span>{{ sourceLabel(state.data.ventilator.deviceId, state.data.ventilator.sourceDevice) }}</span>
+          </div>
+          <div class="vent-mode-row">
+            <span>模式</span><strong>{{ state.data.ventilator.ventMode || '—' }}</strong>
+          </div>
+          <div class="metric-grid metric-grid--ventilator">
+            <div v-for="metric in ventilatorMetrics" :key="metric.label" class="metric-cell">
+              <span>{{ metric.label }}</span>
+              <strong>{{ metric.value }}</strong>
+              <small>{{ metric.unit }}</small>
+            </div>
           </div>
         </div>
+      </template>
+      <div v-else class="realtime-device-empty" data-testid="device-live-empty">
+        <a-spin v-if="state.loading" dot />
+        <span>{{ emptyHint }}</span>
       </div>
-    </template>
-    <div v-else class="realtime-device-empty" data-testid="device-live-empty">
-      <a-spin v-if="state.loading" dot />
-      <span>{{ state.loading ? '正在读取设备数据…' : '暂无设备实时数据，请检查设备绑定和网关上送。' }}</span>
     </div>
   </section>
 </template>
@@ -55,8 +62,9 @@
 import dayjs from 'dayjs';
 import { computed } from 'vue';
 import type { RealtimeDeviceState } from '@/services/anesthesia/realtimeDeviceData';
+import type { DeviceRealtimeSource } from '@/services/anesthesia/deviceRealtimeSource';
 
-const props = defineProps<{ state: RealtimeDeviceState }>();
+const props = defineProps<{ state: RealtimeDeviceState; sourceMode: DeviceRealtimeSource; sourceReady: boolean }>();
 
 const display = (value: number | null, digits?: number) => {
   if (value === null) return '—';
@@ -79,6 +87,12 @@ const freshnessLabel = computed(() => ({
 const freshnessColor = computed(() => ({
   live: 'green', delayed: 'orange', offline: 'red', empty: 'gray',
 }[props.state.freshness]));
+const emptyHint = computed(() => {
+  if (!props.sourceReady) return '正在读取后台设备数据源配置…';
+  if (props.state.loading) return props.sourceMode === 'simulation' ? '正在读取模拟采集数据…' : '正在读取真实设备数据…';
+  if (props.sourceMode === 'simulation') return '模拟采集尚未启动，请点击下方“启监护仪”或“启呼吸机”。';
+  return '未连接实时设备，请先在设备管理完成绑定，并确认采集网关在线。';
+});
 const monitorMetrics = computed(() => {
   const reading = props.state.data.monitor;
   if (!reading) return [];
@@ -110,11 +124,13 @@ const ventilatorMetrics = computed(() => {
 </script>
 
 <style scoped>
-.realtime-device-panel { display: grid; gap: 8px; padding: 9px; border: 1px solid #cbdbe9; border-radius: 8px; background: #f8fbfd; }
+.realtime-device-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; height: 210px; min-height: 210px; max-height: 210px; padding: 9px; overflow: hidden; border: 1px solid #cbdbe9; border-radius: 8px; background: #f8fbfd; }
 .realtime-device-head, .device-section-title, .vent-mode-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.realtime-device-head > div { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.realtime-device-head strong { font-size: 13px; color: #0f172a; }
+.realtime-device-head > div { display: grid; gap: 1px; min-width: 0; }
+.device-head-tags { flex: none; align-items: center !important; gap: 4px !important; }
+.realtime-device-head strong { font-size: 13px; color: #0f172a; white-space: nowrap; }
 .realtime-device-head span, .device-section-title span { color: #64748b; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.realtime-device-content { min-height: 0; overflow: auto; scrollbar-gutter: stable; }
 .realtime-device-error { font-size: 11px; }
 .device-section { display: grid; gap: 6px; padding-top: 7px; border-top: 1px solid #dce7f0; }
 .device-section-title strong { font-size: 12px; color: #334155; }
@@ -126,5 +142,5 @@ const ventilatorMetrics = computed(() => {
 .metric-cell small { display: block; min-height: 12px; margin-top: 1px; color: #94a3b8; font-size: 8px; white-space: nowrap; }
 .vent-mode-row { padding: 4px 7px; border-radius: 5px; background: #eef6ff; font-size: 11px; }
 .vent-mode-row span { color: #64748b; }
-.realtime-device-empty { min-height: 56px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #64748b; font-size: 11px; text-align: center; }
+.realtime-device-empty { height: 100%; min-height: 92px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; color: #64748b; font-size: 11px; line-height: 1.55; text-align: center; }
 </style>

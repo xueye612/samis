@@ -197,6 +197,7 @@ export interface LocalMonitorRawRow extends LocalEntitySyncMeta {
   temperature?: number;
   respiration?: number;
   bis?: number;
+  etco2?: number;
   source_device?: string;
   device_id?: string;
   raw_payload?: string;

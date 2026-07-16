@@ -6,8 +6,9 @@ test.describe('麻醉记录单实时设备数值', () => {
     await openAnesthesiaRecord(page);
     const panel = page.getByTestId('record-realtime-device-panel');
     await expect(panel).toBeVisible();
+    await expect(page.getByTestId('device-source-mode')).toHaveText('模拟数据');
     await expect(page.getByTestId('device-freshness')).toHaveText('无数据');
-    await expect(page.getByTestId('device-live-empty')).toContainText('暂无设备实时数据');
+    await expect(page.getByTestId('device-live-empty')).toContainText('模拟采集尚未启动');
     await expect(page.getByTestId('monitor-live-values')).toHaveCount(0);
     await expect(page.getByTestId('ventilator-live-values')).toHaveCount(0);
   });

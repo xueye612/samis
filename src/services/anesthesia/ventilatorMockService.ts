@@ -206,7 +206,8 @@ export function startVentilatorMockService(
     if (!stopped) setTimeout(rawTick, rawIntervalMs);
   };
 
-  setTimeout(rawTick, rawIntervalMs);
+  // 启动后立即采集首帧；后续仍按配置间隔采集。
+  void rawTick();
   return {
     stop: () => {
       stopped = true;

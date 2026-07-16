@@ -27,6 +27,22 @@ const serverEntityRegistry = new Map<string, MockServerEntity>();
 const mockAnesthesiaPlans = new Map<string, Record<string, unknown>>();
 const mockAnesthesiaHandovers = new Map<string, Record<string, unknown>>();
 const mockAnesthesiaSummaries = new Map<string, Record<string, unknown>>();
+const mockClinicalConfigState = new Map<string, string>();
+const DEVICE_REALTIME_SOURCE_STORAGE_KEY = 'samis.anesthesia.deviceRealtimeDataSource';
+
+function readMockClinicalConfig(key: string, scope: string): string | null {
+  const stored = mockClinicalConfigState.get(`${key}:${scope}`);
+  if (stored !== undefined) return stored;
+  if (
+    key === 'device_realtime_data_source'
+    && scope === 'global'
+    && typeof localStorage !== 'undefined'
+  ) {
+    const cached = localStorage.getItem(DEVICE_REALTIME_SOURCE_STORAGE_KEY);
+    if (cached === 'simulation' || cached === 'real') return cached;
+  }
+  return null;
+}
 
 interface MockPreoperativeAssessment {
   operationId: string;
@@ -1226,6 +1242,25 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
   }
   if (path.includes('/auth/myPermissions')) {
     return buildSamisSuccess({ permissions: ['*'], role: 'developer', groupid: 1 }) as T;
+  }
+  if (path.includes('/quality/configGet')) {
+    const params = getSearchParams(path);
+    const key = params.get('key') ?? '';
+    const scope = params.get('scope') ?? 'global';
+    const stored = readMockClinicalConfig(key, scope);
+    const value = stored ?? (key === 'device_realtime_data_source' ? 'simulation' : null);
+    return buildSamisSuccess({ key, value, scope, source: stored === null ? 'default' : 'database' }) as T;
+  }
+  if (path.endsWith('/quality/configSet') && init?.method === 'POST') {
+    const body = parseBody<{ key?: string; value?: string; scope?: string }>(init);
+    const key = String(body.key ?? '');
+    const value = String(body.value ?? '');
+    const scope = String(body.scope ?? 'global');
+    if (key === 'device_realtime_data_source' && value !== 'simulation' && value !== 'real') {
+      return buildSamisError('实时设备数据源仅允许 simulation 或 real', 1001) as T;
+    }
+    mockClinicalConfigState.set(`${key}:${scope}`, value);
+    return buildSamisSuccess({ key, value, scope, source: 'database' }) as T;
   }
   if (path.includes('/quality/indicators')) {
     const category = getSearchParams(path).get('category');

@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { openAnesthesiaRecord } from './helpers/anesthesiaRecord';
+import { startMonitorMockFromQuickToolbar } from './helpers/anesthesiaRecord';
 
 const shotDir = path.resolve('test-results/record-design');
 const VPS = [
@@ -65,5 +66,55 @@ test.describe('麻醉记录单工作台布局门禁', () => {
     // 手动缩放后，ResizeObserver 不得将其重置回自动适宽值
     expect(manualZoom).not.toBe(autoZoom);
     expect(afterResizeZoom, '手动缩放被 ResizeObserver 重置').toBe(manualZoom);
+  });
+
+  test('模拟监护启动前后设备区高度固定且首帧立即显示', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openAnesthesiaRecord(page, 'case-or02');
+
+    const panel = page.getByTestId('record-realtime-device-panel');
+    await expect(page.getByTestId('device-source-mode')).toHaveText('模拟数据');
+    await expect(page.getByTestId('device-live-empty')).toContainText('模拟采集尚未启动');
+    const before = await panel.boundingBox();
+
+    await startMonitorMockFromQuickToolbar(page);
+    await expect(page.getByTestId('monitor-live-values')).toBeVisible({ timeout: 7_000 });
+    await expect(page.getByTestId('device-freshness')).toHaveText('实时');
+    const after = await panel.boundingBox();
+
+    expect(before?.height).toBe(210);
+    expect(after?.height).toBe(210);
+  });
+
+  test('后台切换真实设备源后刷新保持并提示先连接设备', async ({ page }) => {
+    await page.route('**/api-samis/pc/v1/anesthesiaDevice/getLatestDeviceData**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, message: 'ok', data: { monitor: null, ventilator: null } }),
+      });
+    });
+    const selectSource = async (label: '模拟采集数据' | '真实设备网关') => {
+      await page.goto('/system/mock');
+      const selector = page.getByTestId('device-realtime-source-selector');
+      await selector.getByText(label, { exact: true }).click();
+      await page.getByRole('button', { name: '保存设备数据源' }).click();
+      await expect(page.getByText('实时设备数据源已保存', { exact: true })).toBeVisible();
+    };
+
+    try {
+      await selectSource('真实设备网关');
+      await page.reload();
+      await expect(
+        page.getByTestId('device-realtime-source-selector').locator('input[value="real"]'),
+      ).toBeChecked();
+
+      await openAnesthesiaRecord(page, 'case-or02');
+      await expect(page.getByTestId('device-source-mode')).toHaveText('真实设备');
+      await expect(page.getByTestId('device-live-empty')).toContainText('未连接实时设备');
+      await expect(page.getByRole('button', { name: /启监护仪|启呼吸机/ })).toHaveCount(0);
+    } finally {
+      await selectSource('模拟采集数据');
+    }
   });
 });

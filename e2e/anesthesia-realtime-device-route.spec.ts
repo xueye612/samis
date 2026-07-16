@@ -31,6 +31,10 @@ const ok = (data: unknown) => ({
 type Mode = 'live' | 'delayed' | 'offline' | 'empty';
 
 async function installDeviceRoute(page: Page, mode: Mode) {
+  // 后台配置是设备来源的权威值；仅写 localStorage 会在页面启动后被配置 GET 覆盖。
+  await page.route('**/api-samis/pc/v1/quality/configGet**', async (route) => {
+    await route.fulfill(ok({ key: 'device_realtime_data_source', value: 'real', scope: 'global', source: 'mock' }));
+  });
   await page.route('**/api-samis/pc/v1/anesthesiaDevice/getLatestDeviceData**', async (route) => {
     let data: unknown;
     if (mode === 'empty') {
@@ -51,6 +55,9 @@ test.describe('麻醉记录单实时设备数值（route 注入四态）', () =>
 
   for (const mode of ['live', 'delayed', 'offline', 'empty'] as Mode[]) {
     test(`${mode} 态：通过 route 提供数值并校验新鲜度与字段`, async ({ page }) => {
+      await page.addInitScript(() => {
+        localStorage.setItem('samis.anesthesia.deviceRealtimeDataSource', 'real');
+      });
       await installDeviceRoute(page, mode);
       await page.setViewportSize({ width: 1440, height: 900 });
       await openAnesthesiaRecord(page, 'case-or01');
@@ -59,7 +66,7 @@ test.describe('麻醉记录单实时设备数值（route 注入四态）', () =>
       await expect(page.getByTestId('device-freshness')).toHaveText(EXPECTED[mode], { timeout: 15_000 });
 
       if (mode === 'empty') {
-        await expect(page.getByTestId('device-live-empty')).toContainText('暂无设备实时数据');
+        await expect(page.getByTestId('device-live-empty')).toContainText('未连接实时设备');
         await expect(page.getByTestId('monitor-live-values')).toHaveCount(0);
         await expect(page.getByTestId('ventilator-live-values')).toHaveCount(0);
       } else {

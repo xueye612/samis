@@ -7,13 +7,17 @@ describe('record realtime device panel acceptance', () => {
     ['HR', 'NIBP', 'SpO₂', 'EtCO₂', 'TEMP', 'BIS', 'Vt', 'FiO₂', 'PEEP', 'Ppeak', 'Pplat', 'MV', 'Paw']
       .forEach((label) => expect(panelSource).toContain(label));
     expect(panelSource).toContain('device-freshness');
-    expect(panelSource).toContain('暂无设备实时数据');
+    expect(panelSource).toContain('模拟采集尚未启动');
+    expect(panelSource).toContain('未连接实时设备');
+    expect(panelSource).toContain('height: 210px');
     expect(panelSource).not.toContain('ECG波形');
   });
 
   it('wires the panel to a case-scoped poller and stops it on teardown', () => {
-    expect(recordSource).toContain('<RecordRealtimeDevicePanel :state="realtimeDeviceState" />');
+    expect(recordSource).toContain(':source-ready="deviceRealtimeSourceReady"');
     expect(recordSource).toContain('createRealtimeDevicePoller');
+    expect(recordSource).toContain('loadLatestSimulatedDeviceData');
+    expect(recordSource).toContain('!operationId || !deviceRealtimeSourceReady.value');
     expect(recordSource).toContain('realtimeDevicePoller?.stop()');
     expect(recordSource).toContain('onBeforeUnmount(stopRealtimeDevicePolling)');
   });

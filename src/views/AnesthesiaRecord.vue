@@ -185,7 +185,11 @@
 
             <template v-if="!toolboxCollapsed">
             <div class="toolbox-pinned-zone no-print">
-              <RecordRealtimeDevicePanel :state="realtimeDeviceState" />
+              <RecordRealtimeDevicePanel
+                :state="realtimeDeviceState"
+                :source-mode="deviceRealtimeSource"
+                :source-ready="deviceRealtimeSourceReady"
+              />
               <RecordRealtimeWaveformPlaceholder />
               <RecordQuickToolbar
                 :record="current"
@@ -193,7 +197,7 @@
                 :monitor-running="syncState.monitorRunning"
                 :ventilator-running="syncState.ventilatorRunning"
                 :conflict-count="syncState.conflictCount"
-                :show-device="recordActions.showDeviceControls && showDeviceSimulationControls"
+                :show-device="recordActions.showDeviceControls && showDeviceSimulationControls && deviceRealtimeSourceReady && deviceRealtimeSource === 'simulation'"
                 @entry="handleSheetEntry"
                 @stop-pump="stopPump"
                 @open-data="openDataList"
@@ -266,7 +270,7 @@
 
             <a-collapse v-model:active-key="toolboxCollapseKeys" :bordered="false" class="toolbox-collapse">
               <RecordDeviceWorkbenchPanel
-                v-if="showDeviceSimulationControls"
+                v-if="showDeviceSimulationControls && deviceRealtimeSourceReady && deviceRealtimeSource === 'simulation'"
                 :sync-state="syncState"
                 :monitor-display-interval-minutes="monitorDisplayIntervalMinutes"
                 :effective-interval-minutes="effectiveMonitorIntervalMinutes"
@@ -536,6 +540,12 @@ import {
   emptyRealtimeDeviceState,
   type RealtimeDevicePoller,
 } from '@/services/anesthesia/realtimeDeviceData';
+import {
+  loadDeviceRealtimeSource,
+  loadLatestSimulatedDeviceData,
+  readCachedDeviceRealtimeSource,
+  type DeviceRealtimeSource,
+} from '@/services/anesthesia/deviceRealtimeSource';
 import { buildRecordReturnTarget, buildRecordRoute, normalizeRecordEntrySource } from '@/services/recordNavigation';
 import { buildRecordPagination } from '@/services/recordPaginationEngine';
 import {
@@ -748,6 +758,8 @@ const inspectUiSmokeLocalState = async (operationId: string) => {
 };
 
 const selectedId = ref(String(route.params.id || store.currentDoctorActiveCase?.id || store.myTodayCases[0]?.id || store.cases[0]?.id || ''));
+const deviceRealtimeSource = ref<DeviceRealtimeSource>(readCachedDeviceRealtimeSource());
+const deviceRealtimeSourceReady = ref(false);
 const realtimeDeviceState = ref(emptyRealtimeDeviceState(selectedId.value));
 let realtimeDevicePoller: RealtimeDevicePoller | null = null;
 const stopRealtimeDevicePolling = () => {
@@ -757,9 +769,10 @@ const stopRealtimeDevicePolling = () => {
 const restartRealtimeDevicePolling = (operationId: string) => {
   stopRealtimeDevicePolling();
   realtimeDeviceState.value = emptyRealtimeDeviceState(operationId);
-  if (!operationId) return;
+  if (!operationId || !deviceRealtimeSourceReady.value) return;
   realtimeDevicePoller = createRealtimeDevicePoller({
     operationId,
+    ...(deviceRealtimeSource.value === 'simulation' ? { load: loadLatestSimulatedDeviceData } : {}),
     onState: (state) => { realtimeDeviceState.value = state; },
   });
   realtimeDevicePoller.start();
@@ -1236,8 +1249,16 @@ watch(selectedId, async (id) => {
   restoreWorkflowState(id);
   store.syncRecordDocument(id);
   store.setRecordPageDraft(id, livePageNo.value);
+  // 纸面由骨架切换为正式内容前先冻结当前可用宽度，避免首屏渲染后 ResizeObserver 再改缩放造成闪动。
+  syncSheetWorkbenchWidth();
   caseSheetReady.value = true;
 }, { immediate: true });
+watch(
+  () => current.value?.vitals.length ?? 0,
+  () => {
+    if (deviceRealtimeSourceReady.value && deviceRealtimeSource.value === 'simulation') void realtimeDevicePoller?.refresh();
+  },
+);
 onBeforeUnmount(stopRealtimeDevicePolling);
 onBeforeUnmount(() => {
   sheetWorkbenchObserver?.disconnect();
@@ -1280,6 +1301,10 @@ onMounted(async () => {
     sheetWorkbenchObserver = new ResizeObserver(() => syncSheetWorkbenchWidth());
     sheetWorkbenchObserver.observe(sheetWorkbenchRef.value);
   }
+  const configuredDeviceSource = await loadDeviceRealtimeSource();
+  deviceRealtimeSource.value = configuredDeviceSource;
+  deviceRealtimeSourceReady.value = true;
+  restartRealtimeDevicePolling(selectedId.value);
   await loadRecordPermissions();
   if (showE2eActions.value) {
     (window as Window & { __samisAnesthesiaE2E?: Record<string, unknown> }).__samisAnesthesiaE2E = {
@@ -1898,6 +1923,9 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 .record-layout {
   display: grid;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   grid-template-columns: 220px minmax(0, 1fr) 260px;
   gap: 10px;
   align-items: start;
@@ -2039,13 +2067,20 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 .record-center {
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
   display: grid;
   gap: 12px;
 }
 
 .record-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 19vw, 340px);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
   gap: 10px;
   align-items: start;
 }
@@ -2110,11 +2145,13 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 .record-toolbox {
   position: sticky;
+  min-width: 0;
   top: var(--record-topbar-offset);
   display: grid;
+  grid-template-rows: auto auto minmax(120px, 1fr);
   gap: 8px;
   max-height: calc(100vh - var(--record-topbar-offset) - 16px);
-  overflow: auto;
+  overflow: hidden;
   padding: 8px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -2122,25 +2159,40 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 }
 
 .record-toolbox.collapsed {
+  grid-template-rows: auto;
   align-self: start;
   max-height: none;
 }
 
 /* 实时设备区 + 波形占位 + 快捷录入：常驻工具箱顶部，不随内容滚动消失 */
 .toolbox-pinned-zone {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 8px;
   padding-bottom: 8px;
+  overflow: visible;
   background: rgba(255, 255, 255, 0.98);
 }
 
 /* 低频工具：工作流/关键时间/最近/事件详情/折叠组，在工具箱内继续滚动 */
 .toolbox-flow-zone {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+  scrollbar-gutter: stable;
+}
+
+.toolbox-flow-zone > * {
+  flex: 0 0 auto;
+}
+
+/* 设备详细控制必须位于滚动区首屏，避免被工作流长卡片压到滚动区底部。 */
+.toolbox-flow-zone > .toolbox-collapse {
+  order: -1;
 }
 
 .toolbox-head {
@@ -2239,6 +2291,12 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   .record-toolbox {
     position: static;
     max-height: none;
+    overflow: visible;
+    grid-template-rows: auto;
+  }
+
+  .toolbox-flow-zone {
+    overflow: visible;
   }
 }
 
