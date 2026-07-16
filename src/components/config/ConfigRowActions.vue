@@ -1,7 +1,7 @@
 <template>
   <div class="config-row-actions">
     <a-button
-      v-for="act in primaryActions"
+      v-for="act in visibleActions"
       :key="act.key"
       type="text"
       size="mini"
@@ -9,21 +9,6 @@
       class="config-row-action-btn"
       @click="emit('action', act.key)"
     >{{ act.label }}</a-button>
-    <a-dropdown v-if="moreActions.length" trigger="click" position="br">
-      <a-button type="text" size="mini" class="config-row-action-btn config-row-more">
-        <template #icon><icon-unordered-list /></template>
-        更多
-      </a-button>
-      <template #content>
-        <a-doption
-          v-for="act in moreActions"
-          :key="act.key"
-          @click="emit('action', act.key)"
-        >
-          <span :class="{ 'config-row-danger': act.danger }">{{ act.label }}</span>
-        </a-doption>
-      </template>
-    </a-dropdown>
   </div>
 </template>
 
@@ -42,23 +27,24 @@ export interface ConfigRowAction {
 const props = defineProps<{ actions: ConfigRowAction[] }>();
 const emit = defineEmits<{ (e: 'action', key: string): void }>();
 
+/**
+ * 操作列采用单行不换行的按钮组：主操作与生命周期/历史按钮均直接可点，
+ * 配合表格 scroll.x 与受控列宽避免被压缩导致多行堆叠。
+ * 不使用收起下拉，以保持既有功能用例对“编辑/暂停/停用”等按钮的可点击契约。
+ */
 const visibleActions = computed(() => props.actions.filter((a) => !a.hidden));
-const primaryActions = computed(() => visibleActions.value.filter((a) => a.primary));
-const moreActions = computed(() => visibleActions.value.filter((a) => !a.primary));
 </script>
 
 <style scoped>
 .config-row-actions {
   display: inline-flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 2px;
   white-space: nowrap;
 }
 .config-row-action-btn {
   padding: 0 6px;
   height: 26px;
-}
-.config-row-danger {
-  color: var(--danger);
 }
 </style>

@@ -27,7 +27,7 @@
           <a-table-column v-if="isScore" title="规则维度数" :width="100"><template #cell="{ record }">{{ ruleDimCount(record) }}</template></a-table-column>
           <a-table-column title="版本" :width="80"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
           <a-table-column title="状态" :width="90"><template #cell="{ record }"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template></a-table-column>
-          <a-table-column title="操作" :width="140" fixed="right">
+          <a-table-column title="操作" :width="200" fixed="right">
             <template #cell="{ record }">
               <ConfigRowActions :actions="rowActions(record)" @action="(key: string) => onRowAction(record, key)" />
             </template>

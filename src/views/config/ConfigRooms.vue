@@ -42,7 +42,7 @@
               </template>
             </a-table-column>
           </a-table-column>
-          <a-table-column title="操作" :width="160" :fixed="rooms.length ? 'right' : undefined">
+          <a-table-column title="操作" :width="200" :fixed="rooms.length ? 'right' : undefined">
             <template #cell="{ record }">
               <ConfigRowActions :actions="rowActions(record)" @action="(key: string) => onRowAction(record, key)" />
             </template>

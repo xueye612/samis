@@ -20,21 +20,23 @@
       <div class="method-layout">
         <div class="method-category-col">
           <div class="method-col-head">大类</div>
-          <div class="method-category-list">
-            <div
+          <a-list :bordered="false" :split="false" size="small" class="method-category-list">
+            <a-list-item
               v-for="cat in categories"
               :key="cat.id"
-              class="method-category-item"
               :class="{ active: selectedCatId === cat.id }"
+              style="cursor: pointer"
               @click="selectedCatId = cat.id"
             >
               <div class="method-category-main">
                 <span class="method-category-name">{{ cat.categoryName }}</span>
                 <a-tag size="small" :color="statusColor(cat.status)">{{ statusLabel(cat.status) }}</a-tag>
               </div>
-              <ConfigRowActions :actions="categoryActions(cat)" @action="(key: string) => onCategoryAction(cat, key)" />
-            </div>
-          </div>
+              <template #actions>
+                <ConfigRowActions :actions="categoryActions(cat)" @action="(key: string) => onCategoryAction(cat, key)" />
+              </template>
+            </a-list-item>
+          </a-list>
         </div>
         <div class="method-children-col">
           <div class="method-children-head">
@@ -59,7 +61,7 @@
               <a-table-column title="排序" :width="80"><template #cell="{ record }">{{ record.sortNo }}</template></a-table-column>
               <a-table-column title="版本" :width="80"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
               <a-table-column title="状态" :width="90"><template #cell="{ record }"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template></a-table-column>
-              <a-table-column title="操作" :width="140" fixed="right">
+              <a-table-column title="操作" :width="200" fixed="right">
                 <template #cell="{ record }">
                   <ConfigRowActions :actions="childActions(record)" @action="(key: string) => onChildAction(record, key)" />
                 </template>
@@ -274,9 +276,6 @@ onMounted(async () => { await loadPermissions(); await reload(); });
   margin-bottom: 8px;
 }
 .method-category-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   max-height: 560px;
   overflow-y: auto;
 }
@@ -297,6 +296,9 @@ onMounted(async () => { await loadPermissions(); await reload(); });
 }
 .method-category-item.active {
   border-color: var(--color-brand-200);
+  background: var(--primary-soft);
+}
+:deep(.arco-list-item.active) {
   background: var(--primary-soft);
 }
 .method-category-main {
