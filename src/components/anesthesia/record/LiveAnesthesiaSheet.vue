@@ -315,17 +315,18 @@
         />
         <div ref="chartAreaRef" class="chart-area" :style="gridBackgroundStyle" @contextmenu.prevent.stop="openMenu($event, 'chart')">
           <div class="chart-status-overlay">
-            <button
+            <component
+              :is="printMode ? 'span' : 'button'"
               v-for="event in statusEvents"
               :key="`chart-status-${event.id}`"
-              :ref="(el) => registerStatusSymbol(event.id, el as HTMLElement | null)"
-              type="button"
+              :ref="(el: Element | null) => registerStatusSymbol(event.id, el as HTMLElement | null)"
+              :type="printMode ? null : 'button'"
               class="chart-status-symbol"
               :class="[event.className, { 'is-active': isStatusEventActive(event) }]"
               :style="{ left: leftFor(event.time) }"
               :title="statusEventTitle(event)"
               @click.stop="selectStatusEvent(event)"
-            >{{ event.symbol }}</button>
+            >{{ event.symbol }}</component>
           </div>
           <div class="chart-scale">
             <span
@@ -492,6 +493,8 @@
       @update:analgesia-method="emit('saveSummaryField', { analgesiaMethod: $event })"
       @update:handover-note="emit('saveSummaryField', { handoverNote: $event })"
     />
+
+    <div v-if="printMode" class="print-page-mark">第 {{ pageNo }} / {{ totalPages }} 页</div>
 
     <RecordContextMenu
       :visible="menu.visible"
@@ -1176,6 +1179,9 @@ const {
   pointStyle,
   segmentStyle,
 } = useRecordCoordinates(() => props.record, () => props.pageNo);
+
+// 打印分页：每页可识别页码（患者身份由 RecordHeader 在每页渲染，签名仅末页）
+const totalPages = computed(() => Number(props.record.recordDocument?.pageCount ?? 1));
 const displaySnapshot = computed(() => props.record.recordSnapshot ?? buildRecordSnapshot(props.record, props.record.recordDocument?.hospitalName));
 const displaySummary = computed(() => buildRecordSummaryFields(props.record));
 const labResults = computed(() => (props.record.labResults ?? []).filter(
@@ -2615,6 +2621,32 @@ onBeforeUnmount(() => {
   --chart-scale-gutter: 46px;
   font-size: 8.5px;
   box-shadow: none;
+}
+
+/* 打印分页页码：每页右下角，不与末页签名区重叠 */
+.print-page-mark {
+  display: none;
+}
+
+/* 打印态：生命体征事件标记为纯展示，去除交互 */
+.live-record-card.is-print-mode .chart-status-symbol {
+  pointer-events: none;
+  cursor: default;
+}
+
+.live-record-card.is-print-mode .print-page-mark {
+  display: block;
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--sheet-grid-minor);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--sheet-muted);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .live-record-card.is-print-mode :deep(.record-header) {
