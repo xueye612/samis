@@ -29,6 +29,12 @@
       :surgeon="record.surgeon"
       :circulating-nurses="record.circulatingNurses"
       :scrub-nurses="record.scrubNurses"
+      :fasting-status="record.preVisit.fastingStatus"
+      :pre-medications="record.preVisit.preMedications?.join('、') ?? record.preVisit.preMedication"
+      :preoperative-conditions="record.preVisit.preoperativeConditions?.join('、') ?? record.preVisit.specialCondition"
+      :surgery-type="record.surgeryType ?? record.urgency"
+      :surgery-level="record.surgeryLevel"
+      :postoperative-diagnosis="record.postoperativeDiagnosis"
       :method-primary="methodPrimary"
       :method-auxiliary="methodAuxiliary"
       :position-options="headerPickerOptions?.positions"
@@ -42,6 +48,12 @@
       @update:surgeon="emit('saveHeaderField', { surgeon: $event })"
       @update:circulating-nurses="emit('saveHeaderField', { circulatingNurses: $event })"
       @update:scrub-nurses="emit('saveHeaderField', { scrubNurses: $event })"
+      @update:fasting-status="emit('saveHeaderField', { fastingStatus: $event as NonNullable<SurgeryCase['preVisit']['fastingStatus']> })"
+      @update:pre-medications="emit('saveHeaderField', { preMedications: $event })"
+      @update:preoperative-conditions="emit('saveHeaderField', { preoperativeConditions: $event })"
+      @update:surgery-type="emit('saveHeaderField', { surgeryType: $event as NonNullable<SurgeryCase['surgeryType']> })"
+      @update:surgery-level="emit('saveHeaderField', { surgeryLevel: $event as NonNullable<SurgeryCase['surgeryLevel']> })"
+      @update:postoperative-diagnosis="emit('saveHeaderField', { postoperativeDiagnosis: $event })"
       @apply-method-selection="emit('saveMethodSelection', $event)"
     />
     <div v-else class="print-heading">
@@ -289,11 +301,11 @@
           class="monitor-value"
           :class="{ abnormal: cell.abnormal }"
           :style="{ left: `${cell.leftPercent}%`, top: `${cell.topPercent}%` }"
-          :title="`${isoOrClockToClock(cell.time)} ${cell.metric}: ${cell.value}${cell.unit}`"
+          :title="`${isoOrClockToClock(cell.time)} ${cell.metric}: ${cell.value}${cell.unit}${cell.abnormalDirection ? `（${cell.abnormalDirection === '↑' ? '高于' : '低于'}参考范围）` : ''}`"
           @contextmenu.prevent.stop="openMenu($event, 'vital', cell.row)"
           @dblclick="openMonitorDialog(cell.row)"
         >
-          {{ cell.value }}
+          {{ cell.value }}<sup v-if="cell.abnormalDirection" class="abnormal-direction">{{ cell.abnormalDirection }}</sup>
         </span>
       </div>
     </div>
@@ -322,11 +334,12 @@
               :ref="(el: Element | null) => registerStatusSymbol(event.id, el as HTMLElement | null)"
               :type="printMode ? null : 'button'"
               class="chart-status-symbol"
-              :class="[event.className, { 'is-active': isStatusEventActive(event) }]"
-              :style="{ left: leftFor(event.time) }"
+              :class="[event.className, { 'is-active': isStatusEventActive(event), 'is-dragging': statusDrag.eventId === event.id }]"
+              :style="{ left: statusEventLeft(event) }"
               :title="statusEventTitle(event)"
+              @pointerdown.stop="startStatusEventDrag($event, event)"
               @click.stop="selectStatusEvent(event)"
-            >{{ event.symbol }}</component>
+            ><RecordClinicalSymbol v-if="event.shape" class="status-symbol-vector" :shape="event.shape" :letter="event.letter" :size="14" color="currentColor" :aria-label="event.type" /><template v-else>{{ event.symbol }}</template></component>
           </div>
           <div class="chart-scale">
             <span
@@ -390,9 +403,10 @@
           v-for="marker in sequenceMarkers"
           :key="marker.id"
           class="sequence-marker"
-          :class="[marker.tone, { 'is-active': isSequenceMarkerActive(marker) }]"
-          :style="pointStyle(marker.time, marker.rowIndex, 5)"
+          :class="[marker.tone, { 'is-active': isSequenceMarkerActive(marker), 'is-dragging': sequenceDrag.markerId === marker.id }]"
+          :style="sequenceMarkerStyle(marker)"
           :title="`${marker.number}. ${marker.content}`"
+          @pointerdown.stop="startSequenceMarkerDrag($event, marker)"
           @click="highlightSequenceMarker(marker)"
         >{{ marker.number }}</span>
       </div>
@@ -488,10 +502,15 @@
       :read-only="readOnly"
       :print-mode="printMode"
       :compact="!printMode"
+      :handover-from-options="headerPickerOptions?.anesthesiologists"
+      :handover-to-options="headerPickerOptions?.nurses"
       @update:anesthesia-effect="emit('saveSummaryField', { anesthesiaEffect: $event as '优' | '良' | '差' })"
       @update:destination="emit('saveSummaryField', { destination: $event })"
       @update:analgesia-method="emit('saveSummaryField', { analgesiaMethod: $event })"
       @update:handover-note="emit('saveSummaryField', { handoverNote: $event })"
+      @update:handover-at="emit('saveSummaryField', { handoverAt: $event })"
+      @update:handover-from="emit('saveSummaryField', { handoverFrom: $event })"
+      @update:handover-to="emit('saveSummaryField', { handoverTo: $event })"
     />
 
     <div v-if="printMode" class="print-page-mark">第 {{ pageNo }} / {{ totalPages }} 页</div>
@@ -626,7 +645,10 @@
       <OutputLineForm
         :form="outputForm"
         :disabled="readOnly"
+        :editing="Boolean(outputForm.id)"
+        :batch-values="outputBatchValues"
         @update:form="patchOutputForm"
+        @update:batch-value="(type, value) => { outputBatchValues[type] = value }"
         @shift-time="shiftOutputTime"
         @shift-volume="shiftOutputVolume"
       />
@@ -662,7 +684,7 @@
               class="observe-item"
               @click="toggleMonitorCode(item.shortCode)"
             >
-              <b :style="{ color: item.chartColor ?? '#64748b' }">{{ symbolText(item.chartSymbol) }}</b>
+              <RecordClinicalSymbol class="observe-symbol" :shape="vitalVectorShape(item.chartSymbol)" :color="item.chartColor ?? '#64748b'" :size="13" :aria-label="item.name" />
               <span>{{ item.shortCode }}<small>{{ item.name }}</small></span>
               <em>{{ item.unit }}</em>
             </button>
@@ -682,7 +704,7 @@
               @drop.prevent="moveMonitorCode(item.shortCode, 'drop')"
               @click="toggleMonitorCode(item.shortCode)"
             >
-              <b :style="{ color: item.chartColor ?? '#64748b' }">{{ symbolText(item.chartSymbol) }}</b>
+              <RecordClinicalSymbol class="observe-symbol" :shape="vitalVectorShape(item.chartSymbol)" :color="item.chartColor ?? '#64748b'" :size="13" :aria-label="item.name" />
               <span>{{ item.shortCode }}<small>{{ item.normalRange || '未设范围' }}</small></span>
               <em>{{ item.chartEnabled ? '曲线' : '数值' }}</em>
               <i class="observe-actions" @click.stop>
@@ -788,6 +810,7 @@ import RecordTimeAxis from '@/components/anesthesia/record/sheet/RecordTimeAxis.
 import LabResultLayer from '@/components/anesthesia/record/sheet/LabResultLayer.vue';
 import GridLines from '@/components/anesthesia/record/sheet/RecordGridLines';
 import RecordChartLegend from '@/components/anesthesia/record/sheet/RecordChartLegend.vue';
+import RecordClinicalSymbol from '@/components/anesthesia/record/sheet/RecordClinicalSymbol.vue';
 import RecordContextMenu from '@/components/anesthesia/record/sheet/RecordContextMenu.vue';
 import { useVitalChartDrawing } from '@/components/anesthesia/record/sheet/useVitalChartDrawing';
 import type { AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
@@ -805,8 +828,8 @@ import LabResultEntryForm from '@/components/anesthesia/record/sheet/LabResultEn
 import type { AnesthesiaEvent, AnesthesiaPlaneRecord, FluidRecord, MedicationRecord, OutputDetailRecord, SurgeryCase, VitalSign } from '@/types/anesthesia';
 import type { DynamicModuleEntry, TemplateImpact, TemplateImpactEvent, TemplateImpactMedication } from '@/mock/anesthesiaRecordPrototype';
 import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/types/system';
-import type { LabResultRecord } from '@/types/anesthesiaRecord';
-import { buildSequenceMarkersFromNotes, parseNumberedNoteLines } from '@/utils/numberedNotes';
+import type { LabResultRecord, TimeAxisPageConfig } from '@/types/anesthesiaRecord';
+import { buildSequenceMarkersFromNotes, parseNumberedNoteLines, updateNumberedNoteLineClock, type SequenceNoteMarker } from '@/utils/numberedNotes';
 import {
   assignSpecialNumbers,
   buildInductionMedicationSummaryText,
@@ -868,7 +891,7 @@ import { buildLiveTimeScale } from '@/services/anesthesiaRecordEngine';
 import { buildRecordPagination, clipSegmentToPage, isSegmentCrossingPage, isTimeOnPage } from '@/services/recordPaginationEngine';
 import { buildMonitorLayoutObjects, mergeLayoutWarnings, resolveLayoutCollisions } from '@/services/recordLayoutEngine';
 import { buildMilestoneStatusEvents } from '@/services/methodTimelineEngine';
-import { buildEventLegendPairs, buildRoomLegendItems, resolveEventSymbol } from '@/config/recordEventSymbols';
+import { buildEventLegendPairs, buildRoomLegendItems, resolveEventSymbol, resolveEventSymbolDef } from '@/config/recordEventSymbols';
 import { useRecordCoordinates } from '@/components/anesthesia/record/sheet/useRecordCoordinates';
 import { resolveSectionVisible, type RecordSectionVisibility } from '@/config/recordSections';
 
@@ -896,6 +919,7 @@ const props = withDefaults(defineProps<{
   methodPrimary?: AnesthesiaMethodKey;
   methodAuxiliary?: AnesthesiaMethodKey[];
   pageNo?: number;
+  pageConfig?: TimeAxisPageConfig;
   printMode?: boolean;
   includeProfessionalAppendix?: boolean;
   headerPickerOptions?: {
@@ -926,6 +950,7 @@ const props = withDefaults(defineProps<{
   methodPrimary: 'general',
   methodAuxiliary: () => [],
   pageNo: 1,
+  pageConfig: undefined,
   printMode: false,
   includeProfessionalAppendix: false,
   headerPickerOptions: () => ({
@@ -964,6 +989,12 @@ const emit = defineEmits<{
     circulatingNurses?: string;
     scrubNurses?: string;
     anesthesiaMethod?: string;
+    fastingStatus?: NonNullable<SurgeryCase['preVisit']['fastingStatus']>;
+    preMedications?: string;
+    preoperativeConditions?: string;
+    surgeryType?: NonNullable<SurgeryCase['surgeryType']>;
+    surgeryLevel?: NonNullable<SurgeryCase['surgeryLevel']>;
+    postoperativeDiagnosis?: string;
   }];
   saveMethodSelection: [payload: { primary: AnesthesiaMethodKey; auxiliary: AnesthesiaMethodKey[] }];
   saveSummaryField: [patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryFields>];
@@ -976,6 +1007,25 @@ const activeTimelineKey = ref('');
 const highlightedEventType = ref('');
 const highlightedSequence = ref<{ noteKey: 'specialMeds' | 'keyOperations'; index: number } | null>(null);
 const statusSymbolRefs = new Map<string, HTMLElement>();
+const statusDrag = reactive({
+  eventId: '',
+  percent: 0,
+  isoTime: '',
+  startX: 0,
+  moved: false,
+  node: null as MethodTimelineNode | null,
+  rect: null as DOMRect | null,
+});
+let suppressStatusClick = false;
+const sequenceDrag = reactive({
+  markerId: '',
+  marker: null as SequenceNoteMarker | null,
+  rect: null as DOMRect | null,
+  time: '',
+  startX: 0,
+  moved: false,
+});
+let suppressSequenceClick = false;
 
 type MenuType = 'grid' | 'planeGrid' | 'plane' | 'drugGrid' | 'medication' | 'inhaledGrid' | 'inhaled' | 'infusionGrid' | 'infusion' | 'autologousGrid' | 'autologous' | 'transfusionGrid' | 'transfusion' | 'monitor' | 'chart' | 'vital' | 'balance' | 'output';
 
@@ -1069,6 +1119,7 @@ const outputForm = reactive<{ id: string; time: string; type: OutputDetailRecord
   volume: undefined,
   remark: '',
 });
+const outputBatchValues = reactive<Partial<Record<OutputDetailRecord['type'], number | undefined>>>({});
 const labForm = reactive({
   id: '',
   resultTime: '',
@@ -1178,11 +1229,31 @@ const {
   topFor,
   pointStyle,
   segmentStyle,
-} = useRecordCoordinates(() => props.record, () => props.pageNo);
+} = useRecordCoordinates(() => props.record, () => props.pageNo, () => props.pageConfig);
 
 // 打印分页：每页可识别页码（患者身份由 RecordHeader 在每页渲染，签名仅末页）
-const totalPages = computed(() => Number(props.record.recordDocument?.pageCount ?? 1));
-const displaySnapshot = computed(() => props.record.recordSnapshot ?? buildRecordSnapshot(props.record, props.record.recordDocument?.hospitalName));
+const totalPages = computed(() => Number(props.pageConfig?.pageCount ?? props.record.recordDocument?.pageCount ?? 1));
+// 展示层兜底：年龄等展示字段出现 NaN/空/非法值时统一回退为 “—”，避免出现 “NaN岁”。
+const sanitizeClinicText = (value: unknown): string => {
+  if (value === undefined || value === null) return '—';
+  const text = String(value).trim();
+  if (!text) return '—';
+  const lower = text.toLowerCase();
+  if (lower === 'nan' || lower === 'null' || lower === 'undefined') return '—';
+  const num = Number(text);
+  if (Number.isNaN(num) || !Number.isFinite(num) || num < 0) return '—';
+  return text;
+};
+const displaySnapshot = computed(() => {
+  const base = {
+    ...(props.record.recordSnapshot ?? {}),
+    ...buildRecordSnapshot(props.record, props.record.recordDocument?.hospitalName),
+  };
+  // 展示层兜底：非法年龄（NaN/空/非数字）统一显示为 “—”，不修改底层数据。
+  // age 在类型上为 number，但展示层（RecordHeader 仅以 `${age}岁` 内插，无数值用途），
+  // 此处仅做展示替换，故经 unknown 断言保留类型契约。
+  return { ...base, age: sanitizeClinicText(base.age) } as unknown as typeof base;
+});
 const displaySummary = computed(() => buildRecordSummaryFields(props.record));
 const labResults = computed(() => (props.record.labResults ?? []).filter(
   (row) => !currentPage.value || isTimeOnPage(row.resultTime, currentPage.value),
@@ -1531,7 +1602,21 @@ const clockToIsoTime = (clock: string) => {
   const [hour, minute] = clock.split(':').map(Number);
   return dayjs(base).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
 };
-const symbolForEvent = (type: string) => resolveEventSymbol(type);
+// 时间轴状态符号统一走矢量组件，形状/字符来自 recordEventSymbols 单一配置源。
+const eventSymbolMeta = (type: string) => {
+  const def = resolveEventSymbolDef(type);
+  return {
+    symbol: def?.symbol ?? resolveEventSymbol(type),
+    shape: def?.shape,
+    letter: def?.letter,
+  };
+};
+// 体征项选择面板与图例共用矢量符号，避免再次硬编码字形。
+const vitalVectorShape = (chartSymbol?: string) => {
+  if (chartSymbol === 'circle') return 'circle-filled' as const;
+  if (chartSymbol === 'hollow-circle' || chartSymbol === 'text') return 'circle-outline' as const;
+  return (chartSymbol ?? 'circle-outline') as import('@/config/recordEventSymbols').ClinicalSymbolShape;
+};
 const timelineKeyForEventType = (type: string) => {
   const nodes = getMethodTimelineNodes(props.methodKeys);
   const node = nodes.find((item) => item.eventType === type || type.includes(item.eventType ?? '') || (item.eventType && item.eventType.includes(type)));
@@ -1543,6 +1628,60 @@ const registerStatusSymbol = (eventId: string, element: HTMLElement | null) => {
   else statusSymbolRefs.delete(eventId);
 };
 const isStatusEventActive = (event: { type: string; id: string }) => highlightedEventType.value === event.type || Boolean(highlightedEventType.value && event.type.includes(highlightedEventType.value));
+const statusEventLeft = (event: { id: string; time: string }) => (
+  statusDrag.eventId === event.id ? `${statusDrag.percent}%` : leftFor(event.time)
+);
+const statusTimelineNode = (event: { id: string; type: string }): MethodTimelineNode | undefined => {
+  if (event.id.startsWith('template-status-')) return undefined;
+  return getMethodTimelineNodes(props.methodKeys)
+    .find((node) => node.eventType === event.type || event.type.includes(node.eventType ?? '') || (node.eventType && node.eventType.includes(event.type)))
+    ?? { key: `event-${event.id}`, label: event.type, eventType: event.type, methods: 'all', order: 999 };
+};
+const updateStatusEventDrag = (event: PointerEvent) => {
+  if (!statusDrag.eventId || !statusDrag.rect || !statusDrag.node) return;
+  const percent = Math.max(0, Math.min(100, ((event.clientX - statusDrag.rect.left) / Math.max(1, statusDrag.rect.width)) * 100));
+  statusDrag.percent = percent;
+  statusDrag.isoTime = clockToIsoTime(percentToTime(percent, sheetStart.value, sheetEnd.value));
+  statusDrag.moved = statusDrag.moved || Math.abs(event.clientX - statusDrag.startX) >= 3;
+};
+const clearStatusEventDrag = () => {
+  statusDrag.eventId = '';
+  statusDrag.isoTime = '';
+  statusDrag.node = null;
+  statusDrag.rect = null;
+  statusDrag.moved = false;
+  window.removeEventListener('pointermove', updateStatusEventDrag);
+  window.removeEventListener('pointerup', finishStatusEventDrag);
+  window.removeEventListener('pointercancel', clearStatusEventDrag);
+};
+function finishStatusEventDrag(event: PointerEvent) {
+  if (!statusDrag.eventId || !statusDrag.node) return;
+  updateStatusEventDrag(event);
+  const node = statusDrag.node;
+  const isoTime = statusDrag.isoTime;
+  if (statusDrag.moved && isoTime) {
+    suppressStatusClick = true;
+    emit('saveTimeline', node, isoTime);
+    window.setTimeout(() => { suppressStatusClick = false; }, 0);
+  }
+  clearStatusEventDrag();
+}
+const startStatusEventDrag = (event: PointerEvent, item: { id: string; type: string; time: string }) => {
+  if (props.readOnly || props.printMode || event.button !== 0) return;
+  const node = statusTimelineNode(item);
+  const overlay = (event.currentTarget as HTMLElement).closest('.chart-status-overlay');
+  if (!node || !overlay) return;
+  statusDrag.eventId = item.id;
+  statusDrag.node = node;
+  statusDrag.rect = overlay.getBoundingClientRect();
+  statusDrag.startX = event.clientX;
+  statusDrag.percent = timeToPercent(item.time, sheetStart.value, sheetEnd.value);
+  statusDrag.isoTime = item.time;
+  statusDrag.moved = false;
+  window.addEventListener('pointermove', updateStatusEventDrag);
+  window.addEventListener('pointerup', finishStatusEventDrag, { once: true });
+  window.addEventListener('pointercancel', clearStatusEventDrag, { once: true });
+};
 const focusTimelineNode = (node: MethodTimelineNode, options?: { scrollChart?: boolean }) => {
   activeTimelineKey.value = node.key;
   highlightedEventType.value = node.eventType ?? node.label;
@@ -1553,6 +1692,7 @@ const focusTimelineNode = (node: MethodTimelineNode, options?: { scrollChart?: b
   }
 };
 const selectStatusEvent = (event: AnesthesiaEvent & { type: string }) => {
+  if (suppressStatusClick) return;
   highlightedEventType.value = event.type;
   activeTimelineKey.value = timelineKeyForEventType(event.type);
   emit('selectEvent', event);
@@ -1578,7 +1718,7 @@ const templateStatusEvents = computed(() => (props.templateImpact?.events ?? [])
   staff: [props.record.anesthesiologist],
   reported: false,
   qualityIncluded: event.severity !== '轻度',
-  symbol: symbolForEvent(event.name),
+  ...eventSymbolMeta(event.name),
   className: event.severity === '危急' || event.severity === '重度' ? 'is-critical is-template' : 'is-template',
 })));
 const statusEvents = computed(() => {
@@ -1586,7 +1726,7 @@ const statusEvents = computed(() => {
     .filter((event) => event.status !== 'voided')
     .map((event) => ({
     ...event,
-    symbol: symbolForEvent(event.type),
+    ...eventSymbolMeta(event.type),
     className: `${event.severity === '危急' || event.severity === '重度' ? 'is-critical' : ''}${props.recentEventLabel.startsWith(event.type) ? ' is-recent' : ''}`.trim(),
   }));
   const eventTypes = new Set(eventRows.map((item) => item.type));
@@ -1594,7 +1734,7 @@ const statusEvents = computed(() => {
     .filter((item) => !eventTypes.has(item.type) && !eventRows.some((row) => row.type.includes(item.type) || item.type.includes(row.type)))
     .map((item) => ({
       ...item,
-      symbol: symbolForEvent(item.type),
+      ...eventSymbolMeta(item.type),
       className: 'is-milestone',
     }));
   return [...eventRows, ...milestones, ...templateStatusEvents.value]
@@ -1690,7 +1830,57 @@ const keyOperationHighlightIndexes = computed(() => (
 const isSequenceMarkerActive = (marker: { noteKey: 'specialMeds' | 'keyOperations'; number: number }) => (
   highlightedSequence.value?.noteKey === marker.noteKey && highlightedSequence.value.index === marker.number
 );
+const sequenceMarkerStyle = (marker: SequenceNoteMarker) => pointStyle(
+  sequenceDrag.markerId === marker.id && sequenceDrag.time ? sequenceDrag.time : marker.time,
+  marker.rowIndex,
+  5,
+);
+const updateSequenceMarkerDrag = (event: PointerEvent) => {
+  if (!sequenceDrag.marker || !sequenceDrag.rect) return;
+  const percent = Math.max(0, Math.min(100, ((event.clientX - sequenceDrag.rect.left) / Math.max(1, sequenceDrag.rect.width)) * 100));
+  sequenceDrag.time = clockToIsoTime(percentToTime(percent, sheetStart.value, sheetEnd.value));
+  sequenceDrag.moved = sequenceDrag.moved || Math.abs(event.clientX - sequenceDrag.startX) >= 3;
+};
+const clearSequenceMarkerDrag = () => {
+  sequenceDrag.markerId = '';
+  sequenceDrag.marker = null;
+  sequenceDrag.rect = null;
+  sequenceDrag.time = '';
+  sequenceDrag.moved = false;
+  window.removeEventListener('pointermove', updateSequenceMarkerDrag);
+  window.removeEventListener('pointerup', finishSequenceMarkerDrag);
+  window.removeEventListener('pointercancel', clearSequenceMarkerDrag);
+};
+function finishSequenceMarkerDrag(event: PointerEvent) {
+  if (!sequenceDrag.marker) return;
+  updateSequenceMarkerDrag(event);
+  const marker = sequenceDrag.marker;
+  const newClock = isoOrClockToClock(sequenceDrag.time);
+  if (sequenceDrag.moved && marker.noteKey === 'keyOperations' && newClock) {
+    suppressSequenceClick = true;
+    emit('saveSummaryNotes', {
+      keyOperations: updateNumberedNoteLineClock(keyOperationsText.value, marker.number, newClock),
+    });
+    window.setTimeout(() => { suppressSequenceClick = false; }, 0);
+  }
+  clearSequenceMarkerDrag();
+}
+const startSequenceMarkerDrag = (event: PointerEvent, marker: SequenceNoteMarker) => {
+  if (props.readOnly || props.printMode || marker.noteKey !== 'keyOperations' || event.button !== 0) return;
+  const track = (event.currentTarget as HTMLElement).closest('.band-track');
+  if (!track) return;
+  sequenceDrag.markerId = marker.id;
+  sequenceDrag.marker = marker;
+  sequenceDrag.rect = track.getBoundingClientRect();
+  sequenceDrag.time = marker.time;
+  sequenceDrag.startX = event.clientX;
+  sequenceDrag.moved = false;
+  window.addEventListener('pointermove', updateSequenceMarkerDrag);
+  window.addEventListener('pointerup', finishSequenceMarkerDrag, { once: true });
+  window.addEventListener('pointercancel', clearSequenceMarkerDrag, { once: true });
+};
 const highlightSequenceMarker = (marker: { noteKey: 'specialMeds' | 'keyOperations'; number: number }) => {
+  if (suppressSequenceClick) return;
   focusSequenceMarker(marker.noteKey, marker.number);
 };
 const medicationBandRef = ref<HTMLElement | null>(null);
@@ -1826,7 +2016,7 @@ const isAbnormal = (row: VitalSign, item: VitalSignDictItem) => {
   if (typeof value !== 'number') return false;
   return (typeof item.lowerLimit === 'number' && value < item.lowerLimit) || (typeof item.upperLimit === 'number' && value > item.upperLimit);
 };
-const { chartPoints, chartLine, symbolText, markerPath, markerFill } = useVitalChartDrawing(
+const { chartPoints, chartLine, markerPath, markerFill } = useVitalChartDrawing(
   () => chartDisplayVitals.value,
   () => sheetStart.value,
   () => sheetEnd.value,
@@ -2205,8 +2395,24 @@ const openOutputEditor = (row?: OutputDetailRecord) => {
   outputForm.type = row?.type ?? '尿量';
   outputForm.volume = row?.volume;
   outputForm.remark = row?.remark ?? '';
+  Object.keys(outputBatchValues).forEach((key) => delete outputBatchValues[key as OutputDetailRecord['type']]);
+  if (!row) outputBatchValues[outputForm.type] = undefined;
 };
 const saveOutputForm = () => {
+  if (!outputForm.id) {
+    const rows = (Object.entries(outputBatchValues) as Array<[OutputDetailRecord['type'], number | undefined]>)
+      .filter(([, value]) => Number.isFinite(Number(value)) && Number(value) > 0);
+    if (!rows.length) return;
+    rows.forEach(([type, value], index) => emit('saveOutput', {
+      id: `output-${Date.now()}-${index}`,
+      time: outputForm.time,
+      type,
+      volume: Number(value),
+      remark: outputForm.remark,
+    }));
+    outputVisible.value = false;
+    return;
+  }
   const volume = Number(outputForm.volume);
   if (!Number.isFinite(volume) || volume <= 0) return;
   emit('saveOutput', {
@@ -2546,6 +2752,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointermove', updateSegmentDragPreview);
   window.removeEventListener('pointermove', updateVitalDragPreview);
   window.removeEventListener('pointerup', finishVitalPointDrag);
+  clearStatusEventDrag();
+  clearSequenceMarkerDrag();
 });
 </script>
 
@@ -3188,6 +3396,14 @@ onBeforeUnmount(() => {
 
 .monitor-value.abnormal {
   color: var(--sheet-abnormal);
+  font-weight: 800;
+}
+
+.abnormal-direction {
+  margin-left: 1px;
+  font-size: 9px;
+  line-height: 1;
+  vertical-align: super;
 }
 
 .medication-band .band-track,
@@ -3400,7 +3616,8 @@ onBeforeUnmount(() => {
 .live-record-card.is-print-mode .vital-chart,
 .live-record-card.is-print-mode .chart-layout,
 .live-record-card.is-print-mode .chart-area {
-  min-height: 225px;
+  height: 126px;
+  min-height: 126px;
 }
 
 .live-record-card.is-print-mode :deep(.chart-legend-panel) {
@@ -3485,6 +3702,13 @@ onBeforeUnmount(() => {
   font-weight: 800;
   line-height: 1;
   cursor: pointer;
+  touch-action: none;
+}
+
+.chart-status-symbol.is-dragging {
+  z-index: 9;
+  cursor: grabbing;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.28);
 }
 
 .chart-status-symbol.is-active {
@@ -3722,6 +3946,17 @@ onBeforeUnmount(() => {
 
 .sequence-marker.is-active {
   box-shadow: 0 0 0 2px var(--sheet-active);
+}
+
+.sequence-marker.pink {
+  touch-action: none;
+  cursor: grab;
+}
+
+.sequence-marker.is-dragging {
+  z-index: 9;
+  cursor: grabbing;
+  box-shadow: 0 0 0 3px rgba(219, 39, 119, 0.24);
 }
 
 .sequence-marker.orange {
@@ -4141,7 +4376,8 @@ onBeforeUnmount(() => {
 .live-record-card.is-print-mode .vital-chart,
 .live-record-card.is-print-mode .chart-layout,
 .live-record-card.is-print-mode .chart-area {
-  min-height: 225px;
+  height: 126px;
+  min-height: 126px;
 }
 
 .live-record-card.is-print-mode .chart-status-symbol {

@@ -90,6 +90,7 @@ export interface RecordStatusApi {
   operationId: string;
   recordLocalId: string;
   status: string;
+  syncVersion: number;
   documentVersion: number;
   submittedAt: string | null;
   signedAt: string | null;
@@ -101,13 +102,13 @@ export const recordLifecycleApi = {
   submit(data: { operationId: string; recordLocalId: string; expectedSyncVersion: number }) {
     return samisRequest<{ record: RecordStatusApi; revision: unknown }>('/anesthesiaRecord/submitRecord', buildFormPost(flatFormFieldsFromRecord(data)), { module: 'anesthesiaRecord' });
   },
-  sign(data: { operationId: string; recordLocalId: string; revisionId: string; providerSignatureId: string }) {
+  sign(data: { operationId: string; recordLocalId: string; revisionId: string; providerSignatureId: string; expectedSyncVersion: number }) {
     return samisRequest<RecordStatusApi>('/anesthesiaRecord/signRecord', buildFormPost(flatFormFieldsFromRecord(data)), { module: 'anesthesiaRecord' });
   },
-  createRevision(data: { operationId: string; recordLocalId: string; revisionId: string; reason: string }) {
+  createRevision(data: { operationId: string; recordLocalId: string; revisionId: string; reason: string; expectedSyncVersion: number }) {
     return samisRequest<RecordStatusApi>('/anesthesiaRecord/createRevision', buildFormPost(flatFormFieldsFromRecord(data)), { module: 'anesthesiaRecord' });
   },
-  archive(data: { operationId: string; recordLocalId: string; revisionId: string }) {
+  archive(data: { operationId: string; recordLocalId: string; revisionId: string; expectedSyncVersion: number }) {
     return samisRequest<RecordStatusApi>('/anesthesiaRecord/archiveRecord', buildFormPost(flatFormFieldsFromRecord(data)), { module: 'anesthesiaRecord' });
   },
 };

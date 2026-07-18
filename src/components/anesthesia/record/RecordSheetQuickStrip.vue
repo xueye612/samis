@@ -1,24 +1,16 @@
 <template>
   <div class="sheet-quick-strip no-print">
     <div class="strip-group strip-entries">
-      <span class="strip-label">录入</span>
+      <span class="strip-label">数据录入</span>
       <a-button size="mini" type="primary" :disabled="disabled('medication')" @click="emit('entry', 'medication')">给药</a-button>
       <a-button size="mini" :disabled="disabled('infusion')" @click="emit('entry', 'infusion')">液体</a-button>
       <a-button size="mini" :disabled="disabled('transfusion')" @click="emit('entry', 'transfusion')">输血</a-button>
-      <a-button size="mini" :disabled="disabled('vital')" @click="emit('entry', 'vital')">体征</a-button>
-      <a-dropdown trigger="click">
-        <a-button size="mini" :disabled="!entries.canOutput && !entries.canLab">出入量</a-button>
-        <template #content>
-          <a-doption :disabled="disabled('output-urine')" @click="emit('entry', 'output-urine')">尿量</a-doption>
-          <a-doption :disabled="disabled('output-blood')" @click="emit('entry', 'output-blood')">出血量</a-doption>
-          <a-doption :disabled="disabled('output-drainage')" @click="emit('entry', 'output-drainage')">引流量</a-doption>
-          <a-doption :disabled="disabled('lab')" @click="emit('entry', 'lab')">血气结果</a-doption>
-        </template>
-      </a-dropdown>
+      <a-button size="mini" :disabled="disabled('output-urine')" @click="emit('entry', 'output-urine')">出入量</a-button>
+      <a-button size="mini" :disabled="disabled('lab')" @click="emit('entry', 'lab')">血气</a-button>
     </div>
 
     <div class="strip-group strip-events">
-      <span class="strip-label">事件</span>
+      <span class="strip-label">关键事件</span>
       <a-tooltip
         v-for="event in primaryEvents"
         :key="event.name"

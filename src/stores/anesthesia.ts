@@ -58,6 +58,8 @@ import {
 import { applySpecialNumbersToMedications } from '@/services/medicationDisplayRules';
 import { buildRecordPagination, resolveRecordPageNoForTime } from '@/services/recordPaginationEngine';
 import type { RescueModeTransitionResult } from '@/services/anesthesia/rescueModeTransition';
+import { validateRecordEnd } from '@/services/anesthesia/recordActionRules';
+import { submitRecordForSignature } from '@/services/anesthesia/recordLifecycleClient';
 import type { LabResultRecord, LayoutWarning, RecordSummaryFields, RecordSummaryNotes } from '@/types/anesthesiaRecord';
 import {
   appendAuditLog,
@@ -276,6 +278,7 @@ import { useRealPreoperative } from '@/config/apiFlags';
 import type { RoomGroupCatalog } from '@/services/anesthesia/adapters/roomAdapter';
 import {
   hydrateAnesthesiaCasesFromLocalDb,
+  persistCaseNow,
   restoreSingleCase,
   schedulePersistCase,
 } from '@/services/anesthesia/anesthesiaPersistenceBridge';
@@ -296,6 +299,7 @@ import { ANESTHESIA_SYNC_QUEUE_API_PATH } from '@/services/anesthesia/anesthesia
 import { startMonitorMockService, readMonitorDisplayIntervalMinutes, type MonitorMockHandle } from '@/services/anesthesia/monitorMockService';
 import { startVentilatorMockService, type VentilatorMockHandle } from '@/services/anesthesia/ventilatorMockService';
 import type { AnesthesiaSyncState, RecordPersistMeta, SyncConflictResolveAction } from '@/types/anesthesiaLocalDb';
+import type { LatestDeviceDataApi, LatestDeviceRawApi } from '@/api/anesthesiaSync';
 import {
   listPendingConflicts,
   resolveSyncConflict,
@@ -447,6 +451,8 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       ventilatorRunning: false,
       rescueMode: false,
     } as AnesthesiaSyncState,
+    simulatedRealtimeDeviceData: {} as Record<string, LatestDeviceDataApi>,
+    monitoringSessionRevision: 0,
     pdcaRecords: [
       {
         id: 'pdca-1',
@@ -1269,6 +1275,10 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       }
     },
     applyMonitoringUiForScope(viewCaseId: string) {
+      // 监护注册表保存在模块级运行态中。暂停和停止时同步摘要都可能是
+      // monitorRunning=false/ventilatorRunning=false，因此需要独立版本号
+      // 通知视图重新读取注册表，避免“已停止但按钮仍显示”的陈旧状态。
+      this.monitoringSessionRevision += 1;
       const ui = resolveMonitoringViewUi(viewCaseId, getMonitoringRegistry());
       const viewCase = this.cases.find((item) => item.id === viewCaseId);
       const ownerId = getActiveMockSession()?.recordLocalId ?? viewCaseId;
@@ -1276,8 +1286,8 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       patchAnesthesiaSyncUiState({
         monitorRunning: ui.monitorRunning,
         ventilatorRunning: ui.ventilatorRunning,
-        lastCollectTime: ownerCase?.device?.lastCollectTime
-          ?? getMonitoringSession(viewCaseId)?.lastCollectTime
+        lastCollectTime: getMonitoringSession(viewCaseId)?.lastCollectTime
+          ?? ownerCase?.device?.lastCollectTime
           ?? viewCase?.device?.lastCollectTime,
         rescueMode: Boolean(viewCase && isRescueModeActive(viewCase)),
       });
@@ -1300,6 +1310,10 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         simulationMode,
         abnormalTypes: readAbnormalSimulationTypes(),
         onCollect: (id: string, collectTs: string) => this.onMonitoringCollect(id, collectTs),
+        onRaw: (id: string, deviceType: 'monitor' | 'ventilator', raw: LatestDeviceRawApi) => {
+          const current = this.simulatedRealtimeDeviceData[id] ?? { monitor: null, ventilator: null };
+          this.simulatedRealtimeDeviceData[id] = { ...current, [deviceType]: raw };
+        },
       };
     },
     pauseMonitoringMockTimers() {
@@ -1312,6 +1326,28 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       const paused = markMockPaused(bound);
       saveSession(paused);
       void persistMonitoringRegistry();
+    },
+    pauseAllMonitoringDevices() {
+      const scopeId = this.activeRecordScopeId;
+      if (!scopeId) return { ok: false as const, message: '无监护会话' };
+      const session = getMonitoringSession(scopeId);
+      if (!session || (!session.monitorActive && !session.ventilatorActive)) {
+        return { ok: false as const, message: '无活动监护会话' };
+      }
+      this.pauseMonitoringMockTimers();
+      const target = this.cases.find((item) => item.id === scopeId);
+      if (target?.device) {
+        target.device.collectStatus = '采集暂停';
+        if (session.monitorActive) target.device.monitor = '模拟已暂停';
+        if (session.ventilatorActive) target.device.anesthesiaMachine = '模拟已暂停';
+        void patchRecordDeviceCollectMeta(scopeId, {
+          collectStatus: '采集暂停',
+          ...(session.monitorActive ? { monitor: '模拟已暂停' } : {}),
+          ...(session.ventilatorActive ? { anesthesiaMachine: '模拟已暂停' } : {}),
+        });
+      }
+      this.applyMonitoringUiForScope(scopeId);
+      return { ok: true as const };
     },
     startMonitoringMockTicks(caseId: string) {
       const session = getMonitoringSession(caseId);
@@ -1760,36 +1796,102 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     },
     startAnesthesiaRecord(caseId: string) {
       const target = this.cases.find((item) => item.id === caseId);
-      if (!target || target.locked) return;
+      if (!target) return { ok: false as const, message: '麻醉记录单不存在。' };
+      if (target.locked) return { ok: false as const, message: '麻醉记录已锁定，无法启动记录。' };
+      if (target.recordStatus && target.recordStatus !== '未开始') {
+        return { ok: false as const, message: '当前记录已经启动或结束，请勿重复操作。' };
+      }
       const now = resolveRecordSheetNowIso(target);
+      const session = getMonitoringSession(caseId);
+      const deviceSessionActive = Boolean(
+        session
+        && session.status !== 'stopped'
+        && session.status !== 'revoked'
+        && (session.monitorActive || session.ventilatorActive),
+      );
       target.recordStatus = '采集中';
-      target.collectStatus = '采集中';
+      target.collectStatus = deviceSessionActive ? '采集中' : '未连接';
       target.actualStart = target.actualStart ?? now;
-      target.anesthesiaStart = target.anesthesiaStart ?? now;
       target.device = {
-        monitor: '采集中',
-        anesthesiaMachine: '采集中',
-        infusionPump: '已连接',
-        collectStatus: '采集中',
-        dataSource: '手工录入 + 设备采集占位',
-        lastCollectTime: now,
+        ...(target.device ?? {}),
+        monitor: deviceSessionActive && session?.monitorActive ? '采集中' : '待启动',
+        anesthesiaMachine: deviceSessionActive && session?.ventilatorActive ? '采集中' : '待启动',
+        infusionPump: target.device?.infusionPump ?? '未连接',
+        collectStatus: deviceSessionActive ? '采集中' : '待启动',
+        dataSource: target.device?.dataSource ?? '设备尚未启动',
         collectFrequency: target.vitalFrequency ?? '5分钟',
-        receiveStatus: '接收正常',
-        logs: [{ time: now, content: '启动设备采集模拟' }],
+        receiveStatus: target.device?.receiveStatus ?? '等待设备连接',
+        logs: target.device?.logs ?? [],
       };
-      target.operationLogs = ['启动麻醉记录并进入采集', ...(target.operationLogs ?? [])].slice(0, 8);
+      target.operationLogs = ['启动麻醉记录', ...(target.operationLogs ?? [])].slice(0, 8);
       const draft = (this.recordDrafts[caseId] && typeof this.recordDrafts[caseId] === 'object')
         ? this.recordDrafts[caseId] as Record<string, unknown>
         : {};
       if (!Array.isArray(draft.monitorOrder) || !(draft.monitorOrder as string[]).length) {
         this.saveMonitorOrderDraft(caseId, resolveDefaultMonitorOrder(this.configVitals));
       }
-      this.appendVital(caseId, {
-        id: `vital-${Date.now()}`,
-        time: now,
-        source: '设备采集占位',
-        ...Object.fromEntries(this.enabledVitalSignItems.map((item) => [item.shortCode, Number(item.defaultValue) || undefined]).filter(([, value]) => value !== undefined)),
-      } as VitalSign);
+      this.syncRecordDocument(caseId);
+      this.afterRecordMutation(caseId, {
+        entityType: 'record',
+        entityLocalId: caseId,
+        operationType: 'update',
+        apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
+      });
+      return { ok: true as const, startedAt: now };
+    },
+    async endAnesthesiaRecord(caseId: string, endAt?: string) {
+      const target = this.cases.find((item) => item.id === caseId);
+      if (!target) return { ok: false as const, message: '麻醉记录单不存在。' };
+      const session = getMonitoringSession(caseId);
+      const deviceSessionActive = Boolean(
+        session
+        && session.status !== 'stopped'
+        && session.status !== 'revoked'
+        && (session.monitorActive || session.ventilatorActive),
+      );
+      const resolvedEndAt = endAt ?? resolveRecordSheetNowIso(target);
+      const validation = validateRecordEnd(target, resolvedEndAt, {
+        deviceSessionActive,
+        rescueActive: isRescueModeActive(target),
+      });
+      if (!validation.ok) return validation;
+
+      target.recordEndTime = resolvedEndAt;
+      this.syncRecordDocument(caseId);
+      // 先把所有临床数据以 recording 草稿状态真实同步，随后由 submitRecord 原子冻结版本。
+      await persistCaseNow(target, this.recordPageDrafts[caseId] ?? 1, {
+        entityType: 'record',
+        entityLocalId: caseId,
+        operationType: 'update',
+        apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
+      });
+      const pendingSignatures = {
+        ...(target.signatures ?? {}),
+        status: '待签名' as const,
+      };
+      const submittedCase = {
+        ...target,
+        recordStatus: '待签名' as const,
+        signatures: pendingSignatures,
+      };
+      const submitted = await submitRecordForSignature(caseId, { casePayload: submittedCase });
+      if (!submitted.ok) return submitted;
+
+      target.recordStatus = '待签名';
+      target.collectStatus = '已结束';
+      if (target.device) target.device.collectStatus = '已结束';
+      target.signatures = {
+        ...pendingSignatures,
+        revisionId: submitted.revisionId,
+        documentVersion: submitted.documentVersion,
+        serverSyncVersion: submitted.syncVersion,
+        submittedAt: submitted.submittedAt ?? undefined,
+      };
+      target.operationLogs = [`结束麻醉记录（${dayjs(resolvedEndAt).format('YYYY-MM-DD HH:mm')}），已冻结版本，待签名`, ...(target.operationLogs ?? [])].slice(0, 8);
+      syncCaseToDataset(getMutableDataset(), target);
+      bumpDatasetVersion();
+      this.datasetVersion += 1;
+      return { ok: true as const, endAt: resolvedEndAt, revisionId: submitted.revisionId };
     },
     importRecordDeviceVitals(caseId: string) {
       const target = this.cases.find((item) => item.id === caseId);
@@ -2771,6 +2873,12 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         circulatingNurses?: string;
         scrubNurses?: string;
         anesthesiaMethod?: string;
+        fastingStatus?: NonNullable<SurgeryCase['preVisit']['fastingStatus']>;
+        preMedications?: string;
+        preoperativeConditions?: string;
+        surgeryType?: NonNullable<SurgeryCase['surgeryType']>;
+        surgeryLevel?: NonNullable<SurgeryCase['surgeryLevel']>;
+        postoperativeDiagnosis?: string;
       },
       reason = '表头修正',
     ) {
@@ -2828,6 +2936,40 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         const before = target.anesthesiaMethod;
         target.anesthesiaMethod = patch.anesthesiaMethod;
         this.recordFieldChange(caseId, '麻醉方法', before, patch.anesthesiaMethod, reason);
+      }
+      if (patch.fastingStatus !== undefined) {
+        const before = target.preVisit.fastingStatus ?? target.preVisit.fasting;
+        target.preVisit.fastingStatus = patch.fastingStatus;
+        target.preVisit.fasting = patch.fastingStatus;
+        this.recordFieldChange(caseId, '禁食状态', before, patch.fastingStatus, reason);
+      }
+      if (patch.preMedications !== undefined) {
+        const before = target.preVisit.preMedication;
+        target.preVisit.preMedication = patch.preMedications;
+        target.preVisit.preMedications = patch.preMedications.split('、').map((item) => item.trim()).filter(Boolean);
+        this.recordFieldChange(caseId, '术前用药', before, patch.preMedications, reason);
+      }
+      if (patch.preoperativeConditions !== undefined) {
+        const before = target.preVisit.specialCondition;
+        target.preVisit.specialCondition = patch.preoperativeConditions;
+        target.preVisit.preoperativeConditions = patch.preoperativeConditions.split('、').map((item) => item.trim()).filter(Boolean);
+        this.recordFieldChange(caseId, '术前状况', before, patch.preoperativeConditions, reason);
+      }
+      if (patch.surgeryType !== undefined) {
+        const before = target.surgeryType ?? target.urgency;
+        target.surgeryType = patch.surgeryType;
+        target.urgency = patch.surgeryType === '急诊' ? '急诊' : '择期';
+        this.recordFieldChange(caseId, '手术类型', before, patch.surgeryType, reason);
+      }
+      if (patch.surgeryLevel !== undefined) {
+        const before = target.surgeryLevel ?? '';
+        target.surgeryLevel = patch.surgeryLevel;
+        this.recordFieldChange(caseId, '手术等级', before, patch.surgeryLevel, reason);
+      }
+      if (patch.postoperativeDiagnosis !== undefined) {
+        const before = target.postoperativeDiagnosis ?? '';
+        target.postoperativeDiagnosis = patch.postoperativeDiagnosis;
+        this.recordFieldChange(caseId, '术后诊断', before, patch.postoperativeDiagnosis, reason);
       }
       target.recordSnapshot = buildRecordSnapshot(target, target.recordDocument?.hospitalName);
       syncCaseToDataset(getMutableDataset(), target);

@@ -188,6 +188,22 @@ describe('reconstructCaseFromRecordDetail (Slice 3f)', () => {
     expect(reconstructed.locked).toBe(true);
   });
 
+  it('maps submitted/signed backend lifecycle states to UI states', () => {
+    const submitted = detail();
+    submitted.recordStatus = 'submitted';
+    const pending = reconstructCaseFromRecordDetail(submitted, baseCase());
+    expect(pending.recordStatus).toBe('待签名');
+    expect(pending.signatures?.status).toBe('待签名');
+    expect(pending.locked).toBe(false);
+
+    const signed = detail();
+    signed.recordStatus = 'signed';
+    const locked = reconstructCaseFromRecordDetail(signed, baseCase());
+    expect(locked.recordStatus).toBe('已锁定');
+    expect(locked.signatures?.status).toBe('已签名');
+    expect(locked.locked).toBe(true);
+  });
+
   it('sorts vitals by time', () => {
     const d = detail();
     d.vitalSigns = [

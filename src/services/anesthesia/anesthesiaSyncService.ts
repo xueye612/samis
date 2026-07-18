@@ -5,6 +5,8 @@ import {
   buildBatchNo,
   getFailedSyncCount,
   getPendingSyncCount,
+  getRecordSubmissionSyncCounts,
+  isRecordSubmissionBlockingEntity,
   listPendingSyncItems,
   markSyncItemFailed,
   markSyncItemSuccess,
@@ -12,6 +14,7 @@ import {
 import {
   createSyncConflict,
   getPendingConflictCount,
+  listPendingConflicts,
   parseConflictTypeFromResult,
 } from '@/services/anesthesia/anesthesiaSyncConflict';
 import { anesthesiaSyncApi } from '@/api/anesthesiaSync';
@@ -36,6 +39,7 @@ let deviceTimer: ReturnType<typeof setTimeout> | undefined;
 let scanTimer: ReturnType<typeof setInterval> | undefined;
 let lastPublishedState: AnesthesiaSyncState | undefined;
 let activeRecordLocalId: string | undefined;
+let pushBatchChain: Promise<void> = Promise.resolve();
 
 const deviceUiState: Pick<AnesthesiaSyncState, 'monitorRunning' | 'ventilatorRunning' | 'lastCollectTime' | 'rescueMode' | 'localSavedAt'> = {
   monitorRunning: false,
@@ -160,15 +164,36 @@ async function applyServerIds(results: Array<{ entityType: string; localId: stri
   }
 }
 
-async function pushBatchForItems(items: Awaited<ReturnType<typeof listPendingSyncItems>>) {
+type PendingSyncItems = Awaited<ReturnType<typeof listPendingSyncItems>>;
+
+function syncEntityKey(item: Pick<PendingSyncItems[number], 'entity_type' | 'local_id'>) {
+  return `${item.entity_type}:${item.local_id}`;
+}
+
+function coalesceSyncItems(items: PendingSyncItems) {
+  const groups = new Map<string, PendingSyncItems>();
+  items.forEach((item) => {
+    const key = syncEntityKey(item);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  });
+  return [...groups.entries()].map(([key, groupedItems]) => ({
+    key,
+    items: groupedItems,
+    latest: groupedItems[groupedItems.length - 1],
+  }));
+}
+
+async function performPushBatchForItems(items: PendingSyncItems) {
   if (!items.length || !isOnline()) return;
   uploading = true;
   notify();
   const batchNo = buildBatchNo();
   const queueIds = items.map((item) => item.queue_id);
+  const groups = coalesceSyncItems(items);
+  const latestItems = groups.map((group) => group.latest);
   await assignBatchNo(queueIds, batchNo);
-  const payloadItems = await mapSyncQueueRowsToPushBatchItems(items);
-  const first = items[0];
+  const payloadItems = await mapSyncQueueRowsToPushBatchItems(latestItems);
+  const first = latestItems[0];
   try {
     const response = await anesthesiaSyncApi.pushBatch({
       batchNo,
@@ -179,11 +204,16 @@ async function pushBatchForItems(items: Awaited<ReturnType<typeof listPendingSyn
       items: payloadItems,
     });
     for (const result of response.results) {
-      const queueItem = items.find((item) => item.local_id === result.localId);
-      if (!queueItem) continue;
+      const group = groups.find(({ latest }) => (
+        latest.entity_type === result.entityType && latest.local_id === result.localId
+      ));
+      if (!group) continue;
+      const queueItem = group.latest;
+      const superseded = group.items.slice(0, -1);
       if (result.status === 'success') {
-        await markSyncItemSuccess(queueItem.queue_id, result.serverId ?? null);
+        await Promise.all(group.items.map((item) => markSyncItemSuccess(item.queue_id, result.serverId ?? null)));
       } else if (result.status === 'conflict') {
+        await Promise.all(superseded.map((item) => markSyncItemSuccess(item.queue_id, result.serverId ?? null)));
         await createSyncConflict({
           recordLocalId: queueItem.record_local_id,
           operationId: queueItem.operation_id,
@@ -199,6 +229,7 @@ async function pushBatchForItems(items: Awaited<ReturnType<typeof listPendingSyn
         });
         lastSyncError = result.message ?? '同步冲突';
       } else {
+        await Promise.all(superseded.map((item) => markSyncItemSuccess(item.queue_id, result.serverId ?? null)));
         await markSyncItemFailed(queueItem.queue_id, result.message ?? 'sync failed', queueItem.retry_count + 1);
       }
     }
@@ -226,6 +257,21 @@ async function pushBatchForItems(items: Awaited<ReturnType<typeof listPendingSyn
     uploading = false;
     notify();
   }
+}
+
+/**
+ * 串行领取同步批次，并在真正发送前复核队列仍待处理。
+ * 定时扫描、手动防抖与结束记录的立即刷新可能同时触发；没有此边界时，
+ * 同一 queue_id 会被重复标记 uploading 并并发推送，留下永久“待传”状态。
+ */
+async function pushBatchForItems(items: PendingSyncItems) {
+  const run = pushBatchChain.then(async () => {
+    const stillPending = new Set((await listPendingSyncItems(500)).map((item) => item.queue_id));
+    const freshItems = items.filter((item) => stillPending.has(item.queue_id));
+    if (freshItems.length) await performPushBatchForItems(freshItems);
+  });
+  pushBatchChain = run.catch(() => undefined);
+  await run;
 }
 
 async function flushByPredicate(predicate: (entityType: string) => boolean, limit = 30) {
@@ -323,21 +369,21 @@ export function setAnesthesiaSyncRecordScope(recordLocalId?: string) {
 export { getPendingConflictCount, listPendingConflicts, resolveSyncConflict } from '@/services/anesthesia/anesthesiaSyncConflict';
 
 /**
- * 提交前刷新队列：将指定记录的所有 pending 同步项推送到服务端。
- * 返回是否全部成功（无 pending 残留）。
+ * 提交前刷新队列：仅等待会进入不可变记录版本的业务项完成同步。
+ * 监护仪/呼吸机原始追溯报文可继续后台上传，不阻塞记录冻结。
  */
 export async function flushQueueForRecord(recordLocalId: string, maxWaitMs = 10000): Promise<boolean> {
   if (!isOnline()) return false;
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
-    const pending = await getPendingSyncCount(recordLocalId);
+    const { pending } = await getRecordSubmissionSyncCounts(recordLocalId);
     if (pending === 0) return true;
     // 触发一次推送
-    void triggerSyncNow();
+    await triggerSyncNow(recordLocalId);
     // 等待 500ms
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  const remaining = await getPendingSyncCount(recordLocalId);
+  const { pending: remaining } = await getRecordSubmissionSyncCounts(recordLocalId);
   return remaining === 0;
 }
 
@@ -353,14 +399,24 @@ export async function hasUnresolvedConflicts(recordLocalId: string): Promise<boo
  * 返回 { canSubmit, reason }。
  */
 export async function checkCanSubmitRecord(recordLocalId: string): Promise<{ canSubmit: boolean; reason: string | null }> {
-  const conflictCount = await getPendingConflictCount(recordLocalId);
+  const conflicts = await listPendingConflicts(recordLocalId);
+  const conflictCount = conflicts.filter((item) => isRecordSubmissionBlockingEntity(item.entity_type)).length;
   if (conflictCount > 0) {
     return { canSubmit: false, reason: `存在 ${conflictCount} 条未解决同步冲突，请先解决冲突再提交` };
   }
-  const pendingCount = await getPendingSyncCount(recordLocalId);
+  let counts = await getRecordSubmissionSyncCounts(recordLocalId);
+  const failedCount = counts.failed;
+  if (failedCount > 0) {
+    return { canSubmit: false, reason: `存在 ${failedCount} 条同步失败，请先处理后再提交` };
+  }
+  const pendingCount = counts.pending;
   if (pendingCount > 0) {
-    const flushed = await flushQueueForRecord(recordLocalId);
-    if (!flushed) {
+    await flushQueueForRecord(recordLocalId);
+    counts = await getRecordSubmissionSyncCounts(recordLocalId);
+    if (counts.failed > 0) {
+      return { canSubmit: false, reason: `存在 ${counts.failed} 条同步失败，请先处理后再提交` };
+    }
+    if (counts.pending > 0) {
       return { canSubmit: false, reason: `${pendingCount} 条数据待同步，网络异常无法刷新` };
     }
   }
@@ -368,9 +424,9 @@ export async function checkCanSubmitRecord(recordLocalId: string): Promise<{ can
 }
 
 // Internal: trigger immediate sync cycle
-async function triggerSyncNow(): Promise<void> {
+async function triggerSyncNow(recordLocalId?: string): Promise<void> {
   try {
-    await flushAnesthesiaSyncNow();
+    await flushAnesthesiaSyncNow(recordLocalId);
   } catch {
     // ignore — retry will happen on next cycle
   }

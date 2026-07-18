@@ -63,6 +63,11 @@ export async function persistCaseNow(
   currentPage?: number,
   meta?: RecordPersistMeta,
 ) {
+  // 显式立即保存（例如结束记录前冻结）必须取代同病例尚未执行的防抖保存，
+  // 否则旧定时器会在队列刚清空后重新写入 pending，造成提交永远追赶陈旧任务。
+  const scheduled = persistTimers.get(caseItem.id);
+  if (scheduled) clearTimeout(scheduled);
+  persistTimers.delete(caseItem.id);
   await saveCaseToLocalDb(caseItem, currentPage, meta);
   triggerAnesthesiaSyncAfterChange(meta?.entityType);
 }

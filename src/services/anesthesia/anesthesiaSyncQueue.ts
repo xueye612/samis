@@ -116,6 +116,24 @@ export async function getFailedSyncCount(recordLocalId?: string): Promise<number
   return rows.length;
 }
 
+const RECORD_SUBMISSION_NONBLOCKING_ENTITIES = new Set<SyncEntityType>(['monitor_raw', 'ventilator_raw']);
+
+/** 设备原始报文不进入不可变记录版本，可在记录冻结后继续后台追传。 */
+export function isRecordSubmissionBlockingEntity(entityType: SyncEntityType): boolean {
+  return !RECORD_SUBMISSION_NONBLOCKING_ENTITIES.has(entityType);
+}
+
+export async function getRecordSubmissionSyncCounts(recordLocalId: string): Promise<{ pending: number; failed: number }> {
+  const db = getAnesthesiaLocalDb();
+  const rows = (await db.sync_queue.toArray()).filter((row) => (
+    row.record_local_id === recordLocalId && isRecordSubmissionBlockingEntity(row.entity_type)
+  ));
+  return {
+    pending: rows.filter((row) => row.status === 'pending' || row.status === 'uploading').length,
+    failed: rows.filter((row) => row.status === 'failed').length,
+  };
+}
+
 export async function listPendingSyncItems(limit = 50, recordLocalId?: string): Promise<LocalSyncQueueRow[]> {
   const db = getAnesthesiaLocalDb();
   const now = nowIso();

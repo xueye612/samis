@@ -84,7 +84,7 @@
           >
             <div>
               <strong>{{ item.patientName }}</strong>
-              <span>{{ item.gender }} · {{ item.age }}岁</span>
+              <span>{{ item.gender }} · {{ safeAge(item.age) }}岁</span>
             </div>
             <p>{{ item.room }} · {{ item.department }}</p>
             <p>{{ item.surgeryName }}</p>
@@ -184,6 +184,7 @@
             </div>
 
             <template v-if="!toolboxCollapsed">
+            <div class="toolbox-scroll-zone">
             <div class="toolbox-pinned-zone no-print">
               <RecordRealtimeDevicePanel
                 :state="realtimeDeviceState"
@@ -196,13 +197,22 @@
                 :entries="sheetQuickActions.entries"
                 :monitor-running="syncState.monitorRunning"
                 :ventilator-running="syncState.ventilatorRunning"
+                :monitoring-paused="monitoringViewUi.monitoringPaused"
                 :conflict-count="syncState.conflictCount"
                 :show-device="recordActions.showDeviceControls && showDeviceSimulationControls && deviceRealtimeSourceReady && deviceRealtimeSource === 'simulation'"
-                @entry="handleSheetEntry"
+                :raw-interval-seconds="deviceRawIntervalSeconds"
+                :display-interval-minutes="monitorDisplayIntervalMinutes"
+                :raw-interval-options="deviceRawIntervalOptions"
+                :display-interval-options="monitorIntervalOptions"
                 @stop-pump="stopPump"
                 @open-data="openDataList"
                 @toggle-monitor="toggleMonitorMock"
                 @toggle-ventilator="toggleVentilatorMock"
+                @pause-all-devices="pauseAllDevices"
+                @resume-all-devices="resumeAllDevices"
+                @stop-all-devices="stopAllDevices"
+                @update:raw-interval-seconds="updateDeviceRawIntervalSeconds"
+                @update:display-interval-minutes="updateMonitorDisplayIntervalMinutes"
                 @import-vitals="importVitals"
                 @open-sync-detail="syncDetailVisible = true"
                 @open-conflicts="conflictPanelVisible = true"
@@ -273,6 +283,7 @@
                 v-if="showDeviceSimulationControls && deviceRealtimeSourceReady && deviceRealtimeSource === 'simulation'"
                 :sync-state="syncState"
                 :monitor-display-interval-minutes="monitorDisplayIntervalMinutes"
+                :raw-interval-seconds="deviceRawIntervalSeconds"
                 :effective-interval-minutes="effectiveMonitorIntervalMinutes"
                 :simulation-mode="deviceSimulationMode"
                 :abnormal-types="abnormalSimulationTypes"
@@ -280,13 +291,17 @@
                 :locked="current.locked"
                 :rescue-mode-active="rescueModeActive"
                 :monitor-interval-options="monitorIntervalOptions"
+                :raw-interval-options="deviceRawIntervalOptions"
                 :monitoring-view="monitoringViewUi"
-                @update:monitor-display-interval-minutes="monitorDisplayIntervalMinutes = $event"
+                @update:monitor-display-interval-minutes="updateMonitorDisplayIntervalMinutes"
+                @update:raw-interval-seconds="updateDeviceRawIntervalSeconds"
                 @update:simulation-mode="onDeviceSimulationModeChange"
                 @update:abnormal-types="onAbnormalSimulationTypesChange"
                 @import-vitals="importVitals"
                 @toggle-monitor="toggleMonitorMock"
                 @toggle-ventilator="toggleVentilatorMock"
+                @pause-all-devices="pauseAllDevices"
+                @resume-all-devices="resumeAllDevices"
                 @stop-all-devices="stopAllDevices"
                 @revoke-monitoring="revokeMonitoring"
                 @inject-test-conflict="injectTestConflict"
@@ -316,6 +331,7 @@
                 />
               </a-collapse-item>
             </a-collapse>
+            </div>
             </div>
             </template>
           </aside>
@@ -488,6 +504,7 @@ import dayjs from 'dayjs';
 import { persistCaseNow, restoreCasePageNo } from '@/services/anesthesia/anesthesiaPersistenceBridge';
 import { flushAnesthesiaSyncNow } from '@/services/anesthesia/anesthesiaSyncService';
 import { getAnesthesiaLocalDb } from '@/services/anesthesia/localDb';
+import { signRecordWithProvider } from '@/services/anesthesia/recordLifecycleClient';
 import {
   clampMonitorDisplayIntervalMinutes,
   MONITOR_DISPLAY_INTERVAL_STORAGE_KEY,
@@ -515,7 +532,7 @@ import StructuredClinicalEntitiesPanel from '@/components/anesthesia/record/Stru
 import RecordWorkstationTopbar from '@/components/anesthesia/record/RecordWorkstationTopbar.vue';
 import RecordSheetQuickStrip from '@/components/anesthesia/record/RecordSheetQuickStrip.vue';
 import { buildRecordActionVisibility, buildRecordEntryVisibility } from '@/services/anesthesia/recordActionRules';
-import { resolveSheetQuickEvents, type SheetEntryAction } from '@/services/anesthesia/recordQuickActions';
+import { resolveQuickEventTimelineNode, resolveSheetQuickEvents, type SheetEntryAction } from '@/services/anesthesia/recordQuickActions';
 import { resolveRecordSheetNowIso } from '@/services/anesthesiaRecordEngine';
 import RecordAuditPanel from '@/components/anesthesia/record/RecordAuditPanel.vue';
 import PrintPreview from '@/components/anesthesia/record/PrintPreview.vue';
@@ -527,7 +544,9 @@ import { buildDrugCatalog, buildFluidCatalog, buildVitalCatalog, buildRecordSumm
 import { buildRecordPendingFields } from '@/services/anesthesia/recordFieldCompleteness';
 import {
   readAbnormalSimulationTypes,
+  readDeviceRawIntervalSeconds,
   readDeviceSimulationMode,
+  writeDeviceRawIntervalSeconds,
   type AbnormalSimulationType,
   type DeviceSimulationMode,
 } from '@/services/anesthesia/deviceSimulationMode';
@@ -538,12 +557,16 @@ import {
 import {
   createRealtimeDevicePoller,
   emptyRealtimeDeviceState,
+  normalizeLatestDeviceData,
+  resolveDeviceFreshness,
   type RealtimeDevicePoller,
 } from '@/services/anesthesia/realtimeDeviceData';
 import {
   loadDeviceRealtimeSource,
   loadLatestSimulatedDeviceData,
   readCachedDeviceRealtimeSource,
+  shouldAutoStartMonitorOnRecordStart,
+  subscribeSimulatedDeviceDataCollected,
   type DeviceRealtimeSource,
 } from '@/services/anesthesia/deviceRealtimeSource';
 import { buildRecordReturnTarget, buildRecordRoute, normalizeRecordEntrySource } from '@/services/recordNavigation';
@@ -576,7 +599,7 @@ import { useAnesthesiaStore } from '@/stores/anesthesia';
 import { anesthesiaMethodOptions } from '@/mock/anesthesiaRecordPrototype';
 import type { AnesthesiaMethodKey, TemplateLandingItem, TemplateQualityTip } from '@/mock/anesthesiaRecordPrototype';
 import type { MethodTimelineNode } from '@/services/methodTimelineEngine';
-import { buildTimelineNodeStates, getMethodTimelineNodes } from '@/services/methodTimelineEngine';
+import { buildTimelineNodeStates, getMethodTimelineNodes, validateTimelineNodeTime } from '@/services/methodTimelineEngine';
 import type { AbnormalVitalByDictionary } from '@/services/anesthesiaRecordEngine';
 import type { QualityDefect } from '@/types/quality';
 import type { RecordRecentEntry } from '@/types/recordRecent';
@@ -614,6 +637,7 @@ const router = useRouter();
 const store = useAnesthesiaStore();
 const syncState = computed(() => store.anesthesiaSyncState);
 const monitorDisplayIntervalMinutes = ref(readMonitorDisplayIntervalMinutes());
+const deviceRawIntervalSeconds = ref(readDeviceRawIntervalSeconds());
 const deviceSimulationMode = ref<DeviceSimulationMode>(readDeviceSimulationMode());
 const abnormalSimulationTypes = ref<AbnormalSimulationType[]>(readAbnormalSimulationTypes());
 const showE2eActions = computed(() => import.meta.env.DEV || (typeof localStorage !== 'undefined' && localStorage.getItem('samis.e2e') === '1'));
@@ -632,6 +656,7 @@ const showDeviceSimulationControls = computed(() => (!useRealAnesthesiaRecord() 
   import.meta.env.DEV && import.meta.env.VITE_SAMIS_DEVICE_SIMULATION === '1'
 ));
 const monitorIntervalOptions = [1, 2, 3, 4, 5].map((value) => ({ label: `${value} 分钟/条`, value }));
+const deviceRawIntervalOptions = [2, 5, 10, 15, 30].map((value) => ({ label: `${value} 秒/次`, value }));
 watch(monitorDisplayIntervalMinutes, (value) => {
   const minutes = clampMonitorDisplayIntervalMinutes(value);
   monitorDisplayIntervalMinutes.value = minutes;
@@ -639,6 +664,18 @@ watch(monitorDisplayIntervalMinutes, (value) => {
     localStorage.setItem(MONITOR_DISPLAY_INTERVAL_STORAGE_KEY, String(minutes));
   }
 });
+const updateDeviceRawIntervalSeconds = (value: number) => {
+  deviceRawIntervalSeconds.value = writeDeviceRawIntervalSeconds(value);
+  if (selectedId.value && monitoringViewUi.value.mockTicking) {
+    store.restartDeviceMocksForInterval(selectedId.value);
+  }
+};
+const updateMonitorDisplayIntervalMinutes = (value: number) => {
+  monitorDisplayIntervalMinutes.value = clampMonitorDisplayIntervalMinutes(value);
+  if (selectedId.value && monitoringViewUi.value.mockTicking) {
+    store.restartDeviceMocksForInterval(selectedId.value);
+  }
+};
 const sheetReady = computed(() => store.localPersistenceReady && !store.isHydrating && caseSheetReady.value);
 const formatSyncTime = (value?: string) => (value ? dayjs(value).format('HH:mm:ss') : '');
 const UI_SMOKE_OPERATION_PREFIX = /^OP-E2E-(?:SCHEDULE|NATURAL)-/;
@@ -762,6 +799,8 @@ const deviceRealtimeSource = ref<DeviceRealtimeSource>(readCachedDeviceRealtimeS
 const deviceRealtimeSourceReady = ref(false);
 const realtimeDeviceState = ref(emptyRealtimeDeviceState(selectedId.value));
 let realtimeDevicePoller: RealtimeDevicePoller | null = null;
+let unsubscribeSimulatedDeviceData: (() => void) | null = null;
+let simulatedRealtimeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 const stopRealtimeDevicePolling = () => {
   realtimeDevicePoller?.stop();
   realtimeDevicePoller = null;
@@ -776,6 +815,18 @@ const restartRealtimeDevicePolling = (operationId: string) => {
     onState: (state) => { realtimeDeviceState.value = state; },
   });
   realtimeDevicePoller.start();
+};
+const refreshSimulatedRealtimeDeviceState = async (operationId: string) => {
+  const data = normalizeLatestDeviceData(await loadLatestSimulatedDeviceData(operationId));
+  if (operationId !== selectedId.value || deviceRealtimeSource.value !== 'simulation') return;
+  realtimeDeviceState.value = {
+    operationId,
+    data,
+    freshness: resolveDeviceFreshness(data),
+    loading: false,
+    error: null,
+    polledAt: new Date().toISOString(),
+  };
 };
 const activeTab = ref(String((store.recordDrafts[selectedId.value] as { selectedTab?: string } | undefined)?.selectedTab ?? 'patient'));
 const keyword = ref('');
@@ -914,6 +965,16 @@ const filteredCases = computed(() => {
 });
 const current = computed(() => store.cases.find((item) => item.id === selectedId.value));
 
+// 展示层兜底：非法年龄（NaN/空/非数字）显示为 “—”，避免患者卡片出现 “NaN岁”。
+const safeAge = (value: unknown): string => {
+  if (value === undefined || value === null) return '—';
+  const text = String(value).trim();
+  if (!text || ['nan', 'null', 'undefined'].includes(text.toLowerCase())) return '—';
+  const num = Number(text);
+  if (Number.isNaN(num) || !Number.isFinite(num) || num < 0) return '—';
+  return text;
+};
+
 const recordEmptyDescription = computed(() => {
   if (!store.cases.length) {
     return useRealOperationInfo() ? '当日手术通知单暂无数据' : '暂无麻醉记录单病例';
@@ -961,6 +1022,7 @@ const sheetQuickActions = computed(() => {
 const monitoringViewUi = computed(() => {
   // 监护会话注册表是模块级运行态；同步状态变化作为响应式版本信号，
   // 确保启动、暂停、恢复和停止后立即重新投影视图。
+  void store.monitoringSessionRevision;
   void syncState.value.monitorRunning;
   void syncState.value.ventilatorRunning;
   return resolveMonitoringViewUi(selectedId.value, getMonitoringRegistry());
@@ -1259,7 +1321,38 @@ watch(
     if (deviceRealtimeSourceReady.value && deviceRealtimeSource.value === 'simulation') void realtimeDevicePoller?.refresh();
   },
 );
+watch(
+  () => syncState.value.lastCollectTime,
+  (value, previous) => {
+    if (!value || value === previous) return;
+    if (deviceRealtimeSourceReady.value && deviceRealtimeSource.value === 'simulation') {
+      void realtimeDevicePoller?.refresh();
+    }
+  },
+);
+watch(
+  () => store.simulatedRealtimeDeviceData[selectedId.value],
+  (raw) => {
+    if (!raw || deviceRealtimeSource.value !== 'simulation') return;
+    const data = normalizeLatestDeviceData(raw);
+    realtimeDeviceState.value = {
+      operationId: selectedId.value,
+      data,
+      freshness: resolveDeviceFreshness(data),
+      loading: false,
+      error: null,
+      polledAt: new Date().toISOString(),
+    };
+  },
+  { deep: true },
+);
 onBeforeUnmount(stopRealtimeDevicePolling);
+onBeforeUnmount(() => {
+  unsubscribeSimulatedDeviceData?.();
+  unsubscribeSimulatedDeviceData = null;
+  if (simulatedRealtimeRefreshTimer) clearInterval(simulatedRealtimeRefreshTimer);
+  simulatedRealtimeRefreshTimer = null;
+});
 onBeforeUnmount(() => {
   sheetWorkbenchObserver?.disconnect();
   sheetWorkbenchObserver = null;
@@ -1305,6 +1398,18 @@ onMounted(async () => {
   deviceRealtimeSource.value = configuredDeviceSource;
   deviceRealtimeSourceReady.value = true;
   restartRealtimeDevicePolling(selectedId.value);
+  unsubscribeSimulatedDeviceData = subscribeSimulatedDeviceDataCollected((operationId) => {
+    if (operationId !== selectedId.value || deviceRealtimeSource.value !== 'simulation') return;
+    void refreshSimulatedRealtimeDeviceState(operationId).catch(() => {
+      void realtimeDevicePoller?.refresh();
+    });
+  });
+  if (configuredDeviceSource === 'simulation') {
+    simulatedRealtimeRefreshTimer = setInterval(() => {
+      if (!selectedId.value) return;
+      void refreshSimulatedRealtimeDeviceState(selectedId.value).catch(() => undefined);
+    }, 1_000);
+  }
   await loadRecordPermissions();
   if (showE2eActions.value) {
     (window as Window & { __samisAnesthesiaE2E?: Record<string, unknown> }).__samisAnesthesiaE2E = {
@@ -1395,6 +1500,16 @@ const stopAllDevices = () => {
     },
   });
 };
+const pauseAllDevices = () => {
+  const result = store.pauseAllMonitoringDevices();
+  if (!result.ok) Message.warning(result.message ?? '无法暂停采集');
+  else void realtimeDevicePoller?.refresh();
+};
+const resumeAllDevices = () => {
+  const result = store.resumeMonitoringMock(selectedId.value);
+  if (!result.ok) Message.warning(result.message ?? '无法继续采集');
+  else void realtimeDevicePoller?.refresh();
+};
 const toggleMonitorMock = () => {
   const ui = monitoringViewUi.value;
   if (ui.mockTicking && ui.hasMonitorSession) {
@@ -1452,10 +1567,44 @@ const decreaseSheetZoom = () => { userZoomed.value = true; manualSheetZoom.value
 const fitSheetWidth = () => { userZoomed.value = false; syncSheetWorkbenchWidth(); };
 const startRecord = () => {
   if (!requireCurrent()) return;
-  store.startAnesthesiaRecord(selectedId.value);
+  const result = store.startAnesthesiaRecord(selectedId.value);
+  if (!result.ok) {
+    Message.warning(result.message);
+    return;
+  }
+  if (shouldAutoStartMonitorOnRecordStart(deviceRealtimeSource.value, deviceRealtimeSourceReady.value)) {
+    const monitorResult = store.startMonitorDeviceMock(selectedId.value, monitorDisplayIntervalMinutes.value);
+    if (!monitorResult.ok) {
+      Message.warning(`记录已启动，但模拟监护仪启动失败：${monitorResult.message ?? '请手动重试'}`);
+      return;
+    }
+    void refreshSimulatedRealtimeDeviceState(selectedId.value).catch(() => undefined);
+    Message.success('记录已启动，模拟监护仪已开始采集');
+    return;
+  }
+  Message.success('记录已启动，等待真实监护仪连接');
 };
 const handleRecordPrimaryAction = () => {
   if (recordActions.value.primaryAction === 'start') startRecord();
+  if (recordActions.value.primaryAction === 'end') {
+    Modal.confirm({
+      title: '结束麻醉记录',
+      content: '结束后记录单进入待签名状态，不会替代“麻醉结束”临床事件。请确认设备采集已经停止，是否继续？',
+      okText: '结束记录',
+      okButtonProps: { status: 'danger' },
+      onOk: async () => {
+        const result = await store.endAnesthesiaRecord(
+          selectedId.value,
+          current.value ? resolveRecordSheetNowIso(current.value) : undefined,
+        );
+        if (!result.ok) {
+          Message.warning(result.message);
+          return;
+        }
+        Message.success('麻醉记录已结束，等待签名');
+      },
+    });
+  }
 };
 const importVitals = () => {
   store.importDeviceVitalsLayered(selectedId.value);
@@ -1533,26 +1682,56 @@ const unlockCurrent = () => {
   store.unlockRecord(selectedId.value, '记录单解锁后继续补记');
   Message.success('记录单已解锁，可继续修改');
 };
-const submitSignature = () => {
+const submitSignature = async () => {
   store.syncDataset();
+  if (!current.value || current.value.recordStatus !== '待签名') {
+    Message.warning('请先结束记录并生成待签名冻结版本');
+    return;
+  }
   if (qualityChecks.value.some((item) => item.status === '未通过')) {
     runQuality();
     return;
   }
-  if (current.value) {
-    current.value.signatures = {
-      ...(current.value.signatures ?? { status: '未签名' }),
-      anesthesiologist: current.value.anesthesiologist,
-      nurse: current.value.anesthesiaNurse,
-      surgeon: current.value.surgeon,
-      signedAt: dayjs().toISOString(),
-      status: '已签名',
-    };
-    current.value.recordStatus = '已锁定';
+  const signatures = current.value.signatures;
+  if (!signatures?.providerSignatureId) {
+    Message.warning('第三方电子签名服务尚未配置，记录保持待签名');
+    return;
   }
-  store.lockRecord(selectedId.value);
+  if (!signatures.revisionId || !signatures.serverSyncVersion) {
+    Message.warning('待签名冻结版本不完整，请重新读取记录');
+    return;
+  }
+
+  const signedAt = dayjs().toISOString();
+  const signedSignatures = {
+    ...signatures,
+    anesthesiologist: current.value.anesthesiologist,
+    nurse: current.value.anesthesiaNurse,
+    surgeon: current.value.surgeon,
+    signedAt,
+    status: '已签名' as const,
+  };
+  const signedCase = {
+    ...current.value,
+    signatures: signedSignatures,
+    recordStatus: '已锁定' as const,
+    locked: true,
+  };
+  const result = await signRecordWithProvider(selectedId.value, {
+    revisionId: signatures.revisionId,
+    providerSignatureId: signatures.providerSignatureId,
+    expectedSyncVersion: signatures.serverSyncVersion,
+    casePayload: signedCase,
+  });
+  if (!result.ok) {
+    Message.warning(result.message);
+    return;
+  }
+  current.value.signatures = { ...signedSignatures, serverSyncVersion: result.syncVersion, signedAt: result.signedAt ?? signedAt };
+  current.value.recordStatus = '已锁定';
+  current.value.locked = true;
   store.syncDataset();
-  Message.success('记录单已提交签名并锁定');
+  Message.success('第三方电子签名验证通过，记录单已锁定');
 };
 const printCurrent = () => {
   if (current.value) store.syncRecordDocument(selectedId.value);
@@ -1666,14 +1845,12 @@ const addEvent = (type: string) => {
     return;
   }
   const payload = buildQuickEventPayload(type, current.value, resolveRecordSheetNowIso(current.value));
-  store.appendEvent(selectedId.value, payload);
-  if (option.syncField && current.value) {
-    current.value[option.syncField] = payload.time;
-    if (option.syncField === 'roomInTime') {
-      store.syncRecordDocument(selectedId.value);
-      livePageNo.value = store.focusRecordPageByTime(selectedId.value, payload.time);
-    }
+  const timelineNode = resolveQuickEventTimelineNode(type, sheetMethodKeys.value);
+  if (timelineNode) {
+    saveTimelineNode(timelineNode, payload.time);
+    return;
   }
+  store.appendEvent(selectedId.value, payload);
   recentEventLabel.value = `${type} ${dayjs(payload.time).format('HH:mm')}`;
   selectedEventName.value = type;
   pushRecentEntry({ kind: 'event', label: type, time: payload.time, target: 'sheet-event', refId: type });
@@ -1714,6 +1891,12 @@ const saveHeaderField = (patch: {
   anesthesiaNurse?: string;
   circulatingNurses?: string;
   scrubNurses?: string;
+  fastingStatus?: NonNullable<SurgeryCase['preVisit']['fastingStatus']>;
+  preMedications?: string;
+  preoperativeConditions?: string;
+  surgeryType?: NonNullable<SurgeryCase['surgeryType']>;
+  surgeryLevel?: NonNullable<SurgeryCase['surgeryLevel']>;
+  postoperativeDiagnosis?: string;
 }) => {
   store.updateRecordHeaderField(selectedId.value, patch);
 };
@@ -1734,6 +1917,13 @@ watch(selectedMethodKeys, (keys) => {
 const saveSummaryField = (patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryFields>) => store.updateRecordSummary(selectedId.value, patch);
 const saveSummaryNotes = (patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryNotes>) => store.updateRecordSummaryNotes(selectedId.value, patch);
 const saveTimelineNode = (node: MethodTimelineNode, isoTime: string) => {
+  const record = current.value;
+  if (!record) return;
+  const validation = validateTimelineNodeTime(record, sheetMethodKeys.value, node, isoTime);
+  if (!validation.valid) {
+    Message.warning(validation.message ?? '关键时间不符合临床先后顺序');
+    return;
+  }
   const pageNo = store.applyTimelineNode(selectedId.value, node, isoTime);
   if (pageNo >= 1) livePageNo.value = pageNo;
   activeTimelineKey.value = node.key;
@@ -2145,12 +2335,17 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 .record-toolbox {
   position: sticky;
+  align-self: start;
   min-width: 0;
+  min-height: 0;
   top: var(--record-topbar-offset);
   display: grid;
-  grid-template-rows: auto auto minmax(120px, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
-  max-height: calc(100vh - var(--record-topbar-offset) - 16px);
+  /* 工具箱实际起点比 sticky 阈值低 10px；扣除该差值后，底部与视口
+     保持 16px 安全边距，避免右侧再出现一段无意义的页面滚动。 */
+  height: calc(100dvh - var(--record-topbar-offset) - 26px);
+  max-height: calc(100dvh - var(--record-topbar-offset) - 26px);
   overflow: hidden;
   padding: 8px;
   border: 1px solid #e2e8f0;
@@ -2162,28 +2357,40 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   grid-template-rows: auto;
   align-self: start;
   max-height: none;
+  height: auto;
 }
 
-/* 实时设备区 + 波形占位 + 快捷录入：常驻工具箱顶部，不随内容滚动消失 */
+/* 右栏只允许这一处纵向滚动，避免常驻区在低视口下挤死下方功能。 */
+.toolbox-scroll-zone {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-gutter: stable;
+}
+
+/* 实时设备区 + 波形占位 + 快捷录入位于单一滚动流顶部。 */
 .toolbox-pinned-zone {
-  position: relative;
-  z-index: 1;
   display: grid;
   gap: 8px;
   padding-bottom: 8px;
-  overflow: visible;
   background: rgba(255, 255, 255, 0.98);
 }
 
-/* 低频工具：工作流/关键时间/最近/事件详情/折叠组，在工具箱内继续滚动 */
+/* 低频工具与上方内容共用 toolbox-scroll-zone，不再产生第二条滚动条。 */
 .toolbox-flow-zone {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 0;
-  overflow: auto;
-  padding-right: 2px;
-  scrollbar-gutter: stable;
+  overflow: visible;
+}
+
+/* 工具箱只保留一个纵向滚动容器，关键时间列表不再制造狭窄的嵌套滚动条。 */
+.toolbox-flow-zone :deep(.timeline-rail:not(.embedded) .timeline-list) {
+  max-height: none;
+  overflow: visible;
+  scrollbar-gutter: auto;
 }
 
 .toolbox-flow-zone > * {
@@ -2291,6 +2498,7 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   .record-toolbox {
     position: static;
     max-height: none;
+    height: auto;
     overflow: visible;
     grid-template-rows: auto;
   }
@@ -2316,8 +2524,8 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 }
 
 @page {
-  size: A4 landscape;
-  margin: 4mm;
+  size: A4 portrait;
+  margin: 2mm;
 }
 
 .anesthesia-record-workstation.print-preview-active > .record-workstation-topbar,
@@ -2332,11 +2540,30 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   :global(#app) {
     width: auto !important;
     min-width: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
     margin: 0 !important;
     background: #fff !important;
   }
 
+  :global(.app-shell),
+  :global(.app-main),
+  :global(.app-content) {
+    height: auto !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
   .no-print {
+    display: none !important;
+  }
+
+  :global(.arco-message-list),
+  :global(.arco-message-wrapper),
+  :global(.arco-notification-list),
+  :global(.arco-trigger-popup),
+  :global(.arco-modal-container) {
     display: none !important;
   }
 
@@ -2348,6 +2575,7 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   .app-sider,
   .app-header,
   .app-subnav,
+  .app-footer,
   .record-workstation-topbar,
   .record-status-bar,
   .work-mode-bar,

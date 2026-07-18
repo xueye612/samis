@@ -1,9 +1,21 @@
 import { expect, type Page } from '@playwright/test';
 
 export const DEFAULT_RECORD_CASE_ID = 'case-or02';
+const isLoginPath = (pathname: string) => pathname.replace(/\/+$/, '').endsWith('/login');
 
 export async function openAnesthesiaRecord(page: Page, caseId = DEFAULT_RECORD_CASE_ID) {
   await page.goto(`/surgery/record/${caseId}`, { waitUntil: 'domcontentloaded' });
+  const bypassLoginHint = page.locator('p').filter({ hasText: /Mock 登录|登录绕过（开发模式）/ }).first();
+  // Vue 路由守卫可能在 page.goto 返回后才完成重定向，等待登录页或工作台真正渲染。
+  await page.waitForFunction(() => (
+    window.location.pathname.replace(/\/+$/, '').endsWith('/login')
+      || Boolean(document.querySelector('.anesthesia-record-workstation'))
+  ), undefined, { timeout: 15_000 });
+  if (isLoginPath(new URL(page.url()).pathname)) {
+    await expect(bypassLoginHint).toBeVisible({ timeout: 5_000 });
+    await page.getByRole('button', { name: '登录', exact: true }).click();
+    await page.waitForURL((url) => !isLoginPath(url.pathname), { timeout: 15_000 });
+  }
   await page.waitForLoadState('networkidle').catch(() => undefined);
   await expect(page.locator('.anesthesia-record-workstation')).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('.sheet-hydration-shell')).toHaveCount(0, { timeout: 45_000 });
@@ -77,13 +89,13 @@ export async function stopVentilatorMockFromWorkbench(page: Page) {
 }
 
 export async function startMonitorMockFromQuickToolbar(page: Page) {
-  const button = page.locator('.device-quick').getByRole('button', { name: '启监护仪' });
+  const button = page.locator('.device-quick').getByRole('button', { name: '启动监护仪' });
   await expect(button).toBeVisible({ timeout: 10_000 });
   await button.click();
 }
 
 export async function stopMonitorMockFromQuickToolbar(page: Page) {
-  const button = page.locator('.device-quick').getByRole('button', { name: '停监护仪' });
+  const button = page.locator('.device-quick').getByRole('button', { name: '停止监护仪' });
   await expect(button).toBeVisible({ timeout: 10_000 });
   await button.click();
 }

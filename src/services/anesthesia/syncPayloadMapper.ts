@@ -16,6 +16,7 @@ import type {
   SyncEntityType,
 } from '@/types/anesthesiaLocalDb';
 import type { SurgeryCase } from '@/types/anesthesia';
+import { toBackendDraftRecordStatus } from '@/services/anesthesia/recordStatusCodec';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -71,7 +72,7 @@ function mapRecordPayload(queueItem: LocalSyncQueueRow, row: LocalRecordRow | un
     ? queued.casePayload
     : caseItem ? buildCasePayload(caseItem) : undefined;
   return commonPayload(queueItem, cleanObject({
-    recordStatus: row?.record_status ?? queued.recordStatus,
+    recordStatus: toBackendDraftRecordStatus(row?.record_status ?? String(queued.recordStatus ?? '')),
     patientId: row?.patient_id ?? queued.patientId,
     recordStartTime: row?.record_start_time ?? queued.recordStartTime,
     recordEndTime: row?.record_end_time ?? queued.recordEndTime,

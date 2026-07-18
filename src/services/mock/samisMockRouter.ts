@@ -1022,6 +1022,28 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
       resolvedAt: new Date().toISOString(),
     }) as T;
   }
+  if (path.endsWith('/anesthesiaRecord/submitRecord') && init?.method === 'POST') {
+    const body = parseBody<{ operationId?: string; recordLocalId?: string; expectedSyncVersion?: number | string }>(init);
+    const syncVersion = Number(body.expectedSyncVersion ?? 1) + 1;
+    return buildSamisSuccess({
+      record: {
+        operationId: body.operationId,
+        recordLocalId: body.recordLocalId,
+        status: 'submitted',
+        syncVersion,
+        documentVersion: 1,
+        submittedAt: new Date().toISOString(),
+        signedAt: null,
+        archivedAt: null,
+        contentHash: `mock-hash-${body.recordLocalId ?? 'record'}`,
+      },
+      revision: {
+        revisionId: `MOCK-REV-${body.recordLocalId ?? Date.now()}`,
+        version: 1,
+        status: 'submitted',
+      },
+    }) as T;
+  }
   if (path.endsWith('/anesthesiaRecord/saveRecord') && init?.method === 'POST') {
     const body = parseBody<{ localId?: string; caseId?: string }>(init);
     return buildSamisSuccess({ localId: body.localId ?? body.caseId ?? 'local-record', serverId: nextServerId() }) as T;

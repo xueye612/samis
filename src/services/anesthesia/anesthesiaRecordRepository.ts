@@ -9,6 +9,7 @@ import type {
 import { getAnesthesiaLocalDb } from '@/services/anesthesia/localDb';
 import { ANESTHESIA_SYNC_QUEUE_API_PATH, enqueueSyncItem } from '@/services/anesthesia/anesthesiaSyncQueue';
 import { buildCasePayload } from '@/services/anesthesia/casePayload';
+import { toBackendDraftRecordStatus } from '@/services/anesthesia/recordStatusCodec';
 
 const SETTINGS_CURRENT_RECORD = 'current_record_local_id';
 const SETTINGS_CURRENT_PAGE_PREFIX = 'current_page:';
@@ -155,8 +156,9 @@ export async function saveCaseToLocalDb(
     local_id: caseItem.id,
     operation_id: caseItem.id,
     patient_id: caseItem.patientId,
-    record_status: caseItem.recordStatus,
+    record_status: toBackendDraftRecordStatus(caseItem.recordStatus),
     record_start_time: caseItem.actualStart,
+    record_end_time: caseItem.recordEndTime,
     anesthesia_start_time: caseItem.anesthesiaStart,
     anesthesia_end_time: caseItem.anesthesiaEnd,
     surgery_start_time: caseItem.surgeryStart,

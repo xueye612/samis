@@ -302,4 +302,19 @@ describe('sync payload mapper', () => {
     });
     expect((item.payload as { casePayload?: SurgeryCase }).casePayload?.vitals).toBeUndefined();
   });
+
+  it('待签名本地状态在普通同步中仍发送 recording，必须由 submitRecord 转为 submitted', async () => {
+    const db = getAnesthesiaLocalDb();
+    const row = await db.records.get('case-sync-map');
+    await db.records.put({
+      ...row!,
+      record_status: '待签名',
+      case_payload: JSON.stringify({ ...baseCase(), recordStatus: '待签名' }),
+    });
+    const item = await mapSyncQueueRowToPushBatchItem(queueRow('record', 'case-sync-map', 'update'));
+    expect(item.payload).toMatchObject({
+      recordStatus: 'recording',
+      casePayload: expect.objectContaining({ recordStatus: '待签名' }),
+    });
+  });
 });

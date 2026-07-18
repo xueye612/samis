@@ -170,6 +170,9 @@ export interface PreVisit {
   fasting: string;
   preMedication: string;
   specialCondition: string;
+  fastingStatus?: '已禁食' | '未禁食' | '禁食不足' | '不适用' | '未评估';
+  preMedications?: string[];
+  preoperativeConditions?: string[];
   plan: string;
   doctorSignature: string;
 }
@@ -191,6 +194,9 @@ export interface SurgeryCase {
   anesthesiaMethod: string;
   asa: string;
   urgency: '急诊' | '择期';
+  surgeryType?: '急诊' | '择期' | '日间';
+  surgeryLevel?: '一级' | '二级' | '三级' | '四级' | '';
+  postoperativeDiagnosis?: string;
   anesthesiologist: string;
   anesthesiaNurse: string;
   circulatingNurses?: string;
@@ -211,8 +217,10 @@ export interface SurgeryCase {
   assignedNurseIds?: string[];
   nursingScheduleSource?: string;
   emergencyInserted?: boolean;
-  recordStatus?: '未开始' | '采集中' | '补记中' | '已完成' | '已锁定';
-  collectStatus?: '未连接' | '采集中' | '手工录入' | '采集暂停';
+  recordStatus?: '未开始' | '采集中' | '补记中' | '待签名' | '已完成' | '已锁定';
+  /** 记录单生命周期结束时间；与“麻醉结束”临床时间分离。 */
+  recordEndTime?: string;
+  collectStatus?: '未连接' | '采集中' | '手工录入' | '采集暂停' | '已结束';
   vitalFrequency?: '5分钟' | '10分钟' | '抢救1分钟';
   operationLogs?: string[];
   locked: boolean;
@@ -276,6 +284,12 @@ export interface AnesthesiaRecordSignatureState {
   nurse?: string;
   reviewer?: string;
   signedAt?: string;
+  /** 后端 submitRecord 冻结的不可变版本；第三方签名时必须原样携带。 */
+  revisionId?: string;
+  documentVersion?: number;
+  serverSyncVersion?: number;
+  submittedAt?: string;
+  providerSignatureId?: string;
   status: '未签名' | '待签名' | '已签名' | '修改中';
 }
 

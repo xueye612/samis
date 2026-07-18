@@ -14,6 +14,7 @@ import type {
 } from '@/types/anesthesiaRecord';
 import { anesthesiaRecordApi } from '@/api/anesthesiaSync';
 import { emptyClinicalShell } from '@/services/anesthesia/adapters/operationInfoAdapter';
+import { fromBackendRecordStatus } from '@/services/anesthesia/recordStatusCodec';
 import { persistCaseNow } from '@/services/anesthesia/anesthesiaPersistenceBridge';
 import { loadCaseFromLocalDb } from '@/services/anesthesia/anesthesiaRecordRepository';
 import { useRealAnesthesiaRecord } from '@/config/apiFlags';
@@ -49,6 +50,7 @@ export interface RecordDetailRecord {
   localId?: string;
   serverId?: string;
   recordStatus?: string;
+  recordEndTime?: string;
   syncVersion?: number;
   recordLocked?: boolean;
   recordPrinted?: boolean;
@@ -348,8 +350,21 @@ export function reconstructCaseFromRecordDetail(
   if (labs.length) merged.labResults = labs;
 
   // 元数据覆盖（服务端权威）
-  if (detail.recordStatus) merged.recordStatus = detail.recordStatus as SurgeryCase['recordStatus'];
-  if (typeof detail.recordLocked === 'boolean') merged.locked = detail.recordLocked;
+  if (detail.recordStatus) {
+    const status = fromBackendRecordStatus(detail.recordStatus, String(casePayload.recordStatus ?? ''));
+    merged.recordStatus = status.recordStatus;
+    if (status.signatureStatus) {
+      merged.signatures = { ...(merged.signatures ?? {}), status: status.signatureStatus };
+    }
+    if (status.locked) merged.locked = true;
+  }
+  if (detail.recordEndTime) merged.recordEndTime = detail.recordEndTime;
+  if (detail.recordLocked === true) {
+    merged.locked = true;
+  } else if (detail.recordLocked === false && !['signed', 'archived'].includes(String(detail.recordStatus ?? ''))) {
+    // 生命周期状态优先于遗留布尔投影。已签名/已归档记录不能因旧字段仍为 false 被反向解锁。
+    merged.locked = false;
+  }
   if (detail.recordPrinted) merged.printedAt = merged.printedAt ?? new Date().toISOString();
   if (detail.anesthesiaMethod) merged.anesthesiaMethod = detail.anesthesiaMethod;
   merged.vitals.sort((a, b) => a.time.localeCompare(b.time));
