@@ -12,6 +12,11 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    exclude: ['node_modules/**', 'dist/**', 'e2e/**', 'test-results/**', 'playwright-report/**'],
+    // Keep the root package's Vitest run scoped to its own source tests. A
+    // separate, nested `samisWeb-ui-polish` checkout may exist beside this
+    // app; Vitest's default glob would otherwise collect that checkout's
+    // Playwright specs and duplicate test files.
+    include: ['src/**/*.{test,spec}.{js,jsx,ts,tsx}'],
+    exclude: ['node_modules/**', 'dist/**', '**/e2e/**', 'test-results/**', 'playwright-report/**'],
   },
 });
