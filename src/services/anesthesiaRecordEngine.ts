@@ -203,6 +203,7 @@ export interface MonitorCell {
   leftPercent: number;
   topPercent: number;
   abnormal: boolean;
+  abnormalDirection: '↑' | '↓' | '';
   unit: string;
 }
 
@@ -796,6 +797,11 @@ export function buildMonitorCells(
           Number.isFinite(numeric) &&
           ((typeof item.lowerLimit === 'number' && numeric < item.lowerLimit) ||
             (typeof item.upperLimit === 'number' && numeric > item.upperLimit));
+        const abnormalDirection: MonitorCell['abnormalDirection'] = Number.isFinite(numeric)
+          ? (typeof item.lowerLimit === 'number' && numeric < item.lowerLimit
+              ? '↓'
+              : (typeof item.upperLimit === 'number' && numeric > item.upperLimit ? '↑' : ''))
+          : '';
         const rawLeft = timeToPercent(row.time, timeline.start, timeline.end) + (timeline.cellOffsetPercent ?? 0);
         const leftPercent = snapMonitorBandLeftPercent(
           rawLeft,
@@ -814,6 +820,7 @@ export function buildMonitorCells(
           leftPercent: Number(Math.max(0, Math.min(100, leftPercent)).toFixed(6)),
           topPercent: monitorCellTopPercent(rowIndex, rowCount),
           abnormal,
+          abnormalDirection,
           unit: item.unit,
         }];
       }),
@@ -1139,6 +1146,10 @@ export const DEFAULT_HOSPITAL_NAME = 'SAMIS 演示医院';
 
 export function buildRecordSnapshot(record: SurgeryCase, hospitalName = DEFAULT_HOSPITAL_NAME): AnesthesiaRecordSnapshot {
   const surgeryDate = record.plannedStart ? new Date(record.plannedStart).toISOString().slice(0, 10) : '';
+  const heightCm = record.height ?? record.preVisit.height;
+  const bmi = heightCm > 0 && record.preVisit.weight > 0
+    ? Math.round((record.preVisit.weight * 10000 / (heightCm * heightCm)) * 10) / 10
+    : undefined;
   return {
     capturedAt: new Date().toISOString(),
     hospitalName,
@@ -1146,7 +1157,7 @@ export function buildRecordSnapshot(record: SurgeryCase, hospitalName = DEFAULT_
     patientName: record.patientName,
     gender: record.gender,
     age: record.age,
-    height: record.height ?? record.preVisit.height,
+    height: heightCm,
     weight: record.preVisit.weight,
     department: record.department,
     bedNo: `${record.sequence}台`,
@@ -1155,7 +1166,7 @@ export function buildRecordSnapshot(record: SurgeryCase, hospitalName = DEFAULT_
     bloodType: record.fluids.find((item) => item.bloodType)?.bloodType,
     asa: record.asa,
     diagnosisPreop: record.diagnosis,
-    diagnosisPostop: record.recordSummary?.manualOverrides?.diagnosisPostop?.value ?? record.diagnosis,
+    diagnosisPostop: record.postoperativeDiagnosis ?? record.recordSummary?.manualOverrides?.diagnosisPostop?.value,
     surgeryPlanned: record.surgeryName,
     surgeryActual: record.actualSurgeryName ?? record.surgeryName,
     anesthesiaMethod: record.anesthesiaMethod,
@@ -1169,6 +1180,12 @@ export function buildRecordSnapshot(record: SurgeryCase, hospitalName = DEFAULT_
     surgeryDate,
     preMedication: record.preVisit.preMedication,
     fasting: record.preVisit.fasting,
+    fastingStatus: record.preVisit.fastingStatus ?? (record.preVisit.fasting ? '已禁食' : '未评估'),
+    preMedications: record.preVisit.preMedications ?? record.preVisit.preMedication.split(/[；、,]/).map((item) => item.trim()).filter(Boolean),
+    preoperativeConditions: record.preVisit.preoperativeConditions ?? record.preVisit.specialCondition.split(/[；、,]/).map((item) => item.trim()).filter(Boolean),
+    surgeryType: record.surgeryType ?? record.urgency,
+    surgeryLevel: record.surgeryLevel,
+    bmi,
   };
 }
 
@@ -1237,7 +1254,11 @@ export function buildRecordSummaryFields(record: SurgeryCase): RecordSummaryFiel
     recoveryTime: recoveryTime ? isoOrClockToClock(recoveryTime) : undefined,
     destination: destination ? String(destination) : undefined,
     handoverNote: summary.handoverNote ?? record.recoveryRecord?.handoverNote,
+    handoverAt: summary.handoverAt,
+    handoverFrom: summary.handoverFrom ?? record.anesthesiologist,
+    handoverTo: summary.handoverTo ?? record.recoveryRecord?.receiver,
     completedAt: summary.completedAt,
+    notes: summary.notes,
     manualOverrides: summary.manualOverrides,
   };
 }

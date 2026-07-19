@@ -9,6 +9,15 @@ test.describe('麻醉记录单打印与状态栏', () => {
 
   test('状态栏存在且不挤压打印主体，打印媒体下隐藏', async ({ page }) => {
     const watcher = watchConsoleErrors(page);
+    await page.addInitScript(() => localStorage.setItem('samis.anesthesia.deviceRealtimeDataSource', 'simulation'));
+    await page.route('**/quality/configGet?**', async (route) => {
+      if (!route.request().url().includes('device_realtime_data_source')) return route.continue();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, message: 'ok', data: { key: 'device_realtime_data_source', value: 'simulation', scope: 'global', source: 'e2e' } }),
+      });
+    });
     await openAnesthesiaRecord(page);
     await page.evaluate(() => new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -46,6 +55,15 @@ test.describe('麻醉记录单打印与状态栏', () => {
     const watcher = watchConsoleErrors(page);
     await page.addInitScript(() => {
       localStorage.setItem('samis.e2e', '1');
+      localStorage.setItem('samis.anesthesia.deviceRealtimeDataSource', 'simulation');
+    });
+    await page.route('**/quality/configGet?**', async (route) => {
+      if (!route.request().url().includes('device_realtime_data_source')) return route.continue();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, message: 'ok', data: { key: 'device_realtime_data_source', value: 'simulation', scope: 'global', source: 'e2e' } }),
+      });
     });
     await openAnesthesiaRecord(page);
     await startMonitorMockFromQuickToolbar(page);
@@ -54,6 +72,7 @@ test.describe('麻醉记录单打印与状态栏', () => {
     await page.locator('.record-workstation-topbar .clinical-actions').getByRole('button', { name: '打印' }).click();
     await expect(page.locator('.print-preview-shell')).toBeVisible();
     await expect(page.locator('.print-preview-page').first()).toBeVisible();
+    await expect(page.locator('.print-preview-toolbar')).toContainText('A4 竖向');
 
     // 打印预览激活后隐藏顶栏、状态栏与设备辅助区
     await expect(page.locator('.record-status-bar')).toBeHidden();
@@ -81,7 +100,7 @@ test.describe('麻醉记录单打印与状态栏', () => {
       await expect(printPages, `打印末页缺少：${requiredText}`).toContainText(requiredText);
     }
 
-    // A4 横向页面必须充分利用纸面，不能把完整记录压缩成上方小块并留下大面积页底空白。
+    // A4 竖向按较短时间窗分页，禁止把完整横向时间轴整体缩小到不可读。
     const firstPageGeometry = await page.locator('.print-preview-page').first().evaluate((pageElement) => {
       const pageRect = pageElement.getBoundingClientRect();
       const field = pageElement.querySelector('.paper-field-value');
@@ -90,16 +109,24 @@ test.describe('麻醉记录单打印与状态栏', () => {
         fieldFontSize: field ? Number.parseFloat(getComputedStyle(field).fontSize) : 0,
       };
     });
-    const lastPageGeometry = await page.locator('.print-preview-page').last().evaluate((pageElement) => {
-      const pageRect = pageElement.getBoundingClientRect();
-      const footerRect = pageElement.querySelector('.record-footer-summary')?.getBoundingClientRect();
-      return { bottomGap: footerRect ? pageRect.bottom - footerRect.bottom : Number.POSITIVE_INFINITY };
-    });
-    expect(firstPageGeometry.aspect).toBeGreaterThan(1.38);
-    expect(firstPageGeometry.aspect).toBeLessThan(1.45);
-    expect(lastPageGeometry.bottomGap, '末页签名区溢出 A4 纸张底部').toBeGreaterThanOrEqual(0);
-    expect(lastPageGeometry.bottomGap).toBeLessThan(55);
+    expect(firstPageGeometry.aspect).toBeGreaterThan(0.68);
+    expect(firstPageGeometry.aspect).toBeLessThan(0.74);
     expect(firstPageGeometry.fieldFontSize).toBeGreaterThanOrEqual(9.5);
+    const previewPageCount = await page.locator('.print-preview-page').count();
+    expect(previewPageCount).toBeGreaterThan(1);
+    await expect(page.locator('.print-preview-page .record-header')).toHaveCount(previewPageCount);
+    await expect(page.locator('.print-preview-page .record-footer-summary')).toHaveCount(1);
+    await expect(page.locator('.print-preview-page').last().locator('.record-footer-summary')).toBeVisible();
+
+    // 真正调用 Chromium 打印引擎，防止 DOM 预览看似一页、物理打印却把页脚拆成第二张残页。
+    const pdf = await page.pdf({
+      format: 'A4',
+      landscape: false,
+      printBackground: true,
+      margin: { top: '2mm', right: '2mm', bottom: '2mm', left: '2mm' },
+    });
+    const physicalPageCount = (pdf.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length;
+    expect(physicalPageCount, '物理打印页数必须与竖版预览页数一致').toBe(previewPageCount);
 
     fs.mkdirSync(path.resolve('test-results/record-design'), { recursive: true });
     await printPage.screenshot({ path: path.resolve('test-results/record-design/record-print-a4-page-1.png') });
@@ -114,9 +141,12 @@ test.describe('麻醉记录单打印与状态栏', () => {
       localStorage.setItem('samis.e2e', '1');
     });
     await openAnesthesiaRecord(page);
+    await expect.poll(() => page.evaluate(() => (
+      typeof (window as Window & { __samisAnesthesiaE2E?: { injectConflict?: unknown } }).__samisAnesthesiaE2E?.injectConflict
+    )), { timeout: 15_000 }).toBe('function');
     await page.evaluate(async () => {
       const api = (window as Window & { __samisAnesthesiaE2E?: { injectConflict?: () => Promise<void> } }).__samisAnesthesiaE2E;
-      await api?.injectConflict?.();
+      await api!.injectConflict!();
     });
 
     const beforeBox = await getRecordSheetBox(page);

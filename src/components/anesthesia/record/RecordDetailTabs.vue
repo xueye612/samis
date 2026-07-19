@@ -2,7 +2,7 @@
   <a-tabs v-model:active-key="activeKey" class="record-detail-tabs" lazy-load>
     <a-tab-pane key="patient" title="患者信息">
       <a-descriptions :column="3" bordered>
-        <a-descriptions-item label="患者">{{ record.patientName }} {{ record.gender }} {{ record.age }}岁</a-descriptions-item>
+        <a-descriptions-item label="患者">{{ record.patientName }} {{ record.gender }} {{ formatAge(record.age) }}</a-descriptions-item>
         <a-descriptions-item label="住院号">{{ record.patientId ?? record.id }}</a-descriptions-item>
         <a-descriptions-item label="科室">{{ record.department }}</a-descriptions-item>
         <a-descriptions-item label="诊断">{{ record.diagnosis }}</a-descriptions-item>
@@ -36,7 +36,7 @@
           </a-table-column>
           <a-table-column v-for="item in vitalItems" :key="item.shortCode" :title="item.shortCode" :width="86">
             <template #cell="{ record: row }">
-              <a-tag v-if="isAbnormal(row, item)" color="red">{{ row[item.shortCode] }}</a-tag>
+              <a-tag v-if="isAbnormal(row, item)" color="red">{{ row[item.shortCode] }}{{ abnormalDirection(row, item) }}</a-tag>
               <span v-else>{{ row[item.shortCode] ?? '-' }}</span>
             </template>
           </a-table-column>
@@ -176,6 +176,10 @@ const fluidOptions = computed(() => props.fluidItems.filter((item) => item.enabl
 const sortedEvents = computed(() => [...props.record.events].sort((a, b) => a.time.localeCompare(b.time)));
 
 const formatTime = (value?: string) => (value ? dayjs(value).format('HH:mm') : '');
+const formatAge = (value: unknown) => {
+  const age = Number(value);
+  return Number.isFinite(age) && age >= 0 ? `${age}岁` : '—';
+};
 const medicationTime = (row: MedicationRecord) => {
   const start = formatTime(row.startTime ?? row.time) || '-';
   return row.mode === '持续泵入' ? `${start} - ${formatTime(row.stopTime ?? row.endTime) || '进行中'}` : start;
@@ -191,6 +195,13 @@ const eventTime = (type: string) => formatTime(props.record.events.find((item) =
 const isAbnormal = (row: VitalSign, item: VitalSignDictItem) => {
   const value = row[item.shortCode as keyof VitalSign];
   return typeof value === 'number' && ((typeof item.lowerLimit === 'number' && value < item.lowerLimit) || (typeof item.upperLimit === 'number' && value > item.upperLimit));
+};
+const abnormalDirection = (row: VitalSign, item: VitalSignDictItem) => {
+  const value = Number(row[item.shortCode as keyof VitalSign]);
+  if (!Number.isFinite(value)) return '';
+  if (typeof item.lowerLimit === 'number' && value < item.lowerLimit) return '↓';
+  if (typeof item.upperLimit === 'number' && value > item.upperLimit) return '↑';
+  return '';
 };
 const qualityColor = (status: string) => status === '通过' ? 'green' : status === '警告' ? 'orange' : 'red';
 </script>

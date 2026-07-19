@@ -6,6 +6,7 @@ import {
   parseNumberedNoteLines,
   stripClockFromNoteContent,
   upsertTimedKeyOperationLine,
+  updateNumberedNoteLineClock,
 } from '@/utils/numberedNotes';
 
 describe('numberedNotes', () => {
@@ -48,5 +49,10 @@ describe('numberedNotes', () => {
   it('updates and renumbers duplicate timed key operation notes', () => {
     expect(upsertTimedKeyOperationLine('1. 08:48 手术开始\n2. 08:48 手术开始\n3. 10:05 离室', '手术开始', '09:00'))
       .toBe('1. 09:00 手术开始\n2. 10:05 离室');
+  });
+
+  it('moves a numbered key operation to a new clock without losing its text', () => {
+    expect(updateNumberedNoteLineClock('1. 09:10 麻醉开始\n2. 09:30 插管', 2, '09:42'))
+      .toBe('1. 09:10 麻醉开始\n2. 09:42 插管');
   });
 });

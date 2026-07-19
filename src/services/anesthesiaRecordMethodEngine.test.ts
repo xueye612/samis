@@ -451,7 +451,7 @@ describe('anesthesiaRecordMethodEngine', () => {
     expect(printBlock).toContain('.record-toolbox');
     expect(printBlock).toContain('.record-detail-tabs');
     expect(anesthesiaRecordViewSource).toContain('@page');
-    expect(anesthesiaRecordViewSource).toContain('A4 landscape');
+    expect(anesthesiaRecordViewSource).toContain('A4 portrait');
     expect(printBlock).toContain('display: none !important');
     expect(anesthesiaRecordViewSource).toContain('<LiveAnesthesiaSheet');
     expect(anesthesiaRecordViewSource).toContain('class="sheet-workbench"');

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { RecordSummaryFields } from '@/types/anesthesiaRecord';
+import { normalizeSingleHandoverPerson, splitHandoverPersonnel } from '@/services/anesthesia/handoverPersonnel';
 
 const props = defineProps<{
   summary: RecordSummaryFields;
@@ -13,6 +14,8 @@ const props = defineProps<{
   readOnly?: boolean;
   printMode?: boolean;
   compact?: boolean;
+  handoverFromOptions?: string[];
+  handoverToOptions?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -20,9 +23,16 @@ const emit = defineEmits<{
   'update:destination': [value: string];
   'update:analgesiaMethod': [value: string];
   'update:handoverNote': [value: string];
+  'update:handoverAt': [value: string];
+  'update:handoverFrom': [value: string];
+  'update:handoverTo': [value: string];
 }>();
 
 const effectOptions = ['优', '良', '差'] as const;
+const singleHandoverFromOptions = computed(() => splitHandoverPersonnel(props.handoverFromOptions ?? []));
+const singleHandoverToOptions = computed(() => splitHandoverPersonnel(props.handoverToOptions ?? []));
+const selectedHandoverFrom = computed(() => normalizeSingleHandoverPerson(props.summary.handoverFrom));
+const selectedHandoverTo = computed(() => normalizeSingleHandoverPerson(props.summary.handoverTo));
 
 const inputItems = computed(() => [
   { label: '晶体', value: props.summary.crystalTotal ?? 0 },
@@ -51,6 +61,9 @@ const onFieldUpdate = (key: string, value: string) => {
   if (key === 'destination') emit('update:destination', value);
   if (key === 'analgesiaMethod') emit('update:analgesiaMethod', value);
   if (key === 'handoverNote') emit('update:handoverNote', value);
+  if (key === 'handoverAt') emit('update:handoverAt', value);
+  if (key === 'handoverFrom') emit('update:handoverFrom', value);
+  if (key === 'handoverTo') emit('update:handoverTo', value);
 };
 </script>
 
@@ -135,14 +148,15 @@ const onFieldUpdate = (key: string, value: string) => {
 
       <div class="footer-field">
         <label>去向</label>
-        <input
+        <select
           v-if="!readOnly && !printMode"
           class="footer-input"
-          type="text"
           :value="summary.destination ?? ''"
-          placeholder="未记录"
-          @input="onFieldUpdate('destination', ($event.target as HTMLInputElement).value)"
+          @change="onFieldUpdate('destination', ($event.target as HTMLSelectElement).value)"
         >
+          <option value="">未记录</option>
+          <option v-for="item in ['PACU', 'ICU', '病房', '日间病房', '留观']" :key="item" :value="item">{{ item }}</option>
+        </select>
         <span v-else class="footer-value">{{ summary.destination || '未记录' }}</span>
       </div>
 
@@ -169,7 +183,49 @@ const onFieldUpdate = (key: string, value: string) => {
         <span class="footer-value">{{ summary.extubationTime ?? '未记录' }}</span>
       </div>
 
-      <div class="footer-field">
+      <div class="footer-handover-row" data-testid="record-handover-row">
+        <div class="footer-field">
+          <label>交班时间</label>
+          <input
+            v-if="!readOnly && !printMode"
+            class="footer-input"
+            type="time"
+            :value="summary.handoverAt ?? ''"
+            @input="onFieldUpdate('handoverAt', ($event.target as HTMLInputElement).value)"
+          >
+          <span v-else class="footer-value">{{ summary.handoverAt || '未记录' }}</span>
+        </div>
+
+        <div class="footer-field">
+          <label>交班人</label>
+          <select
+            v-if="!readOnly && !printMode"
+            class="footer-input"
+            :value="selectedHandoverFrom"
+            @change="onFieldUpdate('handoverFrom', ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="">请选择</option>
+            <option v-for="item in singleHandoverFromOptions" :key="item" :value="item">{{ item }}</option>
+          </select>
+          <span v-else class="footer-value">{{ selectedHandoverFrom || '未记录' }}</span>
+        </div>
+
+        <div class="footer-field">
+          <label>接班人</label>
+          <select
+            v-if="!readOnly && !printMode"
+            class="footer-input"
+            :value="selectedHandoverTo"
+            @change="onFieldUpdate('handoverTo', ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="">请选择</option>
+            <option v-for="item in singleHandoverToOptions" :key="item" :value="item">{{ item }}</option>
+          </select>
+          <span v-else class="footer-value">{{ selectedHandoverTo || '未记录' }}</span>
+        </div>
+      </div>
+
+      <div class="footer-field footer-field-wide">
         <label>交班情况</label>
         <input
           v-if="!readOnly && !printMode"
@@ -359,6 +415,17 @@ const onFieldUpdate = (key: string, value: string) => {
   background: #f8fafc;
 }
 
+.footer-field-wide {
+  grid-column: span 2;
+}
+
+.footer-handover-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
 .footer-field label {
   color: #475569;
   font-size: 11px;
@@ -460,7 +527,8 @@ const onFieldUpdate = (key: string, value: string) => {
 
 @media (max-width: 900px) {
   .footer-io-row,
-  .footer-fields {
+  .footer-fields,
+  .footer-handover-row {
     grid-template-columns: 1fr;
   }
 }

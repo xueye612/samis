@@ -56,9 +56,10 @@
 
       <div class="clinical-actions">
         <a-button
-          v-if="actions.showStartRecord"
+          v-if="actions.primaryAction !== 'none'"
           size="small"
           :type="actions.primaryType"
+          :status="actions.primaryAction === 'end' ? 'danger' : undefined"
           @click="$emit('primary-action')"
         >
           {{ actions.primaryLabel }}

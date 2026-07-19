@@ -7,6 +7,11 @@ import type { DrugDictItem, FluidBloodDictItem, VitalSignDictItem } from '@/type
 import type { AnesthesiaMethodKey, TemplateImpact } from '@/mock/anesthesiaRecordPrototype';
 import type { DynamicModuleEntry } from '@/mock/anesthesiaRecordPrototype';
 import type { SurgeryCase } from '@/types/anesthesia';
+import { resolveTimeAxisIntervals } from '@/services/anesthesiaRecordEngine';
+import {
+  buildRecordPagination,
+  PORTRAIT_PRINT_PAGE_DURATION_MINUTES,
+} from '@/services/recordPaginationEngine';
 
 const props = defineProps<{
   record: SurgeryCase;
@@ -47,6 +52,15 @@ const handlePrimaryAction = () => {
   if (props.record.locked) emit('print');
   else emit('confirmPrint');
 };
+const portraitPages = computed(() => {
+  const intervals = resolveTimeAxisIntervals(props.record);
+  return buildRecordPagination(props.record, {
+    pageDurationMinutes: PORTRAIT_PRINT_PAGE_DURATION_MINUTES,
+    minorInterval: intervals.minorInterval,
+    majorInterval: intervals.majorInterval,
+    minimumFirstPageMinutes: PORTRAIT_PRINT_PAGE_DURATION_MINUTES,
+  }).pages;
+});
 </script>
 
 <template>
@@ -54,7 +68,7 @@ const handlePrimaryAction = () => {
     <header class="print-preview-toolbar no-print">
       <div>
         <strong>打印预览</strong>
-        <span>共 {{ record.recordDocument?.pageCount ?? 1 }} 页 · A4 横向 · 签名区在第 {{ record.recordDocument?.pageCount ?? 1 }} 页</span>
+        <span>共 {{ portraitPages.length }} 页 · A4 竖向 · 签名区在第 {{ portraitPages.length }} 页</span>
         <span v-if="layoutWarningCount" class="warn-chip">布局提示 {{ layoutWarningCount }} 项</span>
       </div>
       <div class="actions">
@@ -74,8 +88,8 @@ const handlePrimaryAction = () => {
 
     <div class="print-preview-pages">
       <LiveAnesthesiaSheet
-        v-for="pageNo in (record.recordDocument?.pageCount ?? 1)"
-        :key="`preview-page-${pageNo}`"
+        v-for="page in portraitPages"
+        :key="`preview-page-${page.pageNo}`"
         class="print-preview-page"
         :record="record"
         :vitals="vitals"
@@ -86,7 +100,8 @@ const handlePrimaryAction = () => {
         :transfusion-reactions="transfusionReactions"
         :monitor-order="monitorOrder"
         :read-only="true"
-        :page-no="pageNo"
+        :page-no="page.pageNo"
+        :page-config="page"
         :print-mode="true"
         :show-anesthesia-plane="showAnesthesiaPlane"
         :section-visibility="sectionVisibility"
@@ -200,7 +215,7 @@ const handlePrimaryAction = () => {
 }
 
 .print-preview-pages {
-  max-width: 1123px;
+  max-width: 794px;
   margin: 0 auto;
   display: grid;
   gap: 16px;
@@ -208,18 +223,23 @@ const handlePrimaryAction = () => {
 }
 
 .print-preview-page {
-  width: 1123px;
+  width: 794px;
   max-width: 100%;
-  min-height: 794px;
+  min-height: 1123px;
   background: #fff;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   page-break-after: always;
   break-after: page;
 }
 
+.print-preview-page:last-child {
+  page-break-after: auto;
+  break-after: auto;
+}
+
 @page {
-  size: A4 landscape;
-  margin: 4mm;
+  size: A4 portrait;
+  margin: 2mm;
 }
 
 @media print {

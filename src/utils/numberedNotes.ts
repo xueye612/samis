@@ -95,6 +95,17 @@ export function normalizeNumberedNotes(text?: string): string {
   return parsed.map((item) => `${item.index}. ${item.content}`).join('\n');
 }
 
+export function updateNumberedNoteLineClock(text: string | undefined, lineIndex: number, clock: string): string {
+  return parseNumberedNoteLines(text)
+    .map((line, offset) => {
+      const content = line.index === lineIndex
+        ? `${clock} ${line.displayContent || stripClockFromNoteContent(line.content)}`.trim()
+        : line.content;
+      return `${offset + 1}. ${content}`;
+    })
+    .join('\n');
+}
+
 export function upsertTimedKeyOperationLine(
   notes: string | undefined,
   label: string,

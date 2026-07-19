@@ -393,6 +393,19 @@ describe('anesthesiaRecordEngine printable chart layout', () => {
     expect(cells.find((item) => item.metric === 'SBP')?.value).toBe(130);
   });
 
+  it('marks high and low vital values with explicit direction arrows from dictionary limits', () => {
+    const item = { ...vitals[0], shortCode: 'SBP', lowerLimit: 90, upperLimit: 140 };
+    const cells = buildMonitorCells([
+      { id: 'low', time: '09:00', SBP: 80 },
+      { id: 'high', time: '09:05', SBP: 160 },
+      { id: 'normal', time: '09:10', SBP: 120 },
+    ], [item], ['SBP'], { start: '08:00', end: '10:00' });
+
+    expect(cells.find((cell) => cell.value === 80)?.abnormalDirection).toBe('↓');
+    expect(cells.find((cell) => cell.value === 160)?.abnormalDirection).toBe('↑');
+    expect(cells.find((cell) => cell.value === 120)?.abnormalDirection).toBe('');
+  });
+
   it('moves monitor item order with stable boundaries', () => {
     expect(moveMonitorItemOrder(['HR', 'SBP', 'DBP'], 'SBP', 'up')).toEqual(['SBP', 'HR', 'DBP']);
     expect(moveMonitorItemOrder(['HR', 'SBP', 'DBP'], 'DBP', 'down')).toEqual(['HR', 'SBP', 'DBP']);
@@ -493,8 +506,27 @@ describe('anesthesiaRecordEngine printable chart layout', () => {
   });
 
   it('builds record snapshot and print preflight checks', () => {
-    const snapshot = buildRecordSnapshot(anesthesiaCases[0]);
+    const record = structuredClone(anesthesiaCases[0]);
+    record.preVisit.fastingStatus = '禁食不足';
+    record.preVisit.preMedications = ['阿托品 0.5mg', '咪达唑仑 2mg'];
+    record.preVisit.preoperativeConditions = ['高血压', '高脂血症'];
+    record.surgeryType = '日间';
+    record.surgeryLevel = '三级';
+    record.postoperativeDiagnosis = '术中确认诊断';
+    record.preVisit.height = 160;
+    record.height = 160;
+    record.preVisit.weight = 80;
+    const snapshot = buildRecordSnapshot(record);
     expect(snapshot.patientName).toBeTruthy();
+    expect(snapshot).toMatchObject({
+      fastingStatus: '禁食不足',
+      preMedications: ['阿托品 0.5mg', '咪达唑仑 2mg'],
+      preoperativeConditions: ['高血压', '高脂血症'],
+      surgeryType: '日间',
+      surgeryLevel: '三级',
+      diagnosisPostop: '术中确认诊断',
+      bmi: 31.3,
+    });
     const checks = runPrintPreflightChecks(anesthesiaCases[0], []);
     expect(checks.some((item) => item.item === '页码连续')).toBe(true);
   });

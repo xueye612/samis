@@ -7,6 +7,7 @@ import {
   isTimeOnPage,
   resolveRecordAxisStart,
   resolveRecordPageNoForTime,
+  PORTRAIT_PRINT_PAGE_DURATION_MINUTES,
 } from '@/services/recordPaginationEngine';
 import { clockToMinutes, roundAxisStartTime } from '@/services/anesthesiaRecordEngine';
 
@@ -70,6 +71,21 @@ describe('recordPaginationEngine', () => {
     expect(axisStart).toBe('07:30');
     expect(pages.length).toBeGreaterThan(1);
     expect(pages[1].pageStartTime).toBe(pages[0].pageEndTime);
+  });
+
+  it('uses a narrower continuous time window for A4 portrait printing', () => {
+    const record = baseCase();
+    record.surgeryEnd = '2026-05-30T13:40:00';
+    const live = buildRecordPagination(record, { pageDurationMinutes: 210 });
+    const portrait = buildRecordPagination(record, {
+      pageDurationMinutes: PORTRAIT_PRINT_PAGE_DURATION_MINUTES,
+    });
+    expect(PORTRAIT_PRINT_PAGE_DURATION_MINUTES).toBe(120);
+    expect(portrait.pages.length).toBeGreaterThan(live.pages.length);
+    portrait.pages.forEach((page, index) => {
+      expect(page.pageDurationMinutes).toBe(120);
+      if (index > 0) expect(page.pageStartTime).toBe(portrait.pages[index - 1].pageEndTime);
+    });
   });
 
   it('clips cross-page segments', () => {

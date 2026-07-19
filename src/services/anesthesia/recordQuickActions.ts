@@ -8,6 +8,7 @@ import {
 } from '@/services/anesthesiaRecordMethodEngine';
 import { quickEventOptions } from '@/mock/anesthesiaRecordPrototype';
 import { buildRecordEntryVisibility, type RecordEntryVisibility } from './recordActionRules';
+import { getMethodTimelineNodes, type MethodTimelineNode } from '@/services/methodTimelineEngine';
 
 /** 纸面快捷条外露事件（临床里程碑 + 常见异常） */
 export const SHEET_PRIMARY_EVENT_NAMES = [
@@ -132,4 +133,14 @@ export function syncNeedsAttention(sync: AnesthesiaSyncState): boolean {
 
 export function quickEventLabel(name: string): string {
   return getQuickEventOption(name).name;
+}
+
+/** 带权威时间字段的快捷事件复用时间轴节点，避免绕过临床先后校验。 */
+export function resolveQuickEventTimelineNode(
+  name: string,
+  methods: AnesthesiaMethodKey[],
+): MethodTimelineNode | undefined {
+  const option = getQuickEventOption(name);
+  if (!option.syncField) return undefined;
+  return getMethodTimelineNodes(methods).find((node) => node.syncField === option.syncField);
 }

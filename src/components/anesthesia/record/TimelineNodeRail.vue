@@ -27,16 +27,17 @@
           <button
             type="button"
             class="timeline-node-embedded"
-            :class="{ recorded: node.recorded, active: activeKey === node.key, disabled: locked }"
+            :class="{ recorded: node.recorded, active: activeKey === node.key, disabled: locked, dragging: dragKey === node.key }"
             :style="{
-              left: `${node.displayPercent}%`,
+              left: `${nodeDisplayPercent(node)}%`,
               transform: `translate(-50%, calc(-50% + ${node.lane * laneStepPx}px))`,
             }"
             :disabled="locked"
+            @pointerdown.stop="startDrag($event, node)"
             @click.stop="openPopover(node)"
           >
             <em>{{ node.label }}</em>
-            <strong>{{ node.recorded ? formatTimelineClock(node.time) : '+' }}</strong>
+            <strong>{{ nodeDisplayClock(node) }}</strong>
           </button>
           <template #content>
             <div class="timeline-popover">
@@ -111,10 +112,10 @@
 
 <script setup lang="ts">
 import dayjs from 'dayjs';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { buildRecordBandGrid, buildLiveTimeScale, timeToPercent } from '@/services/anesthesiaRecordEngine';
 import { resolveTimelineNodeLanes } from '@/services/recordLayoutEngine';
-import { buildTimelineNodeStates, buildRecordClockIso, buildRecordNowIso, formatTimelineClock, type MethodTimelineNode } from '@/services/methodTimelineEngine';
+import { buildTimelineNodeStates, buildRecordClockIso, buildRecordNowIso, formatTimelineClock, resolveTimelineDragIso, type MethodTimelineNode } from '@/services/methodTimelineEngine';
 import type { AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
 import type { SurgeryCase } from '@/types/anesthesia';
 
@@ -144,6 +145,13 @@ const emit = defineEmits<{
 const trackRef = ref<HTMLElement | null>(null);
 const popoverKey = ref('');
 const editorTime = ref('');
+const dragKey = ref('');
+const dragPercent = ref(0);
+const dragIso = ref('');
+let dragStartX = 0;
+let dragMoved = false;
+let dragNode: MethodTimelineNode | null = null;
+let suppressClick = false;
 
 const nodes = computed(() => buildTimelineNodeStates(props.record, props.methodKeys));
 
@@ -182,13 +190,85 @@ const timelineBandStyle = computed(() => ({
 }));
 const laneStepPx = 28;
 
+const nodeDisplayPercent = (node: { key: string; displayPercent: number }) => (
+  dragKey.value === node.key ? dragPercent.value : node.displayPercent
+);
+
+const nodeDisplayClock = (node: { key: string; recorded: boolean; time?: string }) => {
+  if (dragKey.value === node.key && dragIso.value) return formatTimelineClock(dragIso.value);
+  return node.recorded ? formatTimelineClock(node.time) : '+';
+};
+
 const buildIsoTime = (clock: string) => buildRecordClockIso(props.record, clock);
 
 const openPopover = (node: MethodTimelineNode & { time?: string }) => {
-  if (props.locked) return;
+  if (props.locked || suppressClick) return;
   popoverKey.value = node.key;
   editorTime.value = node.time ? dayjs(node.time).format('HH:mm') : dayjs(buildRecordNowIso(props.record)).format('HH:mm');
   emit('focus', node);
+};
+
+const removeDragListeners = () => {
+  window.removeEventListener('pointermove', moveDrag);
+  window.removeEventListener('pointerup', finishDrag);
+  window.removeEventListener('pointercancel', cancelDrag);
+};
+
+const updateDrag = (clientX: number) => {
+  const rect = trackRef.value?.getBoundingClientRect();
+  if (!rect || !dragNode) return;
+  dragPercent.value = Math.max(0, Math.min(100, ((clientX - rect.left) / Math.max(1, rect.width)) * 100));
+  dragIso.value = resolveTimelineDragIso(
+    props.record,
+    clientX,
+    { left: rect.left, width: rect.width },
+    props.sheetStart || timeScale.value.start,
+    props.sheetEnd || timeScale.value.end,
+  );
+};
+
+function moveDrag(event: PointerEvent) {
+  if (!dragNode) return;
+  dragMoved = dragMoved || Math.abs(event.clientX - dragStartX) >= 3;
+  if (dragMoved) updateDrag(event.clientX);
+}
+
+function resetDrag() {
+  dragKey.value = '';
+  dragIso.value = '';
+  dragNode = null;
+  dragMoved = false;
+  removeDragListeners();
+}
+
+function finishDrag(event: PointerEvent) {
+  if (!dragNode) return;
+  const node = dragNode;
+  if (dragMoved) {
+    updateDrag(event.clientX);
+    const iso = dragIso.value;
+    suppressClick = true;
+    if (iso) emit('save', node, iso);
+    window.setTimeout(() => { suppressClick = false; }, 0);
+  }
+  resetDrag();
+}
+
+function cancelDrag() {
+  resetDrag();
+}
+
+const startDrag = (event: PointerEvent, node: MethodTimelineNode & { displayPercent: number; time?: string }) => {
+  if (props.locked || !props.embedded || !trackRef.value) return;
+  dragNode = node;
+  dragKey.value = node.key;
+  dragPercent.value = node.displayPercent;
+  dragIso.value = node.time || buildRecordNowIso(props.record);
+  dragStartX = event.clientX;
+  dragMoved = false;
+  window.addEventListener('pointermove', moveDrag);
+  window.addEventListener('pointerup', finishDrag);
+  window.addEventListener('pointercancel', cancelDrag);
 };
 
 const onPopoverVisible = (key: string, visible: boolean) => {
@@ -209,7 +289,10 @@ const saveNow = (node: MethodTimelineNode) => {
 
 watch(() => props.record.id, () => {
   popoverKey.value = '';
+  resetDrag();
 });
+
+onBeforeUnmount(resetDrag);
 
 defineExpose({ trackRef });
 </script>
@@ -287,7 +370,18 @@ defineExpose({ trackRef });
   box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
   transform: translate(-50%, -50%);
   cursor: pointer;
+  touch-action: none;
   text-align: center;
+}
+
+.timeline-node-embedded:not(.disabled) {
+  cursor: grab;
+}
+
+.timeline-node-embedded.dragging {
+  z-index: 8;
+  cursor: grabbing;
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 25%);
 }
 
 .timeline-node-embedded em {
@@ -337,8 +431,8 @@ defineExpose({ trackRef });
 .timeline-rail:not(.embedded) .timeline-list {
   display: grid;
   gap: 0;
-  max-height: min(420px, calc(100vh - 220px));
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   padding: 2px 0;
 }
 

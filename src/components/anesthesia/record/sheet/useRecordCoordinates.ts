@@ -8,6 +8,7 @@ import {
   timeToPercent,
 } from '@/services/anesthesiaRecordEngine';
 import { buildRecordPagination, clipSegmentToPage } from '@/services/recordPaginationEngine';
+import type { TimeAxisPageConfig } from '@/types/anesthesiaRecord';
 
 /**
  * 坐标层（time / grid 坐标换算）。
@@ -18,7 +19,11 @@ import { buildRecordPagination, clipSegmentToPage } from '@/services/recordPagin
  * - 业务带、趋势图、交互层都复用同一套坐标，避免重复实现导致错位；
  * - 接入后端/设备采集数据时，坐标换算逻辑可单独测试与替换。
  */
-export function useRecordCoordinates(getRecord: () => SurgeryCase, getPageNo: () => number) {
+export function useRecordCoordinates(
+  getRecord: () => SurgeryCase,
+  getPageNo: () => number,
+  getPageConfig?: () => TimeAxisPageConfig | undefined,
+) {
   const pagination = computed(() => {
     const record = getRecord();
     const intervals = resolveTimeAxisIntervals(record);
@@ -29,6 +34,8 @@ export function useRecordCoordinates(getRecord: () => SurgeryCase, getPageNo: ()
   });
 
   const currentPage = computed(() => {
+    const override = getPageConfig?.();
+    if (override) return override;
     const record = getRecord();
     const intervals = resolveTimeAxisIntervals(record);
     const livePages = pagination.value.pages;

@@ -37,11 +37,12 @@
             </strong>
             <a-button
               v-if="!locked"
-              size="mini"
-              type="text"
+              size="small"
+              :type="monitorStatusLabel === '运行中' ? 'outline' : 'primary'"
+              :status="monitorStatusLabel === '运行中' ? 'danger' : 'normal'"
               @click="emit('toggle-monitor')"
             >
-              {{ monitorActionLabel }}
+              {{ monitorActionLabel }}监护仪
             </a-button>
           </div>
           <div class="device-line" data-device="ventilator">
@@ -51,22 +52,39 @@
             </strong>
             <a-button
               v-if="!locked"
-              size="mini"
-              type="text"
+              size="small"
+              :type="ventilatorStatusLabel === '运行中' ? 'outline' : 'primary'"
+              :status="ventilatorStatusLabel === '运行中' ? 'danger' : 'normal'"
               @click="emit('toggle-ventilator')"
             >
-              {{ ventilatorActionLabel }}
+              {{ ventilatorActionLabel }}呼吸机
             </a-button>
           </div>
         </div>
 
         <div class="device-meta-row">
           <span class="meta-item">最近采集 <strong>{{ lastCollectLabel }}</strong></span>
-          <span class="interval-chip">采样 {{ effectiveIntervalMinutes }} 分钟/条</span>
+          <span class="interval-chip">入单 {{ effectiveIntervalMinutes }} 分钟/条</span>
         </div>
 
         <div class="device-actions-compact">
           <a-button size="mini" :disabled="locked" @click="emit('import-vitals')">同步设备</a-button>
+          <a-button
+            v-if="anyDeviceRunning && !locked"
+            size="mini"
+            status="warning"
+            @click="emit('pause-all-devices')"
+          >
+            暂停采集
+          </a-button>
+          <a-button
+            v-if="monitoringView?.monitoringPaused && !locked"
+            size="mini"
+            type="primary"
+            @click="emit('resume-all-devices')"
+          >
+            继续采集
+          </a-button>
           <a-button
             v-if="anyDeviceSession && !locked"
             size="mini"
@@ -146,7 +164,17 @@
             </a-checkbox-group>
           </div>
           <div v-if="intervalEditable" class="device-row">
-            <span class="device-label">采样间隔</span>
+            <span class="device-label">设备读取</span>
+            <a-select
+              :model-value="rawIntervalSeconds"
+              size="mini"
+              class="device-interval-select"
+              :options="rawIntervalOptions"
+              @change="(value) => emit('update:rawIntervalSeconds', Number(value))"
+            />
+          </div>
+          <div v-if="intervalEditable" class="device-row">
+            <span class="device-label">记录入单</span>
             <a-select
               :model-value="monitorDisplayIntervalMinutes"
               size="mini"
@@ -186,6 +214,7 @@ import {
 const props = defineProps<{
   syncState: AnesthesiaSyncState;
   monitorDisplayIntervalMinutes: number;
+  rawIntervalSeconds: number;
   effectiveIntervalMinutes: number;
   simulationMode: DeviceSimulationMode;
   abnormalTypes: AbnormalSimulationType[];
@@ -193,16 +222,20 @@ const props = defineProps<{
   rescueModeActive?: boolean;
   showDevConflictButton?: boolean;
   monitorIntervalOptions: Array<{ label: string; value: number }>;
+  rawIntervalOptions: Array<{ label: string; value: number }>;
   monitoringView?: MonitoringViewUi;
 }>();
 
 const emit = defineEmits<{
   'update:monitorDisplayIntervalMinutes': [value: number];
+  'update:rawIntervalSeconds': [value: number];
   'update:simulationMode': [value: DeviceSimulationMode];
   'update:abnormalTypes': [value: AbnormalSimulationType[]];
   'import-vitals': [];
   'toggle-monitor': [];
   'toggle-ventilator': [];
+  'pause-all-devices': [];
+  'resume-all-devices': [];
   'stop-all-devices': [];
   'revoke-monitoring': [reason: string];
   'inject-test-conflict': [];

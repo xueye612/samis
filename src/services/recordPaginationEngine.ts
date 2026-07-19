@@ -14,6 +14,8 @@ import {
 import type { SurgeryCase } from '@/types/anesthesia';
 
 export const DEFAULT_PAGE_DURATION_MINUTES = 210;
+/** A4 竖版需缩短横向时间窗，避免把 3.5 小时网格整体压缩至不可读。 */
+export const PORTRAIT_PRINT_PAGE_DURATION_MINUTES = 120;
 export const DEFAULT_MAJOR_INTERVAL = 30;
 
 export interface PaginationOptions {

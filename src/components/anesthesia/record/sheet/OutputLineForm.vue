@@ -13,12 +13,15 @@ defineProps<{
     remark: string;
   };
   disabled?: boolean;
+  editing?: boolean;
+  batchValues?: Partial<Record<OutputDetailRecord['type'], number | undefined>>;
 }>();
 
 const emit = defineEmits<{
   'update:form': [patch: Record<string, unknown>];
   shiftTime: [delta: number];
   shiftVolume: [delta: number];
+  'update:batchValue': [type: OutputDetailRecord['type'], value: number | undefined];
 }>();
 
 const selectType = (type: OutputDetailRecord['type']) => {
@@ -29,8 +32,8 @@ const selectType = (type: OutputDetailRecord['type']) => {
 <template>
   <div class="output-line-form">
     <div class="form-panel">
-      <div class="form-grid">
-        <label class="field-block">
+      <div v-if="editing" class="form-grid">
+        <label v-if="editing" class="field-block">
           <span class="field-label">记录时间</span>
           <RecordTimeField
             :model-value="form.time"
@@ -52,7 +55,21 @@ const selectType = (type: OutputDetailRecord['type']) => {
         </label>
       </div>
 
-      <div class="field-block">
+      <div v-if="!editing" class="batch-output-grid">
+        <label v-for="item in OUTPUT_TYPES" :key="item" class="field-block">
+          <span class="field-label">{{ item }}（ml）</span>
+          <RecordNumberField
+            :model-value="batchValues?.[item]"
+            :step="10"
+            placeholder="可选"
+            :disabled="disabled"
+            @update:model-value="emit('update:batchValue', item, $event)"
+          />
+        </label>
+      </div>
+      <p v-if="!editing" class="batch-hint">可连续填写多项，保存时一次写入；未填写的项目不会生成记录。</p>
+
+      <div v-if="editing" class="field-block">
         <span class="field-label">出量类型</span>
         <div class="type-chip-row" role="group" aria-label="出量类型">
           <button
@@ -119,6 +136,18 @@ const selectType = (type: OutputDetailRecord['type']) => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+}
+
+.batch-output-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.batch-hint {
+  margin: -2px 0 0;
+  color: #64748b;
+  font-size: 12px;
 }
 
 .type-chip {

@@ -33,6 +33,12 @@ export interface AnesthesiaRecordSnapshot {
   surgeryDate: string;
   preMedication?: string;
   fasting?: string;
+  fastingStatus?: string;
+  preMedications?: string[];
+  preoperativeConditions?: string[];
+  surgeryType?: string;
+  surgeryLevel?: string;
+  bmi?: number;
 }
 
 export interface TimeAxisPageConfig {
@@ -135,6 +141,9 @@ export interface RecordSummaryFields {
   destination?: string;
   anesthesiaSummary?: string;
   handoverNote?: string;
+  handoverAt?: string;
+  handoverFrom?: string;
+  handoverTo?: string;
   completedAt?: string;
   notes?: RecordSummaryNotes;
   manualOverrides?: Record<string, { value: string; reason: string; at: string; operator: string }>;

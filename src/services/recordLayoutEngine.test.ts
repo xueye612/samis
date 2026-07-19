@@ -15,7 +15,8 @@ describe('recordLayoutEngine', () => {
         rowCount: 2,
         leftPercent: 50,
         topPercent: 20,
-        abnormal: false,
+      abnormal: false,
+      abnormalDirection: '',
         unit: 'bpm',
       },
       {
@@ -28,7 +29,8 @@ describe('recordLayoutEngine', () => {
         rowCount: 2,
         leftPercent: 50,
         topPercent: 20,
-        abnormal: false,
+      abnormal: false,
+      abnormalDirection: '',
         unit: '%',
       },
     ];

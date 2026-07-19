@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import dayjs from 'dayjs';
 import { anesthesiaCases } from '@/mock/anesthesiaCases';
 import type { AnesthesiaEvent } from '@/types/anesthesia';
 import {
   buildMilestoneStatusEvents,
   buildTimedKeyOperationNoteLines,
+  buildRecordClockIso,
   buildTimelineNodeStates,
   getMethodTimelineNodes,
   resolveKeyOperationsDisplayText,
+  resolveTimelineDragIso,
+  validateTimelineNodeTime,
 } from '@/services/methodTimelineEngine';
 
 describe('methodTimelineEngine', () => {
@@ -66,5 +70,47 @@ describe('methodTimelineEngine', () => {
 
     expect(buildTimedKeyOperationNoteLines(item, ['general']).filter((line) => line.displayContent === '手术开始')).toHaveLength(1);
     expect(resolveKeyOperationsDisplayText(item, ['general'], '1. 08:48 手术开始\n2. 08:48 手术开始\n3. 09:46 手术结束')).toBe('1. 08:48 手术开始\n2. 09:46 手术结束');
+  });
+
+  it('converts a dragged horizontal position to a one-minute snapped record timestamp', () => {
+    const record = { plannedStart: '2026-07-16T08:00:00.000Z' };
+    expect(dayjs(resolveTimelineDragIso(record, 350, { left: 100, width: 1000 }, '08:00', '12:00')).format('YYYY-MM-DD HH:mm'))
+      .toBe('2026-07-16 09:00');
+    expect(dayjs(resolveTimelineDragIso(record, -200, { left: 100, width: 1000 }, '08:00', '12:00')).format('YYYY-MM-DD HH:mm'))
+      .toBe('2026-07-16 08:00');
+  });
+
+  it('时钟录入仅在明确跨午夜窗口时滚到次日', () => {
+    expect(dayjs(buildRecordClockIso({
+      plannedStart: '2026-07-16T23:40:00+08:00',
+      anesthesiaStart: '2026-07-16T23:50:00+08:00',
+    }, '00:10')).format('YYYY-MM-DD HH:mm')).toBe('2026-07-17 00:10');
+
+    expect(dayjs(buildRecordClockIso({
+      plannedStart: '2026-07-16T08:00:00+08:00',
+      anesthesiaStart: '2026-07-16T19:11:00+08:00',
+    }, '08:10')).format('YYYY-MM-DD HH:mm')).toBe('2026-07-16 08:10');
+  });
+
+  it('rejects a key time that crosses an already recorded clinical neighbour', () => {
+    const record = {
+      ...anesthesiaCases[0],
+      roomInTime: '2026-07-16T08:00:00+08:00',
+      anesthesiaStart: '2026-07-16T08:10:00+08:00',
+      surgeryStart: '2026-07-16T08:40:00+08:00',
+      surgeryEnd: '2026-07-16T10:00:00+08:00',
+      events: [],
+    };
+    const node = getMethodTimelineNodes(['general']).find((item) => item.key === 'surgery-start')!;
+
+    expect(validateTimelineNodeTime(record, ['general'], node, '2026-07-16T08:05:00+08:00')).toEqual({
+      valid: false,
+      message: '手术开始不得早于麻醉开始（08:10）',
+    });
+    expect(validateTimelineNodeTime(record, ['general'], node, '2026-07-16T10:05:00+08:00')).toEqual({
+      valid: false,
+      message: '手术开始不得晚于手术结束（10:00）',
+    });
+    expect(validateTimelineNodeTime(record, ['general'], node, '2026-07-16T08:45:00+08:00')).toEqual({ valid: true });
   });
 });

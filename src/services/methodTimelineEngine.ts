@@ -4,6 +4,7 @@ import { getQuickEventOption } from '@/services/anesthesiaRecordMethodEngine';
 import type { NumberedNoteLine } from '@/utils/numberedNotes';
 import { parseNumberedNoteLines } from '@/utils/numberedNotes';
 import type { SurgeryCase } from '@/types/anesthesia';
+import { percentToTime } from '@/services/anesthesiaRecordEngine';
 
 export type TimelineSyncField = 'roomInTime' | 'anesthesiaStart' | 'surgeryStart' | 'surgeryEnd' | 'anesthesiaEnd' | 'leaveRoomTime';
 
@@ -56,13 +57,84 @@ export function buildRecordClockIso(
   record: Pick<SurgeryCase, 'plannedStart' | 'anesthesiaStart'>,
   clock: string,
 ): string {
-  const base = record.plannedStart || record.anesthesiaStart || dayjs().toISOString();
+  const base = record.anesthesiaStart || record.plannedStart || dayjs().toISOString();
   const [hour, minute] = clock.split(':').map(Number);
-  return dayjs(base).hour(hour).minute(minute).second(0).millisecond(0).toISOString();
+  let candidate = dayjs(base).hour(hour).minute(minute).second(0).millisecond(0);
+  const anchor = dayjs(base);
+  // 仅把明显的午夜回绕（相差超过 12 小时）解释为次日；
+  // 19:11 后录成同日 08:10 仍会被时间顺序校验拒绝，不能被静默“修正”。
+  if (anchor.diff(candidate, 'minute') > 12 * 60) candidate = candidate.add(1, 'day');
+  return candidate.toISOString();
 }
 
 export function buildRecordNowIso(record: Pick<SurgeryCase, 'plannedStart' | 'anesthesiaStart'>): string {
   return buildRecordClockIso(record, dayjs().format('HH:mm'));
+}
+
+export function resolveTimelineDragIso(
+  record: Pick<SurgeryCase, 'plannedStart' | 'anesthesiaStart'>,
+  clientX: number,
+  track: { left: number; width: number },
+  start: string,
+  end: string,
+): string {
+  const width = Math.max(1, track.width);
+  const percent = ((clientX - track.left) / width) * 100;
+  return buildRecordClockIso(record, percentToTime(percent, start, end, 1));
+}
+
+export interface TimelineTimeValidationResult {
+  valid: boolean;
+  message?: string;
+}
+
+/**
+ * 关键时间必须服从当前麻醉方式对应的临床先后顺序。
+ * 允许相邻节点记录在同一分钟，但不得越过已经记录的前一/后一节点。
+ */
+export function validateTimelineNodeTime(
+  record: SurgeryCase,
+  methods: AnesthesiaMethodKey[],
+  node: MethodTimelineNode,
+  isoTime: string,
+): TimelineTimeValidationResult {
+  const candidate = dayjs(isoTime);
+  if (!candidate.isValid()) return { valid: false, message: `${node.label}时间无效` };
+
+  const states = buildTimelineNodeStates(record, methods);
+  const index = states.findIndex((item) => item.key === node.key);
+  if (index < 0) {
+    // 普通术中事件也允许拖动，但只能位于患者入室与离室窗口内；
+    // 它们不参与“诱导→插管→手术”等麻醉方式节点的严格排序。
+    if (!node.key.startsWith('event-')) {
+      return { valid: false, message: `${node.label}不属于当前麻醉方式的关键时间` };
+    }
+    if (record.roomInTime && candidate.isBefore(dayjs(record.roomInTime))) {
+      return { valid: false, message: `${node.label}不得早于入室（${formatTimelineClock(record.roomInTime)}）` };
+    }
+    if (record.leaveRoomTime && candidate.isAfter(dayjs(record.leaveRoomTime))) {
+      return { valid: false, message: `${node.label}不得晚于离室（${formatTimelineClock(record.leaveRoomTime)}）` };
+    }
+    return { valid: true };
+  }
+
+  const previous = states.slice(0, index).reverse().find((item) => item.recorded && item.time);
+  if (previous?.time && candidate.isBefore(dayjs(previous.time))) {
+    return {
+      valid: false,
+      message: `${node.label}不得早于${previous.label}（${formatTimelineClock(previous.time)}）`,
+    };
+  }
+
+  const next = states.slice(index + 1).find((item) => item.recorded && item.time);
+  if (next?.time && candidate.isAfter(dayjs(next.time))) {
+    return {
+      valid: false,
+      message: `${node.label}不得晚于${next.label}（${formatTimelineClock(next.time)}）`,
+    };
+  }
+
+  return { valid: true };
 }
 
 export function buildTimedKeyOperationNoteLines(

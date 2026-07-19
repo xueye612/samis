@@ -134,13 +134,17 @@ export interface WorkloadStats {
 
 export interface SurgeryRequest {
   id: string;
+  operationId?: string;
   patientName: string;
   department: string;
   surgeryName: string;
-  urgency: '急诊' | '择期';
+  urgency: '急诊' | '择期' | null;
   requestDate: string;
-  status: '待接收' | '已排班' | '已取消';
+  status: '待接收' | '已排班' | '已取消' | null;
   surgeon: string;
+  operationStatus?: string | null;
+  readOnly?: boolean;
+  sourceSystem?: string | null;
 }
 
 export interface ConsultationRecord {

@@ -282,8 +282,8 @@ const handleScenarioChange = (value: unknown) => emit('update:scenario', String(
 }
 
 .landing-list {
-  max-height: 320px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   padding-right: 2px;
 }
 

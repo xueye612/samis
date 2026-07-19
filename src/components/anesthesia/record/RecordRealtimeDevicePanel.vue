@@ -3,7 +3,7 @@
     <header class="realtime-device-head">
       <div>
         <strong>实时设备数值</strong>
-        <span>{{ latestCollectLabel }}</span>
+        <span data-testid="device-latest-collect">{{ latestCollectLabel }}</span>
       </div>
       <div class="device-head-tags">
         <a-tag :color="!sourceReady ? 'gray' : sourceMode === 'simulation' ? 'orange' : 'blue'" size="small" data-testid="device-source-mode">
@@ -90,7 +90,7 @@ const freshnessColor = computed(() => ({
 const emptyHint = computed(() => {
   if (!props.sourceReady) return '正在读取后台设备数据源配置…';
   if (props.state.loading) return props.sourceMode === 'simulation' ? '正在读取模拟采集数据…' : '正在读取真实设备数据…';
-  if (props.sourceMode === 'simulation') return '模拟采集尚未启动，请点击下方“启监护仪”或“启呼吸机”。';
+  if (props.sourceMode === 'simulation') return '模拟采集尚未启动，请点击下方“启动监护仪”或“启动呼吸机”。';
   return '未连接实时设备，请先在设备管理完成绑定，并确认采集网关在线。';
 });
 const monitorMetrics = computed(() => {

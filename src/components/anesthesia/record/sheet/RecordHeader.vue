@@ -24,6 +24,12 @@ defineProps<{
   anesthesiologistOptions?: string[];
   surgeonOptions?: string[];
   nurseOptions?: string[];
+  fastingStatus?: string;
+  preMedications?: string;
+  preoperativeConditions?: string;
+  surgeryType?: string;
+  surgeryLevel?: string;
+  postoperativeDiagnosis?: string;
 }>();
 
 const emit = defineEmits<{
@@ -34,7 +40,22 @@ const emit = defineEmits<{
   'update:circulatingNurses': [value: string];
   'update:scrubNurses': [value: string];
   applyMethodSelection: [payload: { primary: AnesthesiaMethodKey; auxiliary: AnesthesiaMethodKey[] }];
+  'update:fastingStatus': [value: string];
+  'update:preMedications': [value: string];
+  'update:preoperativeConditions': [value: string];
+  'update:surgeryType': [value: string];
+  'update:surgeryLevel': [value: string];
+  'update:postoperativeDiagnosis': [value: string];
 }>();
+
+const fastingOptions = ['已禁食', '未禁食', '禁食不足', '不适用', '未评估'];
+const surgeryTypeOptions = ['择期', '急诊', '日间'];
+const surgeryLevelOptions = ['一级', '二级', '三级', '四级'];
+const commonPreopConditions = ['高血压', '糖尿病', '高脂血症', '冠心病', '慢性阻塞性肺病', '肾功能不全', '贫血'];
+const formatAge = (value: unknown) => {
+  const age = Number(value);
+  return Number.isFinite(age) && age >= 0 ? `${age}岁` : '—';
+};
 </script>
 
 <template>
@@ -56,7 +77,7 @@ const emit = defineEmits<{
 
       <PaperFormField compact label="姓名" :model-value="snapshot.patientName" readonly :print-mode="printMode" :span="5" />
       <PaperFormField compact label="性别" :model-value="snapshot.gender" readonly :print-mode="printMode" :span="3" />
-      <PaperFormField compact label="年龄" :model-value="`${snapshot.age}岁`" readonly :print-mode="printMode" :span="4" />
+      <PaperFormField compact label="年龄" :model-value="formatAge(snapshot.age)" readonly :print-mode="printMode" :span="4" />
       <PaperFormField compact label="体重" :model-value="`${snapshot.weight}kg`" readonly :print-mode="printMode" :span="4" />
       <PaperFormField compact label="身高" :model-value="`${snapshot.height ?? '-'}cm`" readonly :print-mode="printMode" :span="5" />
       <PaperFormField compact label="血型" :model-value="snapshot.bloodType ?? '-'" readonly :print-mode="printMode" :span="3" />
@@ -76,14 +97,43 @@ const emit = defineEmits<{
           :interaction-mode="interactionMode"
           :span="12"
         />
-        <PaperFormField
+        <PaperPickerField
           compact
-          label="术前用药/禁食"
-          :model-value="`${snapshot.preMedication || '未记录'}；${snapshot.fasting || '未记录'}`"
-          readonly
+          label="禁食状态"
+          :model-value="fastingStatus ?? snapshot.fastingStatus ?? '未评估'"
+          :options="fastingOptions"
+          :readonly="readOnly"
           :print-mode="printMode"
           :interaction-mode="interactionMode"
-          :span="12"
+          :span="5"
+          :allow-custom="false"
+          @update:model-value="emit('update:fastingStatus', $event)"
+        />
+        <PaperPickerField
+          compact
+          multiple
+          label="术前用药"
+          :model-value="preMedications ?? snapshot.preMedications?.join('、') ?? snapshot.preMedication ?? ''"
+          :options="[]"
+          :readonly="readOnly"
+          :print-mode="printMode"
+          :interaction-mode="interactionMode"
+          :span="7"
+          placeholder="无术前用药"
+          @update:model-value="emit('update:preMedications', $event)"
+        />
+        <PaperPickerField
+          compact
+          multiple
+          label="术前状况"
+          :model-value="preoperativeConditions ?? snapshot.preoperativeConditions?.join('、') ?? ''"
+          :options="commonPreopConditions"
+          :readonly="readOnly"
+          :print-mode="printMode"
+          :interaction-mode="interactionMode"
+          :span="24"
+          placeholder="无特殊情况"
+          @update:model-value="emit('update:preoperativeConditions', $event)"
         />
       </div>
     </section>
@@ -114,6 +164,46 @@ const emit = defineEmits<{
           :span="12"
           placeholder="点击选择，多项用+连接"
           @update:model-value="emit('update:actualSurgeryName', $event)"
+        />
+        <PaperPickerField
+          compact
+          label="手术类型"
+          :model-value="surgeryType ?? snapshot.surgeryType ?? '择期'"
+          :options="surgeryTypeOptions"
+          :readonly="readOnly"
+          :print-mode="printMode"
+          :interaction-mode="interactionMode"
+          :span="4"
+          :allow-custom="false"
+          @update:model-value="emit('update:surgeryType', $event)"
+        />
+        <PaperPickerField
+          compact
+          label="手术等级"
+          :model-value="surgeryLevel ?? snapshot.surgeryLevel ?? ''"
+          :options="surgeryLevelOptions"
+          :readonly="readOnly"
+          :print-mode="printMode"
+          :interaction-mode="interactionMode"
+          :span="4"
+          :allow-custom="false"
+          placeholder="待评定"
+          @update:model-value="emit('update:surgeryLevel', $event)"
+        />
+        <div class="bmi-field" :class="{ alert: (snapshot.bmi ?? 0) >= 28 }" style="grid-column: span 4">
+          <PaperFormField compact label="BMI" :model-value="snapshot.bmi ? String(snapshot.bmi) : '未计算'" readonly :print-mode="printMode" />
+        </div>
+        <PaperPickerField
+          compact
+          label="术后诊断"
+          :model-value="postoperativeDiagnosis ?? snapshot.diagnosisPostop ?? ''"
+          :options="[]"
+          :readonly="readOnly"
+          :print-mode="printMode"
+          :interaction-mode="interactionMode"
+          :span="12"
+          placeholder="待术后确认"
+          @update:model-value="emit('update:postoperativeDiagnosis', $event)"
         />
 
         <PaperPickerField
@@ -208,6 +298,15 @@ const emit = defineEmits<{
 <style scoped>
 .record-header {
   padding: 6px 10px 0;
+}
+
+.bmi-field.alert :deep(.paper-field-value) {
+  color: #dc2626;
+  font-weight: 900;
+}
+
+.bmi-field.alert :deep(.paper-form-field) {
+  background: #fef2f2;
 }
 
 .record-header .print-heading {
