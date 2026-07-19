@@ -6,6 +6,9 @@ import {
   mapSimulatedDeviceRows,
   readCachedDeviceRealtimeSource,
   saveDeviceRealtimeSource,
+  notifySimulatedDeviceDataCollected,
+  subscribeSimulatedDeviceDataCollected,
+  shouldAutoStartMonitorOnRecordStart,
 } from './deviceRealtimeSource';
 
 vi.mock('@/api/clinicalExtensions', () => ({
@@ -77,5 +80,21 @@ describe('deviceRealtimeSource', () => {
 
     expect(data.monitor).toMatchObject({ operationId: 'OP-1', hr: 80, mapValue: 87, etco2: 36 });
     expect(data.ventilator).toMatchObject({ operationId: 'OP-1', ventMode: 'VCV', tidalVolume: 480, airwayPressure: 16 });
+  });
+
+  it('模拟原始帧落库后通知当前记录单立即刷新', () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeSimulatedDeviceDataCollected(listener);
+    notifySimulatedDeviceDataCollected('OP-1');
+    unsubscribe();
+    notifySimulatedDeviceDataCollected('OP-2');
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith('OP-1');
+  });
+
+  it('只有后台明确配置模拟数据时启动记录才自动开启监护仪', () => {
+    expect(shouldAutoStartMonitorOnRecordStart('simulation', true)).toBe(true);
+    expect(shouldAutoStartMonitorOnRecordStart('real', true)).toBe(false);
+    expect(shouldAutoStartMonitorOnRecordStart('simulation', false)).toBe(false);
   });
 });

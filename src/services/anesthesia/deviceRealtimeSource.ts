@@ -8,6 +8,26 @@ export type DeviceRealtimeSource = 'simulation' | 'real';
 export const DEVICE_REALTIME_SOURCE_CONFIG_KEY = 'device_realtime_data_source';
 export const DEVICE_REALTIME_SOURCE_STORAGE_KEY = 'samis.anesthesia.deviceRealtimeDataSource';
 
+/** 未取得后台配置前绝不自动产生模拟临床数据。 */
+export function shouldAutoStartMonitorOnRecordStart(
+  source: DeviceRealtimeSource,
+  sourceReady: boolean,
+): boolean {
+  return sourceReady && source === 'simulation';
+}
+
+type SimulatedDeviceDataListener = (operationId: string) => void;
+const simulatedDeviceDataListeners = new Set<SimulatedDeviceDataListener>();
+
+export function subscribeSimulatedDeviceDataCollected(listener: SimulatedDeviceDataListener): () => void {
+  simulatedDeviceDataListeners.add(listener);
+  return () => simulatedDeviceDataListeners.delete(listener);
+}
+
+export function notifySimulatedDeviceDataCollected(operationId: string): void {
+  simulatedDeviceDataListeners.forEach((listener) => listener(operationId));
+}
+
 function normalizeSource(value: unknown): DeviceRealtimeSource | null {
   return value === 'simulation' || value === 'real' ? value : null;
 }

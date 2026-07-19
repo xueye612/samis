@@ -17,6 +17,8 @@ import { triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthes
 import { useRealDevice } from '@/config/apiFlags';
 
 import { buildMonitorSample } from '@/services/anesthesia/deviceMockSamples';
+import { notifySimulatedDeviceDataCollected } from '@/services/anesthesia/deviceRealtimeSource';
+import type { LatestDeviceRawApi } from '@/api/anesthesiaSync';
 
 import {
   type AbnormalSimulationType,
@@ -82,6 +84,7 @@ export interface MonitorMockOptions {
   simulationMode?: DeviceSimulationMode;
   abnormalTypes?: AbnormalSimulationType[];
   onCollect?: (recordLocalId: string, ts: string) => void;
+  onRaw?: (recordLocalId: string, deviceType: 'monitor' | 'ventilator', raw: LatestDeviceRawApi) => void;
 }
 
 export function startMonitorMockService(
@@ -144,6 +147,25 @@ export function startMonitorMockService(
       sync_version: 1,
       created_at: ts,
       updated_at: ts,
+    });
+    notifySimulatedDeviceDataCollected(recordLocalId);
+    options?.onRaw?.(recordLocalId, 'monitor', {
+      localId,
+      operationId: recordLocalId,
+      deviceId: DEVICE_ID,
+      sourceDevice: SOURCE_DEVICE,
+      deviceType: 'monitor',
+      collectTime: ts,
+      hr: sample.hr,
+      pulse: sample.pulse,
+      sbp: sample.sbp,
+      dbp: sample.dbp,
+      mapValue: sample.map_value,
+      spo2: sample.spo2,
+      temperature: sample.temperature,
+      respiration: sample.respiration,
+      bis: sample.bis,
+      etco2: sample.etco2,
     });
 
     const rawBaseVersion = await readEntityBaseSyncVersion(recordLocalId, 'monitor_raw', localId);
@@ -240,14 +262,23 @@ export function startMonitorMockService(
       if (!stopped) setTimeout(rawTick, rawIntervalMs);
       return;
     }
-    const ts = resolveRecordSheetNowIso(caseItem);
-    const sample = buildSample(false);
-    sample.pulse = sample.hr;
-    sample.map_value = Math.round((sample.sbp + sample.dbp * 2) / 3);
-    await persistRaw(ts, sample, caseItem);
-    await maybePersistDisplayVital(ts, sample, caseItem);
-    options?.onCollect?.(recordLocalId, ts);
-    if (!stopped) setTimeout(rawTick, rawIntervalMs);
+    try {
+      const ts = resolveRecordSheetNowIso(caseItem);
+      const sample = buildSample(false);
+      sample.pulse = sample.hr;
+      sample.map_value = Math.round((sample.sbp + sample.dbp * 2) / 3);
+      await persistRaw(ts, sample, caseItem);
+      options?.onCollect?.(recordLocalId, ts);
+      try {
+        await maybePersistDisplayVital(ts, sample, caseItem);
+      } catch (error) {
+        console.warn('[monitor-mock] 原始帧已采集，但本次体征入单失败', error);
+      }
+    } catch (error) {
+      console.warn('[monitor-mock] 本次模拟原始帧采集失败，将按周期重试', error);
+    } finally {
+      if (!stopped) setTimeout(rawTick, rawIntervalMs);
+    }
   };
 
   const bootCase = resolveBoundCase();

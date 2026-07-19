@@ -17,6 +17,7 @@ import { triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthes
 import { useRealDevice } from '@/config/apiFlags';
 
 import { buildVentilatorSample } from '@/services/anesthesia/deviceMockSamples';
+import { notifySimulatedDeviceDataCollected } from '@/services/anesthesia/deviceRealtimeSource';
 
 import {
   isRescueDeviceSimulation,
@@ -105,6 +106,25 @@ export function startVentilatorMockService(
       sync_version: 1,
       created_at: ts,
       updated_at: ts,
+    });
+    notifySimulatedDeviceDataCollected(recordLocalId);
+    options?.onRaw?.(recordLocalId, 'ventilator', {
+      localId,
+      operationId: recordLocalId,
+      deviceId: DEVICE_ID,
+      sourceDevice: SOURCE_DEVICE,
+      deviceType: 'ventilator',
+      collectTime: ts,
+      ventMode: sample.vent_mode,
+      tidalVolume: sample.tidal_volume,
+      respiratoryRate: sample.respiratory_rate,
+      fio2: sample.fio2,
+      peep: sample.peep,
+      peakPressure: sample.peak_pressure,
+      plateauPressure: sample.plateau_pressure,
+      minuteVolume: sample.minute_volume,
+      airwayPressure: sample.airway_pressure,
+      etco2: sample.etco2,
     });
 
     const rawBaseVersion = await readEntityBaseSyncVersion(recordLocalId, 'ventilator_raw', localId);
@@ -198,12 +218,21 @@ export function startVentilatorMockService(
       if (!stopped) setTimeout(rawTick, rawIntervalMs);
       return;
     }
-    const ts = resolveRecordSheetNowIso(caseItem);
-    const sample = buildSample(false);
-    await persistRaw(ts, sample);
-    await maybePersistDisplayVital(ts, sample, caseItem);
-    options?.onCollect?.(recordLocalId, ts);
-    if (!stopped) setTimeout(rawTick, rawIntervalMs);
+    try {
+      const ts = resolveRecordSheetNowIso(caseItem);
+      const sample = buildSample(false);
+      await persistRaw(ts, sample);
+      options?.onCollect?.(recordLocalId, ts);
+      try {
+        await maybePersistDisplayVital(ts, sample, caseItem);
+      } catch (error) {
+        console.warn('[ventilator-mock] 原始帧已采集，但本次体征入单失败', error);
+      }
+    } catch (error) {
+      console.warn('[ventilator-mock] 本次模拟原始帧采集失败，将按周期重试', error);
+    } finally {
+      if (!stopped) setTimeout(rawTick, rawIntervalMs);
+    }
   };
 
   // 启动后立即采集首帧；后续仍按配置间隔采集。
