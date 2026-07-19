@@ -50,20 +50,25 @@ export type PreoperativeAssessmentDraftPayload = Record<string, unknown> & { ope
 
 /** 后端 anes_preop_request 行（camelCase，由 PreoperativeService.formatRequestItem 输出） */
 export interface PreopRequestApi {
-  id: number;
+  id: number | string;
+  requestId?: string | null;
   operationId: string;
   patientName?: string | null;
   department?: string | null;
   surgeryName?: string | null;
   surgeon?: string | null;
-  urgency: string;
+  urgency: string | null;
   requestDate?: string | null;
-  status: string;
+  status: string | null;
   receivedAt?: string | null;
   receivedBy?: string | null;
   remark?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  operationStatus?: string | null;
+  readOnly?: boolean;
+  sourceSystem?: string | null;
+  operationCase?: OperationCase;
 }
 
 /** 后端 anes_preop_consultation 行 */
@@ -463,22 +468,26 @@ export const preoperativeApi = {
 
 // P07 五流程扩展 API
 export interface PreopRequest {
-  id: number;
+  id: number | string;
+  requestId?: string | null;
   operationId: string;
   patientName: string | null;
   department: string | null;
   surgeryName: string | null;
   surgeon: string | null;
-  urgency: string;
+  urgency: string | null;
   requestDate: string | null;
-  status: string;
+  status: string | null;
   receivedAt: string | null;
   receivedBy: string | null;
   cancelledAt: string | null;
   cancelledBy: string | null;
   cancelReason: string | null;
-  version: number;
+  version: number | null;
   remark: string | null;
+  operationStatus?: string | null;
+  readOnly?: boolean;
+  sourceSystem?: string | null;
   operationCase?: OperationCase;
 }
 

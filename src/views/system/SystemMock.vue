@@ -41,7 +41,7 @@
           <a-radio value="real">真实设备网关</a-radio>
         </a-radio-group>
         <a-descriptions :column="1" bordered>
-          <a-descriptions-item label="模拟采集">点击记录单中的“启监护仪/启呼吸机”后立即生成首帧，并写入本地原始采集表。</a-descriptions-item>
+          <a-descriptions-item label="模拟采集">点击记录单中的“启动监护仪/启动呼吸机”后立即生成首帧，并写入本地原始采集表。</a-descriptions-item>
           <a-descriptions-item label="真实设备">读取设备绑定、采集网关及服务端最新原始数据，不会回退或混入模拟数值。</a-descriptions-item>
         </a-descriptions>
         <a-space>

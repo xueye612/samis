@@ -37,6 +37,13 @@ const VALID_REVIEW_RESULT = ['通过', '待补检', '异常'] as const;
 const VALID_CONSENT_STATUS = ['草稿', '已提交'] as const;
 const VALID_CHECK_STATUS = ['未完成', '已完成'] as const;
 
+export class PreopRequestReadOnlyError extends Error {
+  constructor(message = '手术通知由护理系统维护，麻醉系统仅提供只读查看') {
+    super(message);
+    this.name = 'PreopRequestReadOnlyError';
+  }
+}
+
 function pickEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return (allowed as readonly string[]).includes(value as string) ? (value as T) : fallback;
 }
@@ -45,15 +52,20 @@ function pickEnum<T extends string>(value: unknown, allowed: readonly T[], fallb
 
 /** 后端 request 行 → 前端 SurgeryRequest（id 为数值字符串；operationId 不在类型内，create 时单独传） */
 export function mapRequestApiToRequest(row: PreopRequestApi): SurgeryRequest {
+  const isReadOnly = row.readOnly === true || row.sourceSystem === 'HULI';
   return {
     id: String(row.id),
+    operationId: row.operationId,
     patientName: row.patientName ?? '',
     department: row.department ?? '',
     surgeryName: row.surgeryName ?? '',
-    urgency: pickEnum(row.urgency, VALID_URGENCY, '择期'),
+    urgency: isReadOnly && row.urgency == null ? null : pickEnum(row.urgency, VALID_URGENCY, '择期'),
     requestDate: row.requestDate ?? '',
-    status: pickEnum(row.status, VALID_REQUEST_STATUS, '待接收'),
+    status: isReadOnly && row.status == null ? null : pickEnum(row.status, VALID_REQUEST_STATUS, '待接收'),
     surgeon: row.surgeon ?? '',
+    operationStatus: row.operationStatus ?? row.operationCase?.status ?? null,
+    readOnly: isReadOnly,
+    sourceSystem: row.sourceSystem ?? null,
   };
 }
 
@@ -68,9 +80,9 @@ export function buildRequestPayload(
   if (request.department !== undefined) payload.department = request.department;
   if (request.surgeryName !== undefined) payload.surgeryName = request.surgeryName;
   if (request.surgeon !== undefined) payload.surgeon = request.surgeon;
-  if (request.urgency !== undefined) payload.urgency = request.urgency;
+  if (request.urgency !== undefined && request.urgency !== null) payload.urgency = request.urgency;
   if (request.requestDate !== undefined) payload.requestDate = request.requestDate;
-  if (request.status !== undefined) payload.status = request.status;
+  if (request.status !== undefined && request.status !== null) payload.status = request.status;
   return payload;
 }
 
@@ -110,30 +122,21 @@ export async function upsertRequestRemote(
   request: SurgeryRequest,
   operationId?: string,
 ): Promise<SurgeryRequest | null> {
-  const payload = buildRequestPayload(request, operationId);
-  const isEdit = /^\d+$/.test(request.id);
-  if (!useRealPreoperative()) {
-    if (isEdit) await preoperativeApi.requestUpdate({ id: Number(request.id), ...payload });
-    else await preoperativeApi.requestCreate(payload);
-    return null;
-  }
-  if (!isSamisLoggedIn()) throw new Error('未登录，无法保存手术申请');
-  const result = isEdit
-    ? await preoperativeApi.requestUpdate({ id: Number(request.id), ...payload })
-    : await preoperativeApi.requestCreate(payload);
-  return mapRequestApiToRequest(result as PreopRequestApi);
+  void request;
+  void operationId;
+  throw new PreopRequestReadOnlyError();
 }
 
 /** 接收申请（真实开关开+已登录才调）。 */
 export async function receiveRequestRemote(id: string | number): Promise<void> {
-  if (!useRealPreoperative() || !isSamisLoggedIn()) return;
-  await preoperativeApi.requestReceive(id);
+  void id;
+  throw new PreopRequestReadOnlyError();
 }
 
 /** 取消申请（真实开关开+已登录才调）。 */
 export async function cancelRequestRemote(id: string | number): Promise<void> {
-  if (!useRealPreoperative() || !isSamisLoggedIn()) return;
-  await preoperativeApi.requestCancel(id);
+  void id;
+  throw new PreopRequestReadOnlyError();
 }
 
 // ===================== consultation =====================

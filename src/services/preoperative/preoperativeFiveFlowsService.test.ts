@@ -25,13 +25,11 @@ describe('preoperativeFiveFlowsService', () => {
     const cases = await service.loadOperationCases();
     expect(cases).toHaveLength(1); expect(cases[0].patientName).toBe('患者甲');
   });
-  it('接收信封只带状态键和显式版本', async () => {
-    api.requestReceive.mockResolvedValue({ id: 1 }); await service.receiveRequest(request);
-    expect(api.requestReceive).toHaveBeenCalledWith({ id: 0, operationId: 'OP1', expectedVersion: 0 });
-  });
-  it('取消信封包含原因且不含患者字段', async () => {
-    api.requestCancel.mockResolvedValue({ id: 1 }); await service.cancelRequest(request, '患者取消');
-    expect(api.requestCancel).toHaveBeenCalledWith({ id: 0, operationId: 'OP1', expectedVersion: 0, cancelReason: '患者取消' });
+  it('SAMIS 术前通知只读，接收和取消在调用 API 前拒绝', async () => {
+    await expect(service.receiveRequest(request)).rejects.toBeInstanceOf(service.PreopRequestReadOnlyError);
+    await expect(service.cancelRequest(request, '患者取消')).rejects.toBeInstanceOf(service.PreopRequestReadOnlyError);
+    expect(api.requestReceive).not.toHaveBeenCalled();
+    expect(api.requestCancel).not.toHaveBeenCalled();
   });
   it('会诊全部动作携带服务端 ID 和版本', async () => {
     api.consultationList.mockResolvedValue({ list: [consultation] }); expect(await service.loadConsultationList()).toHaveLength(1);
@@ -59,5 +57,5 @@ describe('preoperativeFiveFlowsService', () => {
   });
   it('护理摘要错误向页面传播，不伪装为空', async () => { api.safetyCheckSummary.mockRejectedValue(new Error('护理连接失败')); await expect(service.loadSafetySummary('OP1')).rejects.toThrow('护理连接失败'); });
   it('护理确认返回服务端重新读取的摘要', async () => { const summary = { operationId: 'OP1', source: 'huli', status: 'incomplete', stages: [] }; api.safetyConfirmRole.mockResolvedValue({ summary }); expect(await service.confirmSafetyRole('OP1','sign_in',true)).toEqual(summary); });
-  it('4091 统一映射为前端冲突错误', async () => { const { SamisHttpError } = await import('@/api/samisHttpClient'); api.requestReceive.mockRejectedValue(new SamisHttpError('conflict',200,4091)); await expect(service.receiveRequest(request)).rejects.toBeInstanceOf(service.PreopConflictError); });
+  it('4091 仍统一映射为会诊等可写流程的前端冲突错误', async () => { const { SamisHttpError } = await import('@/api/samisHttpClient'); api.consultationSubmit.mockRejectedValue(new SamisHttpError('conflict',200,4091)); await expect(service.submitConsultation(consultation)).rejects.toBeInstanceOf(service.PreopConflictError); });
 });

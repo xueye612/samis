@@ -16,6 +16,13 @@ export class PreopConflictError extends Error {
   }
 }
 
+export class PreopRequestReadOnlyError extends Error {
+  constructor(message = '手术通知由护理系统维护，麻醉系统仅提供只读查看') {
+    super(message);
+    this.name = 'PreopRequestReadOnlyError';
+  }
+}
+
 export function hasPreopPermission(permissions: string[] | null | undefined, code: string): boolean {
   return Boolean(permissions?.some((item) => item === '*' || item === 'preop.*' || item === code));
 }
@@ -55,20 +62,14 @@ export async function loadOperationCases(): Promise<OperationCase[]> {
 }
 
 export async function receiveRequest(record: Pick<PreopRequest, 'id' | 'operationId' | 'version'>): Promise<PreopRequest> {
-  return withConflict(async () => unwrap<PreopRequest>(await preoperativeFiveFlowsApi.requestReceive({
-    id: record.id,
-    operationId: record.operationId,
-    expectedVersion: record.version,
-  })));
+  void record;
+  throw new PreopRequestReadOnlyError();
 }
 
 export async function cancelRequest(record: Pick<PreopRequest, 'id' | 'operationId' | 'version'>, reason: string): Promise<PreopRequest> {
-  return withConflict(async () => unwrap<PreopRequest>(await preoperativeFiveFlowsApi.requestCancel({
-    id: record.id,
-    operationId: record.operationId,
-    expectedVersion: record.version,
-    cancelReason: reason,
-  })));
+  void record;
+  void reason;
+  throw new PreopRequestReadOnlyError();
 }
 
 export async function loadConsultationList(params: Record<string, unknown> = {}): Promise<PreopConsultation[]> {

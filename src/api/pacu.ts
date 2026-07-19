@@ -126,6 +126,12 @@ export const pacuApi = {
   bedUpdate(data: Record<string, unknown>) {
     return pacuFormPost<void>('/bedUpdate', data);
   },
+  bedImpactPreview(data: { bedId: string; changes: Record<string, unknown> }) {
+    return pacuFormPost<unknown>('/bedImpactPreview', {
+      bedId: data.bedId,
+      changes: JSON.stringify(data.changes),
+    });
+  },
   bedDelete(id: number | string) {
     return pacuFormPost<void>('/bedDelete', { id });
   },
