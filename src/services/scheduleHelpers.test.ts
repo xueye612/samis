@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { anesthesiaCases } from '@/mock/anesthesiaCases';
-import { getDoctorCases, groupCasesByRoom, normalizeCaseSchedule } from '@/services/scheduleHelpers';
+import {
+  getDoctorCases,
+  groupCasesByRoom,
+  normalizeCaseSchedule,
+  summarizeRoomAssignments,
+} from '@/services/scheduleHelpers';
 
 describe('scheduleHelpers', () => {
   it('normalizes surgery nursing schedule fields without duplicating patient data', () => {
@@ -41,8 +46,37 @@ describe('scheduleHelpers', () => {
   it('groups operating rooms with stable room identities', () => {
     const groups = groupCasesByRoom(anesthesiaCases, ['OR-01', 'OR-02', 'OR-03']);
 
-    expect(groups).toHaveLength(3);
+    expect(groups.length).toBeGreaterThanOrEqual(3);
     expect(groups[0].roomId).toBe('OR-01');
     expect(groups.every((item) => Array.isArray(item.cases))).toBe(true);
+    expect(groups.flatMap((item) => item.cases)).toHaveLength(anesthesiaCases.length);
+  });
+
+  it('keeps every configured or assigned room code instead of limiting rooms to OR prefix', () => {
+    const cases = [
+      { ...anesthesiaCases[0], id: 'case-a1', room: 'A1', roomId: 'A1', roomName: 'A1' },
+      { ...anesthesiaCases[0], id: 'case-b2', room: 'B2', roomId: 'B2', roomName: 'B2' },
+      { ...anesthesiaCases[0], id: 'case-c3', room: 'C3', roomId: 'C3', roomName: '三号复合手术间' },
+    ];
+
+    const groups = groupCasesByRoom(cases, ['A1', 'B2']);
+
+    expect(groups.map((group) => group.roomId)).toEqual(['A1', 'B2', 'C3']);
+    expect(groups.find((group) => group.roomId === 'C3')?.roomName).toBe('三号复合手术间');
+    expect(groups.flatMap((group) => group.cases).map((item) => item.id)).toEqual([
+      'case-a1',
+      'case-b2',
+      'case-c3',
+    ]);
+  });
+
+  it('separates assigned and unassigned operation counts using OperationCase room truth', () => {
+    const cases = [
+      { ...anesthesiaCases[0], id: 'assigned-a1', room: 'A1', roomId: 'A1' },
+      { ...anesthesiaCases[0], id: 'assigned-b2', room: '', roomId: 'B2' },
+      { ...anesthesiaCases[0], id: 'unassigned', room: '', roomId: '', roomName: '' },
+    ];
+
+    expect(summarizeRoomAssignments(cases)).toEqual({ total: 3, assigned: 2, unassigned: 1 });
   });
 });

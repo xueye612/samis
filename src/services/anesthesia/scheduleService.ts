@@ -6,6 +6,10 @@ import type { RoomCatalogItem } from '@/services/anesthesia/adapters/roomAdapter
 
 export interface NurseScheduleRow {
   operationId: string;
+  startDate?: string;
+  endDate?: string;
+  roomCode: string;
+  roomName: string;
   room: string;
   numberOfStations: number;
   anesthesiologist?: string;
@@ -16,21 +20,33 @@ export interface NurseScheduleRow {
 
 export function mapNursePbRow(raw: unknown): NurseScheduleRow {
   const operationId = pickString(raw, ['operationId', 'OPERATIONID', 'id'], '');
+  const roomCode = pickString(raw, ['roomCode', 'OPERATINGROOM_CODE', 'room', 'roomId'], '');
+  const roomName = pickString(raw, ['roomName', 'OPERATINGROOM_NAME', 'ROOMNAME'], roomCode);
   return {
     operationId,
-    room: pickString(raw, ['room', 'roomName', 'ROOMNAME'], ''),
+    startDate: pickString(raw, ['startDate', 'start_date', 'time']),
+    endDate: pickString(raw, ['endDate', 'end_date']),
+    roomCode,
+    roomName,
+    room: roomCode || roomName,
     numberOfStations: Number(pickString(raw, ['numberOfStations', 'sequence', 'stationNo'], '0')) || 0,
-    anesthesiologist: pickString(raw, ['anesthesiologist', 'anesDoctor', 'ANESTHESIOLOGIST']),
+    anesthesiologist: pickString(raw, ['anesthesiologist', 'anesDoctor', 'ANESTHESIOLOGIST', 'ANESTHETIST_PB_NAME']),
     nurse: pickString(raw, ['nurse', 'anesthesiaNurse', 'NURSE']),
-    circulatingNurse: pickString(raw, ['circulatingNurse', 'circulatingNurses']),
-    scrubNurse: pickString(raw, ['scrubNurse', 'scrubNurses']),
+    circulatingNurse: pickString(raw, ['circulatingNurse', 'circulatingNurses', 'CIRCULATINGNURSE_NAME']),
+    scrubNurse: pickString(raw, ['scrubNurse', 'scrubNurses', 'SCRUBNURSE_NAME']),
   };
 }
 
 export function matchCaseRoom(caseItem: SurgeryCase, roomKey: string): boolean {
   if (!roomKey) return true;
   const keys = new Set(
-    [caseItem.roomId, caseItem.room, caseItem.roomName].filter(Boolean).map(String),
+    [
+      caseItem.operationCase?.roomCode,
+      caseItem.operationCase?.roomName,
+      caseItem.roomId,
+      caseItem.room,
+      caseItem.roomName,
+    ].filter(Boolean).map(String),
   );
   return keys.has(roomKey);
 }
@@ -136,16 +152,23 @@ export function buildMasterDataUpdateEnvelope(
 }
 
 export function buildSaveNursePbPayload(item: SurgeryCase, operationDate?: string): Record<string, unknown> {
+  const day = operationDate
+    ?? item.operationCase?.operationDate
+    ?? dayjs(item.scheduledStart ?? item.plannedStart).format('YYYY-MM-DD');
+  const roomCode = String(item.operationCase?.roomCode ?? item.roomId ?? item.room ?? '').trim();
+  const roomName = String(item.operationCase?.roomName ?? item.roomName ?? item.room ?? roomCode).trim();
   return {
-    operationId: item.id,
-    OPERATIONID: item.id,
-    operationDate: operationDate ?? dayjs(item.scheduledStart ?? item.plannedStart).format('YYYY-MM-DD'),
-    room: item.room,
-    numberOfStations: item.sequence,
-    anesthesiologist: item.anesthesiologist,
-    nurse: item.anesthesiaNurse,
-    circulatingNurse: item.circulatingNurses,
-    scrubNurse: item.scrubNurses,
+    time: day,
+    start_date: day,
+    end_date: day,
+    OPERATINGROOM_CODE: roomCode,
+    OPERATINGROOM_NAME: roomName,
+    ANESTHETIST_PB_CODE: '',
+    ANESTHETIST_PB_NAME: item.anesthesiologist || '',
+    CIRCULATINGNURSE_CODE: '',
+    CIRCULATINGNURSE_NAME: item.circulatingNurses || '',
+    SCRUBNURSE_CODE: '',
+    SCRUBNURSE_NAME: item.scrubNurses || '',
   };
 }
 
@@ -154,11 +177,39 @@ export function nursePbDateRange(date?: string): { startTime: string; endTime: s
   return { startTime: day, endTime: day };
 }
 
+function parseScheduleDateTime(value: unknown, operationDate?: string): dayjs.Dayjs | null {
+  const text = String(value ?? '').trim();
+  if (!text || /^0{4}-0{2}-0{2}/.test(text)) return null;
+  if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(text)) {
+    const base = String(operationDate ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return null;
+    const combined = dayjs(`${base} ${text}`);
+    return combined.isValid() ? combined : null;
+  }
+  const parsed = dayjs(text);
+  return parsed.isValid() && parsed.year() >= 1900 ? parsed : null;
+}
+
+/**
+ * 排班时间统一展示：拒绝 0000-00-00、空串和不可解析值；结束时间缺失时按预计时长推导。
+ * 兼容护理/HULI 只返回 HH:mm 的历史数据，但必须由 OperationCase 手术日期补全。
+ */
+export function formatScheduleRange(item: SurgeryCase): string {
+  const operationDate = item.operationCase?.operationDate
+    ?? [item.scheduledStart, item.plannedStart]
+      .map((value) => parseScheduleDateTime(value))
+      .find(Boolean)?.format('YYYY-MM-DD');
+  const start = parseScheduleDateTime(item.scheduledStart ?? item.plannedStart, operationDate);
+  const explicitEnd = parseScheduleDateTime(item.scheduledEnd ?? item.surgeryEnd, operationDate);
+  const end = explicitEnd ?? (start ? start.add(item.expectedDurationMinutes || 60, 'minute') : null);
+  return `${start?.format('HH:mm') ?? '待定'} - ${end?.format('HH:mm') ?? '待定'}`;
+}
+
 export async function loadNurseScheduleList(date?: string): Promise<NurseScheduleRow[]> {
   const { startTime, endTime } = nursePbDateRange(date);
   try {
     const raw = await operationInfoApi.getNursePbList({ startTime, endTime });
-    return unwrapListPayload(raw).map(mapNursePbRow).filter((row) => row.operationId);
+    return unwrapListPayload(raw).map(mapNursePbRow).filter((row) => row.operationId || row.roomCode || row.roomName);
   } catch {
     return [];
   }
@@ -168,15 +219,34 @@ export function mergeNurseScheduleIntoCases(
   cases: SurgeryCase[],
   nurseRows: NurseScheduleRow[],
 ): SurgeryCase[] {
-  const byId = new Map(nurseRows.map((row) => [row.operationId, row]));
+  const byId = new Map(nurseRows.filter((row) => row.operationId).map((row) => [row.operationId, row]));
+  const rowDate = (row: NurseScheduleRow) => String(row.startDate ?? row.endDate ?? '').slice(0, 10);
+  const caseDate = (item: SurgeryCase) => {
+    const canonical = String(item.operationCase?.operationDate ?? '').slice(0, 10);
+    if (canonical) return canonical;
+    const parsed = dayjs(item.scheduledStart ?? item.plannedStart);
+    return parsed.isValid() ? parsed.format('YYYY-MM-DD') : '';
+  };
+  const caseRoomKeys = (item: SurgeryCase) => new Set([
+    item.operationCase?.roomCode,
+    item.operationCase?.roomName,
+    item.roomId,
+    item.room,
+    item.roomName,
+  ].map((value) => String(value ?? '').trim()).filter(Boolean));
   return cases.map((item) => {
-    const row = byId.get(item.id);
+    const direct = byId.get(item.id);
+    const keys = caseRoomKeys(item);
+    const date = caseDate(item);
+    const row = direct ?? nurseRows.find((candidate) => {
+      const candidateRoom = String(candidate.roomCode || candidate.roomName || candidate.room).trim();
+      const candidateDate = rowDate(candidate);
+      return Boolean(candidateRoom) && keys.has(candidateRoom) && (!candidateDate || !date || candidateDate === date);
+    });
     if (!row) return item;
     return {
       ...item,
-      sequence: row.numberOfStations || item.sequence,
       anesthesiologist: row.anesthesiologist || item.anesthesiologist,
-      anesthesiaNurse: row.nurse || item.anesthesiaNurse,
       circulatingNurses: row.circulatingNurse || item.circulatingNurses,
       scrubNurses: row.scrubNurse || item.scrubNurses,
     };

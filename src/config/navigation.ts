@@ -37,7 +37,7 @@ export const secondaryMenus: Record<string, SecondaryMenuItem[]> = {
     { key: 'noShift', label: '今日无排班', path: '/workbench/no-shift', icon: 'IconCalendar' },
   ],
   preoperative: [
-    { key: 'requests', label: '手术申请接收', path: '/preoperative/requests', icon: 'IconFile' },
+    { key: 'requests', label: '手术通知查看', path: '/preoperative/requests', icon: 'IconFile' },
     { key: 'consultation', label: '麻醉会诊', path: '/preoperative/consultation', icon: 'IconCalendar' },
     { key: 'exam', label: '术前检查审核', path: '/preoperative/exam-review', icon: 'IconExclamationCircle' },
     { key: 'consent', label: '知情同意', path: '/preoperative/consent', icon: 'IconFile' },
@@ -91,7 +91,8 @@ export const secondaryMenus: Record<string, SecondaryMenuItem[]> = {
     { key: 'operations', label: '运营分析', path: '/reports/operations', icon: 'IconDashboard' },
   ],
   config: [
-    { key: 'rooms', label: '手术间管理', path: '/config/rooms', icon: 'IconHome' },
+    { key: 'rooms', label: '手术间目录', path: '/config/rooms', icon: 'IconHome' },
+    { key: 'auxiliaryResources', label: '辅助区域/PACU床位', path: '/config/auxiliary-resources', icon: 'IconHome' },
     { key: 'staff', label: '麻醉人员', path: '/config/staff', icon: 'IconList' },
     { key: 'methods', label: '麻醉方式字典', path: '/config/methods', icon: 'IconExperiment' },
     { key: 'drugs', label: '药品字典', path: '/config/drugs', icon: 'IconExperiment' },

@@ -1,13 +1,13 @@
 <template>
-  <ModulePageShell title="手术间管理" description="维护手术间结构化配置、能力、生命周期与医院字段配置" shell-class="config-rooms-page">
+  <ModulePageShell title="手术间目录" description="核心手术间由手术护理系统维护，麻醉系统读取房间、能力、设备与生命周期信息" shell-class="config-rooms-page">
     <ConfigTableShell title="手术间列表">
       <template #title-tag>
-        <a-tag :color="source === 'remote' ? 'green' : 'gray'">{{ source === 'remote' ? '真实数据' : '本地' }}</a-tag>
+        <a-tag :color="source === 'remote' ? 'green' : 'gray'">{{ source === 'remote' ? 'HULI 真实数据' : '未连接' }}</a-tag>
+        <a-tag color="gray">只读</a-tag>
       </template>
       <template #extra>
         <a-space>
           <a-button @click="reload" :loading="loading">刷新</a-button>
-          <a-button v-if="canManage" type="primary" @click="openCreate">新增手术间</a-button>
           <a-button @click="openFieldConfig">字段配置</a-button>
         </a-space>
       </template>
@@ -17,10 +17,10 @@
           加载手术间失败：{{ loadError }}。可点击刷新重试。
         </a-alert>
         <a-alert v-else-if="!loading && source === 'remote' && !rooms.length" type="warning" show-icon style="margin-bottom: 12px">
-          远程暂无手术间数据，表格为空属正常状态，可在本页新增。
+          HULI 暂无手术间数据，本页不会使用本地默认房间补造。
         </a-alert>
-        <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom: 12px">
-          无手术间配置权限（config.room.manage）；仅可查看，写动作已禁用。
+        <a-alert v-if="source === 'remote'" type="info" show-icon style="margin-bottom: 12px">
+          核心手术间新增、编辑、暂停和停用请在手术护理系统处理；麻醉系统只保留读取与医院显示字段配置。
         </a-alert>
       </template>
 
@@ -37,6 +37,12 @@
                     {{ cap.capabilityCode }}
                   </a-tag>
                 </span>
+                <span v-else-if="field.fieldCode === 'equipment'">
+                  <a-tag v-for="device in record.equipment" :key="device.deviceId" :color="device.status === 'enabled' ? 'green' : 'gray'">
+                    {{ device.deviceName || device.deviceCode }}
+                  </a-tag>
+                  <span v-if="!record.equipment.length">未绑定</span>
+                </span>
                 <a-tag v-else-if="field.fieldCode === 'status'" :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
                 <span v-else class="cell-ellipsis" :title="formatCell(record, field.fieldCode)">{{ formatCell(record, field.fieldCode) }}</span>
               </template>
@@ -44,20 +50,13 @@
           </a-table-column>
           <a-table-column title="操作" :width="200" :fixed="rooms.length ? 'right' : undefined">
             <template #cell="{ record }">
-              <ConfigRowActions :actions="rowActions(record)" @action="(key: string) => onRowAction(record, key)" />
+              <ConfigRowActions :actions="[{ key: 'history', label: '历史', primary: true }]" @action="() => openHistory(record)" />
             </template>
           </a-table-column>
         </template>
       </a-table>
     </ConfigTableShell>
 
-    <RoomEditorDrawer
-      :visible="editorVisible"
-      :room="editingRoom"
-      :field-configs="fieldConfig"
-      @cancel="editorVisible = false"
-      @saved="onSaved"
-    />
     <RoomHistoryDrawer :visible="historyVisible" :room-id="historyRoomId" @cancel="historyVisible = false" />
     <RoomFieldConfigPanel
       :visible="fieldConfigVisible"
@@ -66,52 +65,25 @@
       @cancel="fieldConfigVisible = false"
       @saved="onFieldConfigSaved"
     />
-
-    <a-modal
-      :visible="statusModalVisible"
-      :title="statusTarget ? statusLabel(statusTarget.toStatus) + '手术间' : '状态变更'"
-      :ok-loading="statusSaving"
-      :mask-closable="false"
-      @cancel="statusModalVisible = false"
-      @ok="confirmStatusChange"
-    >
-      <a-form :model="{}" layout="vertical">
-        <a-form-item v-if="statusTarget && needsReason(statusTarget.toStatus)" label="原因（必填）" required>
-          <a-textarea v-model="statusReason" :auto-size="{ minRows: 2 }" placeholder="请填写变更原因" />
-        </a-form-item>
-        <a-form-item v-else>
-          确认{{ statusTarget ? statusLabel(statusTarget.toStatus) : '' }}该手术间？
-        </a-form-item>
-      </a-form>
-    </a-modal>
   </ModulePageShell>
 </template>
 
 <script setup lang="ts">
-import { Message } from '@arco-design/web-vue';
 import { computed, onMounted, ref } from 'vue';
 import ModulePageShell from '@/components/shared/ModulePageShell.vue';
 import ConfigTableShell from '@/components/config/ConfigTableShell.vue';
-import ConfigRowActions, { type ConfigRowAction } from '@/components/config/ConfigRowActions.vue';
-import RoomEditorDrawer from '@/components/config/RoomEditorDrawer.vue';
+import ConfigRowActions from '@/components/config/ConfigRowActions.vue';
 import RoomHistoryDrawer from '@/components/config/RoomHistoryDrawer.vue';
 import RoomFieldConfigPanel from '@/components/config/RoomFieldConfigPanel.vue';
 import { authApi } from '@/api/auth';
-import { useAnesthesiaStore } from '@/stores/anesthesia';
 import {
   loadRoomConfigurationList,
-  changeRoomStatus,
   loadHospitalFieldConfig,
-  canManageRoom,
   canManageField,
   groupRoomTableFields,
-  RoomConfigConflictError,
   type RoomFieldConfigEntry,
 } from '@/services/configuration/roomConfigurationService';
 import type { RoomConfiguration } from '@/services/anesthesia/adapters/roomAdapter';
-import { useRealRoom } from '@/config/apiFlags';
-
-const store = useAnesthesiaStore();
 
 const rooms = ref<RoomConfiguration[]>([]);
 const fieldConfig = ref<RoomFieldConfigEntry[]>([]);
@@ -120,16 +92,10 @@ const loadError = ref('');
 const source = ref<'remote' | 'local'>('local');
 const permissions = ref<string[]>([]);
 
-const editorVisible = ref(false);
-const editingRoom = ref<RoomConfiguration | null>(null);
 const historyVisible = ref(false);
 const historyRoomId = ref<number | null>(null);
 const fieldConfigVisible = ref(false);
 const hospitalCode = ref(resolveHospitalCode());
-const statusModalVisible = ref(false);
-const statusSaving = ref(false);
-const statusReason = ref('');
-const statusTarget = ref<{ room: RoomConfiguration; toStatus: 'enabled' | 'paused' | 'disabled' } | null>(null);
 
 function resolveHospitalCode(): string {
   if (typeof window === 'undefined') return 'default';
@@ -143,14 +109,16 @@ function resolveHospitalCode(): string {
   }
 }
 
-const canManage = computed(() => !useRealRoom() || canManageRoom(permissions.value));
-const canManageFieldCfg = computed(() => !useRealRoom() || canManageField(permissions.value));
+const canManageFieldCfg = computed(() => canManageField(permissions.value));
 
 /** 表格列：按医院字段配置的显示名/显示/排序控制；系统关键字段（编码/状态/版本）与能力核心列始终可见，不可隐藏。 */
-const SYSTEM_ALWAYS_FIELDS = ['roomCode', 'status', 'version', 'capabilities'];
+const SYSTEM_ALWAYS_FIELDS = [
+  'roomCode', 'roomName', 'roomType', 'roomGroupName', 'location',
+  'stationCapacity', 'openTime', 'closeTime', 'capabilities', 'equipment', 'status', 'version',
+];
 const tableFields = computed<RoomFieldConfigEntry[]>(() => {
   const cfgMap = new Map(fieldConfig.value.map((f) => [f.fieldCode, f]));
-  const baseOrder = ['roomCode', 'roomName', 'shortName', 'roomType', 'roomGroupId', 'roomGroupName', 'campus', 'floor', 'location', 'cleanLevel', 'emergencyCapable', 'negativePressure', 'hybridRoom', 'capabilities', 'defaultAnesthesiaMachine', 'defaultMonitor', 'defaultWorkstation', 'stationCapacity', 'openTime', 'closeTime', 'schedulePreference', 'staffPreference', 'sortNo', 'remark', 'version', 'status'];
+  const baseOrder = ['roomCode', 'roomName', 'shortName', 'roomType', 'roomGroupId', 'roomGroupName', 'campus', 'floor', 'location', 'cleanLevel', 'emergencyCapable', 'negativePressure', 'hybridRoom', 'capabilities', 'equipment', 'defaultAnesthesiaMachine', 'defaultMonitor', 'defaultWorkstation', 'stationCapacity', 'openTime', 'closeTime', 'schedulePreference', 'staffPreference', 'sortNo', 'remark', 'version', 'status'];
   const result: RoomFieldConfigEntry[] = [];
   for (const code of baseOrder) {
     const cfg = cfgMap.get(code);
@@ -181,7 +149,7 @@ const tableFieldGroups = computed(() => groupRoomTableFields(tableFields.value))
 const FIELD_WIDTHS: Record<string, number> = {
   roomCode: 160, roomName: 170, shortName: 110, roomType: 120,
   roomGroupId: 120, roomGroupName: 130, campus: 110, floor: 90,
-  location: 130, cleanLevel: 110, capabilities: 220,
+  location: 130, cleanLevel: 110, capabilities: 220, equipment: 240,
   defaultAnesthesiaMachine: 160, defaultMonitor: 150, defaultWorkstation: 150,
   stationCapacity: 90, openTime: 100, closeTime: 100,
   schedulePreference: 130, staffPreference: 130, sortNo: 80,
@@ -196,8 +164,11 @@ function defaultLabel(code: string): string {
   const map: Record<string, string> = {
     roomCode: '手术间编码', roomName: '手术间名称', shortName: '简称', roomType: '类型',
     roomGroupId: '所属手术部', roomGroupName: '手术部名称', campus: '院区', floor: '楼层',
-    location: '位置', cleanLevel: '洁净等级', capabilities: '能力', stationCapacity: '台位',
-    version: '版本', status: '状态',
+    location: '位置', cleanLevel: '洁净等级', capabilities: '业务能力', equipment: '已绑定物理设备', stationCapacity: '台位数量',
+    emergencyCapable: '急诊能力', negativePressure: '负压', hybridRoom: '复合手术间',
+    defaultAnesthesiaMachine: '默认麻醉机', defaultMonitor: '默认监护仪', defaultWorkstation: '默认工作站',
+    openTime: '开放时间', closeTime: '关闭时间', schedulePreference: '排班偏好',
+    staffPreference: '人员偏好', sortNo: '排序', remark: '备注', version: '版本', status: '状态',
   };
   return map[code] ?? code;
 }
@@ -236,14 +207,6 @@ async function loadPermissions() {
   }
 }
 
-function openCreate() {
-  editingRoom.value = null;
-  editorVisible.value = true;
-}
-function openEdit(room: RoomConfiguration) {
-  editingRoom.value = room;
-  editorVisible.value = true;
-}
 function openHistory(room: RoomConfiguration) {
   historyRoomId.value = room.roomId;
   historyVisible.value = true;
@@ -252,77 +215,9 @@ function openFieldConfig() {
   fieldConfigVisible.value = true;
 }
 
-async function onSaved() {
-  editorVisible.value = false;
-  await reload();
-  try {
-    await store.loadRoomCatalog();
-  } catch {
-    // 门店面目录刷新失败不影响配置页真值
-  }
-}
-
 async function onFieldConfigSaved() {
   // 字段配置保存后重新 GET，刷新列定义
   await reload();
-}
-
-function onChangeStatus(room: RoomConfiguration, toStatus: 'enabled' | 'paused' | 'disabled') {
-  statusTarget.value = { room, toStatus };
-  statusReason.value = '';
-  statusModalVisible.value = true;
-}
-
-function rowActions(room: RoomConfiguration): ConfigRowAction[] {
-  return [
-    { key: 'edit', label: '编辑', primary: true, hidden: !canManage.value },
-    { key: 'history', label: '历史' },
-    { key: 'pause', label: '暂停', hidden: !canManage.value || room.status !== 'enabled' },
-    { key: 'enable', label: '启用', hidden: !canManage.value || room.status !== 'paused' },
-    { key: 'disable', label: '停用', danger: true, hidden: !canManage.value || room.status === 'disabled' },
-  ];
-}
-function onRowAction(room: RoomConfiguration, key: string) {
-  if (key === 'edit') openEdit(room);
-  else if (key === 'history') openHistory(room);
-  else if (key === 'pause') onChangeStatus(room, 'paused');
-  else if (key === 'enable') onChangeStatus(room, 'enabled');
-  else if (key === 'disable') onChangeStatus(room, 'disabled');
-}
-
-function needsReason(toStatus: string): boolean {
-  return toStatus === 'paused' || toStatus === 'disabled';
-}
-
-async function confirmStatusChange() {
-  const target = statusTarget.value;
-  if (!target) return;
-  if (needsReason(target.toStatus) && !statusReason.value.trim()) {
-    Message.warning('请填写变更原因');
-    return;
-  }
-  statusSaving.value = true;
-  try {
-    await changeRoomStatus({
-      id: target.room.roomId,
-      toStatus: target.toStatus,
-      reason: statusReason.value.trim(),
-      expectedVersion: target.room.version,
-    });
-    Message.success('状态变更成功');
-    statusModalVisible.value = false;
-    await reload();
-  } catch (error) {
-    if (error instanceof RoomConfigConflictError) {
-      Message.warning('数据已被其他人修改，请刷新后重试');
-      statusModalVisible.value = false;
-      await reload();
-    } else if (error instanceof Error) {
-      Message.error(error.message);
-    }
-  } finally {
-    statusSaving.value = false;
-  }
 }
 
 function statusLabel(status: string): string {
@@ -332,8 +227,15 @@ function statusColor(status: string): string {
   return { enabled: 'green', paused: 'orange', disabled: 'red', draft: 'gray' }[status] ?? 'gray';
 }
 function formatCell(room: RoomConfiguration, code: string): string {
+  if (code === 'roomType') {
+    if (room.roomTypeName && room.roomType) return `${room.roomTypeName}（${room.roomType}）`;
+    return room.roomTypeName || room.roomType || '—';
+  }
+  if (code === 'roomGroupId' && room.roomGroupName) {
+    return room.roomGroupId ? `${room.roomGroupName}（${room.roomGroupId}）` : room.roomGroupName;
+  }
   const value = (room as unknown as Record<string, unknown>)[code];
-  if (value === null || value === undefined || value === '') return '—';
+  if (value === null || value === undefined || value === '') return '未配置';
   if (typeof value === 'boolean') return value ? '是' : '否';
   return String(value);
 }

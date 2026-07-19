@@ -58,8 +58,14 @@
         </div>
 
         <a-alert type="info" show-icon>
-          手术通知单由 `getOperationList` 加载；人员排班由 `getNursePbList` 合并展示。保存时分别调用 `updateOperationInfo` 与 `saveNursePb`，不写入麻醉记录单临床数据。
+          排班信息来自护理手术通知单与人员排班；修改后将重新读取确认。麻醉记录单中的用药、生命体征等临床数据在记录单内独立保存。
         </a-alert>
+
+        <div class="assignment-summary" aria-label="手术间分配统计">
+          <span>当日手术 <strong>{{ roomAssignmentSummary.total }}</strong> 台</span>
+          <span class="assigned">已分配房间 <strong>{{ roomAssignmentSummary.assigned }}</strong> 台</span>
+          <span :class="{ warning: roomAssignmentSummary.unassigned > 0 }">待分配 <strong>{{ roomAssignmentSummary.unassigned }}</strong> 台</span>
+        </div>
 
         <a-spin :loading="scheduleLoading" class="schedule-spin">
           <a-card v-if="viewMode !== 'list'" class="section-card" :bordered="false">
@@ -117,18 +123,18 @@
               </a-space>
             </template>
             <a-table
-              class="compact-table"
+              class="compact-table schedule-detail-table"
               :data="filteredCases"
-              :pagination="{ pageSize: 8 }"
+              :pagination="{ pageSize: 12, showTotal: true, showPageSize: true, pageSizeOptions: [12, 20, 50] }"
               row-key="id"
-              :scroll="{ x: 1900 }"
+              :scroll="{ x: 1650, y: 520 }"
             >
               <template #empty>
                 <a-empty :description="scheduleEmptyDescription" />
               </template>
               <template #columns>
-                <a-table-column title="手术间" data-index="room" :width="90" />
-                <a-table-column title="时间" :width="150">
+                <a-table-column title="手术间" :width="100"><template #cell="{ record }">{{ displayRoom(record) }}</template></a-table-column>
+                <a-table-column title="时间" :width="145">
                   <template #cell="{ record }">{{ formatRange(record) }}</template>
                 </a-table-column>
                 <a-table-column title="台次" :width="100">
@@ -144,18 +150,18 @@
                     />
                   </template>
                 </a-table-column>
-                <a-table-column title="患者" data-index="patientName" :width="90" />
-                <a-table-column title="住院号" :width="100">
-                  <template #cell="{ record }">{{ record.patientId ?? '-' }}</template>
+                <a-table-column title="患者" :width="110"><template #cell="{ record }"><span class="schedule-cell" :title="record.patientName">{{ record.patientName || '未登记' }}</span></template></a-table-column>
+                <a-table-column title="住院号" :width="130">
+                  <template #cell="{ record }"><span class="schedule-cell" :title="record.patientId">{{ record.patientId ?? '未登记' }}</span></template>
                 </a-table-column>
-                <a-table-column title="科室" data-index="department" />
-                <a-table-column title="拟施手术" data-index="surgeryName" />
-                <a-table-column title="麻醉医师" data-index="anesthesiologist" />
-                <a-table-column title="麻醉护士" data-index="anesthesiaNurse" />
+                <a-table-column title="科室" :width="160"><template #cell="{ record }"><span class="schedule-cell" :title="record.department">{{ record.department || '未登记' }}</span></template></a-table-column>
+                <a-table-column title="拟施手术" :width="190"><template #cell="{ record }"><span class="schedule-cell" :title="record.surgeryName">{{ record.surgeryName || '未登记' }}</span></template></a-table-column>
+                <a-table-column title="麻醉医师" :width="120"><template #cell="{ record }">{{ record.anesthesiologist || '待安排' }}</template></a-table-column>
+                <a-table-column title="麻醉护士" :width="120"><template #cell="{ record }">{{ record.anesthesiaNurse || '待安排' }}</template></a-table-column>
                 <a-table-column title="状态" :width="100">
                   <template #cell="{ record }"><StatusTag :value="record.status" /></template>
                 </a-table-column>
-                <a-table-column title="操作" fixed="right" :width="320">
+                <a-table-column title="操作" fixed="right" :width="220">
                   <template #cell="{ record }">
                     <a-space>
                       <a-button size="small" type="primary" @click="goRecord(record.id)">麻醉记录单</a-button>
@@ -259,6 +265,7 @@ import { useAnesthesiaStore } from '@/stores/anesthesia';
 import {
   buildMasterDataChangesFromDiff,
   buildSaveNursePbPayload,
+  formatScheduleRange,
   loadNurseScheduleList,
   matchCaseRoom,
   mergeNurseScheduleIntoCases,
@@ -276,6 +283,7 @@ import {
   type MasterDataAuditResult,
 } from '@/services/anesthesia/operationMasterDataService';
 import { authApi } from '@/api/auth';
+import { summarizeRoomAssignments } from '@/services/scheduleHelpers';
 import type { SurgeryCase } from '@/types/anesthesia';
 
 const router = useRouter();
@@ -318,14 +326,16 @@ const masterDataMeta = computed(() => {
 
 const statusOptions = ['待入室', '已入室', '麻醉诱导', '麻醉中', '手术中', '苏醒中', 'PACU', '已离室', '已取消'];
 
+const roomCatalogOptions = computed(() => store.roomSchedule
+  .filter((item) => item.roomId !== '__UNASSIGNED__')
+  .map((item) => ({ label: item.roomName || item.roomId, value: item.roomId })));
+
 const filterRoomOptions = computed(() => [
   { label: '全部手术间', value: '' },
-  ...store.configRooms.map((item) => ({ label: item, value: item })),
+  ...roomCatalogOptions.value,
 ]);
 
-const drawerRoomOptions = computed(() =>
-  store.configRooms.map((item) => ({ label: item, value: item })),
-);
+const drawerRoomOptions = computed(() => roomCatalogOptions.value);
 
 const sourceLabel = computed(() => {
   const map: Record<string, string> = { remote: '真实接口', mock: 'Mock' };
@@ -378,14 +388,15 @@ const filteredCases = computed(() => {
   return source;
 });
 
+const roomAssignmentSummary = computed(() => summarizeRoomAssignments(filteredCases.value));
+
 const visibleRoomGroups = computed(() => {
   const source = viewMode.value === 'mine' ? store.myTodayCases : filteredCases.value;
+  const sourceIds = new Set(source.map((item) => item.id));
   return store.roomSchedule
     .map((group) => ({
       ...group,
-      cases: source.filter((item) =>
-        matchCaseRoom(item, group.roomId) || matchCaseRoom(item, group.roomName),
-      ),
+      cases: group.cases.filter((item) => sourceIds.has(item.id)),
     }))
     .filter((group) => viewMode.value !== 'mine' || group.cases.length > 0);
 });
@@ -464,11 +475,16 @@ async function saveStationBatch() {
 
 const clone = (item: SurgeryCase) => JSON.parse(JSON.stringify(item)) as SurgeryCase;
 
-const formatRange = (item: SurgeryCase) => {
-  const start = item.scheduledStart ?? item.plannedStart;
-  const end = item.scheduledEnd ?? item.surgeryEnd ?? dayjs(start).add(item.expectedDurationMinutes || 60, 'minute').toISOString();
-  return `${dayjs(start).format('HH:mm')} - ${dayjs(end).format('HH:mm')}`;
-};
+const formatRange = formatScheduleRange;
+
+const displayRoom = (item: SurgeryCase) => (
+  item.operationCase?.roomName
+  || item.operationCase?.roomCode
+  || item.roomName
+  || item.roomId
+  || item.room
+  || '待分配'
+);
 
 const goRecord = (id: string) => router.push(`/surgery/record/${id}`);
 
@@ -625,17 +641,12 @@ const saveCase = async () => {
         item,
         reason: masterDataReason.value,
         changes,
-        saveNursePb: (it, date) => saveNurseSchedule(buildSaveNursePbPayload(it, date ?? filterDate.value)),
         operationDate: filterDate.value,
       });
       store.upsertCase(outcome.case);
       masterDataAudit.value = outcome.audit;
       masterDataReason.value = '';
-      if (outcome.nurseError) {
-        Message.warning(`主数据已保存；护理排班：${outcome.nurseError}`);
-      } else {
-        Message.success('排班已保存');
-      }
+      Message.success('排班已保存');
     } catch (error) {
       if (error instanceof MasterDataPermissionError) {
         Message.warning('无手术主数据修改权限');
@@ -701,6 +712,45 @@ onMounted(async () => {
 .schedule-spin {
   display: block;
   width: 100%;
+}
+.schedule-cell {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assignment-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+  margin: 10px 0 0;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+.assignment-summary strong {
+  margin-left: 3px;
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+}
+.assignment-summary .assigned strong {
+  color: var(--medical-green);
+}
+.assignment-summary .warning strong {
+  color: var(--warning);
+}
+.schedule-detail-table {
+  min-height: 600px;
+}
+.schedule-detail-table :deep(.arco-table-container) {
+  min-height: 548px;
+}
+.schedule-detail-table :deep(.arco-table-body) {
+  min-height: 480px;
 }
 .station-batch-bar {
   display: flex;

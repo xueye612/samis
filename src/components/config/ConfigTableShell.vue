@@ -29,6 +29,8 @@ defineProps<{ title?: string }>();
 .config-table-scroll {
   width: 100%;
   min-width: 0;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
 }
 /* 统一门禁：表头单行不换行，杜绝逐字竖排 */
 .config-table-shell :deep(.arco-table-th) {
@@ -45,5 +47,6 @@ defineProps<{ title?: string }>();
 /* 操作列固定在右侧时保持净空，避免与数据列重叠 */
 .config-table-shell :deep(.arco-table-col-fixed-right) {
   background: var(--surface);
+  box-shadow: -8px 0 12px -12px rgb(15 23 42 / 45%);
 }
 </style>

@@ -36,6 +36,7 @@ function installNetworkMocks(page: Page, opts: {
   permitted: boolean;
   counters: { masterPost: number; nursePost: number; stationPost: number; getCount: number; changes: string[] };
   posted: { form?: URLSearchParams };
+  operationList?: Array<Record<string, unknown>>;
 }) {
   return page.route('**/api-samis/pc/v1/**', async (route) => {
     const url = route.request().url();
@@ -43,7 +44,7 @@ function installNetworkMocks(page: Page, opts: {
     const saved = opts.counters.masterPost > 0;
 
     if (url.includes('/operationInfo/getOperationList')) {
-      await route.fulfill(ok({ list: [{
+      const list = opts.operationList ?? [{
         OPERATIONID: 'op-md-2',
         operationCase: {
           operationId: 'op-md-2',
@@ -58,7 +59,8 @@ function installNetworkMocks(page: Page, opts: {
           sourceTable: 'operatenotice',
           lastUpdatedAt: '2026-07-13 10:00:00',
         },
-      }] }));
+      }];
+      await route.fulfill(ok({ list }));
       return;
     }
     if (url.includes('/auth/myPermissions')) {
@@ -141,6 +143,33 @@ async function fillDateTime(page: Page, label: string, value: string) {
 }
 
 test.describe('手术主数据受控修改', () => {
+  test('排班按 OperationCase 展示 A/B/C 房间并提供足够的列表高度', async ({ page }) => {
+    const counters = { masterPost: 0, nursePost: 0, stationPost: 0, getCount: 0, changes: [] as string[] };
+    const posted = { form: undefined as URLSearchParams | undefined };
+    const operationList = [
+      { OPERATIONID: 'op-a1', operationCase: { operationId: 'op-a1', operationDate: '2026-07-16', roomCode: 'A1', roomName: 'A1', patientName: '甲患者', plannedStartTime: '2026-07-16 08:00:00' } },
+      { OPERATIONID: 'op-b2', operationCase: { operationId: 'op-b2', operationDate: '2026-07-16', roomCode: 'B2', roomName: 'B2', patientName: '乙患者', plannedStartTime: '2026-07-16 09:00:00' } },
+      { OPERATIONID: 'op-c3', operationCase: { operationId: 'op-c3', operationDate: '2026-07-16', roomCode: 'C3', roomName: '复合三号间', patientName: '丙患者', plannedStartTime: '2026-07-16 10:00:00' } },
+      { OPERATIONID: 'op-none', operationCase: { operationId: 'op-none', operationDate: '2026-07-16', roomCode: null, roomName: null, patientName: '待分配患者', plannedStartTime: '2026-07-16 11:00:00' } },
+    ];
+    await seedSession(page);
+    await installNetworkMocks(page, { permitted: false, counters, posted, operationList });
+
+    await page.goto('/surgery/schedule');
+    await page.waitForLoadState('networkidle');
+
+    const summary = page.getByLabel('手术间分配统计');
+    await expect(summary).toContainText('当日手术 4 台');
+    await expect(summary).toContainText('已分配房间 3 台');
+    await expect(summary).toContainText('待分配 1 台');
+    await expect(page.locator('.room-schedule-head').filter({ hasText: 'A1' })).toBeVisible();
+    await expect(page.locator('.room-schedule-head').filter({ hasText: 'B2' })).toBeVisible();
+    await expect(page.locator('.room-schedule-head').filter({ hasText: '复合三号间' })).toBeVisible();
+    await expect(page.locator('.room-schedule-head').filter({ hasText: '待分配' })).toBeVisible();
+    const tableBodyHeight = await page.locator('.schedule-detail-table .arco-table-body').evaluate((node) => node.getBoundingClientRect().height);
+    expect(tableBodyHeight).toBeGreaterThanOrEqual(480);
+  });
+
   test('无权限：编辑控件禁用，0 主数据/护理/台次写请求', async ({ page }) => {
     const counters = { masterPost: 0, nursePost: 0, stationPost: 0, getCount: 0, changes: [] as string[] };
     const posted = { form: undefined as URLSearchParams | undefined };
@@ -199,8 +228,8 @@ test.describe('手术主数据受控修改', () => {
     );
     // 台次随主数据信封保存，不再调用无版本/原因的旁路接口
     expect(counters.stationPost).toBe(0);
-    // 护理排班在主数据 POST→GET 成功后独立执行
-    expect(counters.nursePost).toBeGreaterThanOrEqual(1);
+    // 单个患者主数据修改不得覆盖“日期+房间”粒度的护理人员排班
+    expect(counters.nursePost).toBe(0);
     // 2. POST 之后 GET 回读新版本
     expect(counters.getCount).toBeGreaterThanOrEqual(1);
 

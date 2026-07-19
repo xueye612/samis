@@ -8,7 +8,7 @@
         <a-alert v-else-if="!loading && source === 'remote' && !items.length" type="warning" show-icon style="margin-bottom:12px">远程暂无药品数据。</a-alert>
         <a-alert v-if="!canManage && source === 'remote'" type="warning" show-icon style="margin-bottom:12px">无药品配置权限（config.drug.manage）；仅可查看。</a-alert>
       </template>
-      <a-table :data="(items as any)" row-key="id" :loading="loading" :pagination="false" size="medium" :scroll="{ x: 1280 }">
+      <a-table :data="(items as any)" row-key="id" :loading="loading" :pagination="false" size="medium" :scroll="{ x: 1590 }">
         <template #empty><a-empty description="暂无药品" /></template>
         <template #columns>
           <a-table-column title="编码" :width="160"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.drugCode">{{ record.drugCode }}</span></template></a-table-column>
@@ -17,7 +17,10 @@
           <a-table-column title="分类" :width="120"><template #cell="{ record }">{{ record.drugCategory || '—' }}</template></a-table-column>
           <a-table-column title="规格" :width="140"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.specification">{{ record.specification || '—' }}</span></template></a-table-column>
           <a-table-column title="剂型" :width="100"><template #cell="{ record }">{{ record.dosageForm || '—' }}</template></a-table-column>
-          <a-table-column title="剂量范围" :width="130"><template #cell="{ record }">{{ record.minDose ?? '—' }}~{{ record.maxDose ?? '—' }}</template></a-table-column>
+          <a-table-column title="浓度" :width="110"><template #cell="{ record }">{{ record.concentration || '未配置' }}</template></a-table-column>
+          <a-table-column title="剂量范围" :width="130"><template #cell="{ record }">{{ doseRange(record) }}</template></a-table-column>
+          <a-table-column title="默认单位" :width="100"><template #cell="{ record }">{{ record.defaultUnit || '未配置' }}</template></a-table-column>
+          <a-table-column title="默认途径" :width="100"><template #cell="{ record }">{{ record.defaultRoute || '未配置' }}</template></a-table-column>
           <a-table-column title="版本" :width="80"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
           <a-table-column title="状态" :width="90"><template #cell="{ record }"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template></a-table-column>
           <a-table-column title="操作" :width="200" fixed="right">
@@ -220,6 +223,10 @@ async function confirmStatus() {
 async function openHistory(r: any) { historyVisible.value = true; try { history.value = await loadClinicalDictionaryHistory(ENTITY, Number(r.id)); } catch { history.value = []; } }
 function statusLabel(s: string): string { return ({ enabled: '启用', paused: '暂停', disabled: '停用' }[s] ?? s) || '—'; }
 function statusColor(s: string): string { return ({ enabled: 'green', paused: 'orange', disabled: 'red' }[s] ?? 'gray'); }
+function doseRange(r: any): string {
+  if (r.minDose == null && r.maxDose == null) return '医院未配置';
+  return `${r.minDose ?? '—'} ~ ${r.maxDose ?? '—'}${r.defaultDoseUnit ? ` ${r.defaultDoseUnit}` : ''}`;
+}
 onMounted(async () => { await loadPerms(); await reload(); });
 </script>
 <style scoped>

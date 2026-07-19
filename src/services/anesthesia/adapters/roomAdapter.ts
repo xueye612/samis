@@ -19,12 +19,24 @@ export interface RoomCapabilityItem {
   capabilityName: string | null;
 }
 
+export interface RoomEquipmentSummary {
+  deviceId: number;
+  deviceCode: string;
+  deviceName: string;
+  deviceType: string;
+  status: string;
+  currentRoomId: number | null;
+  version: number;
+  bindingId: number | null;
+}
+
 export interface RoomConfiguration {
   roomId: number;
   roomCode: string;
   roomName: string;
   shortName: string | null;
   roomType: string | null;
+  roomTypeName: string | null;
   roomGroupId: string | null;
   roomGroupName: string | null;
   campus: string | null;
@@ -55,6 +67,7 @@ export interface RoomConfiguration {
   updatedBy: string | null;
   updatedAt: string | null;
   capabilities: RoomCapabilityItem[];
+  equipment: RoomEquipmentSummary[];
 }
 
 export interface RoomStatusHistoryItem {
@@ -104,6 +117,24 @@ export function mapRoomConfiguration(raw: unknown): RoomConfiguration {
         };
       }).filter((c) => c.capabilityType && c.capabilityCode)
     : [];
+  const rawEquipment = pickField(record, ['equipment']);
+  const equipment: RoomEquipmentSummary[] = Array.isArray(rawEquipment)
+    ? rawEquipment.map((item): RoomEquipmentSummary => {
+        const device = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+        const currentRoomId = pickField(device, ['currentRoomId', 'current_room_id']);
+        const bindingId = pickField(device, ['bindingId', 'binding_id']);
+        return {
+          deviceId: intField(device, ['deviceId', 'device_id'], 0),
+          deviceCode: pickString(device, ['deviceCode', 'device_code'], ''),
+          deviceName: pickString(device, ['deviceName', 'device_name'], ''),
+          deviceType: pickString(device, ['deviceType', 'device_type'], ''),
+          status: pickString(device, ['status'], ''),
+          currentRoomId: currentRoomId === null || currentRoomId === undefined || currentRoomId === '' ? null : Number(currentRoomId),
+          version: intField(device, ['version'], 0),
+          bindingId: bindingId === null || bindingId === undefined || bindingId === '' ? null : Number(bindingId),
+        };
+      }).filter((item) => item.deviceId > 0 && item.deviceCode)
+    : [];
 
   return {
     roomId: intField(record, ['roomId', 'OPERATION_ROOM_ID'], 0),
@@ -111,6 +142,7 @@ export function mapRoomConfiguration(raw: unknown): RoomConfiguration {
     roomName: pickString(record, ['roomName', 'OPERATION_ROOM_NAME'], ''),
     shortName: nullableString(record, ['shortName', 'short_name']),
     roomType: nullableString(record, ['roomType', 'OPERATION_ROOM_TYPE']),
+    roomTypeName: nullableString(record, ['roomTypeName', 'room_type_name', 'OPERATION_ROOM_TYPE_NAME']),
     roomGroupId: nullableString(record, ['roomGroupId', 'OPERATION_ROOM_GROUP']),
     roomGroupName: nullableString(record, ['roomGroupName', 'room_group_name']),
     campus: nullableString(record, ['campus']),
@@ -141,6 +173,7 @@ export function mapRoomConfiguration(raw: unknown): RoomConfiguration {
     updatedBy: nullableString(record, ['updatedBy', 'updated_by']),
     updatedAt: nullableString(record, ['updatedAt', 'updated_at']),
     capabilities,
+    equipment,
   };
 }
 

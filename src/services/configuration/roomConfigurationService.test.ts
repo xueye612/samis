@@ -39,6 +39,7 @@ const {
   canManageRoom,
   canManageField,
   RoomConfigConflictError,
+  CoreRoomReadOnlyError,
 } = await import('@/services/configuration/roomConfigurationService');
 
 describe('roomConfigurationService', () => {
@@ -63,28 +64,13 @@ describe('roomConfigurationService', () => {
     expect(list[0].version).toBe(2);
   });
 
-  it('create returns version; conflict maps to RoomConfigConflictError', async () => {
-    roomApiMock.roomCreate.mockResolvedValue({ roomId: 12, version: 1 });
-    const created = await createRoomConfiguration({ roomCode: 'R1' });
-    expect(created.roomId).toBe(12);
-    expect(created.version).toBe(1);
-
-    const { SamisHttpError } = await import('@/api/samisHttpClient');
-    roomApiMock.roomCreate.mockRejectedValueOnce(new SamisHttpError('conflict', 200, 4091));
-    await expect(createRoomConfiguration({ roomCode: 'R1' })).rejects.toBeInstanceOf(RoomConfigConflictError);
-  });
-
-  it('update returns version', async () => {
-    roomApiMock.roomUpdate.mockResolvedValue({ version: 5 });
-    const updated = await updateRoomConfiguration({ roomId: 12, expectedVersion: 4 });
-    expect(updated.version).toBe(5);
-  });
-
-  it('changeStatus returns status and version', async () => {
-    roomApiMock.roomChangeStatus.mockResolvedValue({ status: 'paused', version: 3 });
-    const r = await changeRoomStatus({ id: 12, toStatus: 'paused', reason: 'x', expectedVersion: 2 });
-    expect(r.status).toBe('paused');
-    expect(r.version).toBe(3);
+  it('SAMIS 核心手术间只读，三个写入服务在调用 API 前拒绝', async () => {
+    await expect(createRoomConfiguration({ roomCode: 'R1' })).rejects.toBeInstanceOf(CoreRoomReadOnlyError);
+    await expect(updateRoomConfiguration({ roomId: 12, expectedVersion: 4 })).rejects.toBeInstanceOf(CoreRoomReadOnlyError);
+    await expect(changeRoomStatus({ roomId: 12, toStatus: 'paused', reason: 'x', expectedVersion: 2 })).rejects.toBeInstanceOf(CoreRoomReadOnlyError);
+    expect(roomApiMock.roomCreate).not.toHaveBeenCalled();
+    expect(roomApiMock.roomUpdate).not.toHaveBeenCalled();
+    expect(roomApiMock.roomChangeStatus).not.toHaveBeenCalled();
   });
 
   it('history preserves order', async () => {

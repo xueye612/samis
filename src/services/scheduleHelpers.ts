@@ -28,6 +28,21 @@ export interface RoomScheduleGroup {
   cases: SurgeryCase[];
 }
 
+export interface RoomAssignmentSummary {
+  total: number;
+  assigned: number;
+  unassigned: number;
+}
+
+const UNASSIGNED_ROOM_ID = '__UNASSIGNED__';
+
+function roomIdentity(item: SurgeryCase): { id: string; name: string } {
+  const canonical = item.operationCase;
+  const id = String(canonical?.roomCode ?? item.roomId ?? item.room ?? '').trim();
+  const name = String(canonical?.roomName ?? item.roomName ?? item.room ?? id).trim();
+  return { id, name: name || id };
+}
+
 export function normalizeCaseSchedule(item: SurgeryCase): NormalizedCaseSchedule {
   const startTime = toValidIso(
     item.scheduledStart ?? item.plannedStart ?? item.surgeryStart ?? item.anesthesiaStart,
@@ -72,12 +87,41 @@ export function sortCasesByClinicalPriority(cases: SurgeryCase[]): SurgeryCase[]
 }
 
 export function groupCasesByRoom(cases: SurgeryCase[], rooms: string[]): RoomScheduleGroup[] {
-  const knownRooms = rooms.filter((room) => room.startsWith('OR-') || ['产房', '内镜中心'].includes(room));
-  return knownRooms.map((room) => ({
-    roomId: room,
-    roomName: room,
-    cases: sortCasesByClinicalPriority(cases.filter((item) => (item.roomId ?? item.room) === room)),
+  const groups = new Map<string, RoomScheduleGroup>();
+  rooms.map((room) => String(room ?? '').trim()).filter(Boolean).forEach((room) => {
+    if (!groups.has(room)) groups.set(room, { roomId: room, roomName: room, cases: [] });
+  });
+
+  const unassigned: SurgeryCase[] = [];
+  cases.forEach((item) => {
+    const room = roomIdentity(item);
+    if (!room.id) {
+      unassigned.push(item);
+      return;
+    }
+    const group = groups.get(room.id) ?? { roomId: room.id, roomName: room.name, cases: [] };
+    if (room.name && (group.roomName === group.roomId || !group.roomName)) group.roomName = room.name;
+    group.cases.push(item);
+    groups.set(room.id, group);
+  });
+
+  const result = Array.from(groups.values()).map((group) => ({
+    ...group,
+    cases: sortCasesByClinicalPriority(group.cases),
   }));
+  if (unassigned.length) {
+    result.push({
+      roomId: UNASSIGNED_ROOM_ID,
+      roomName: '待分配',
+      cases: sortCasesByClinicalPriority(unassigned),
+    });
+  }
+  return result;
+}
+
+export function summarizeRoomAssignments(cases: SurgeryCase[]): RoomAssignmentSummary {
+  const assigned = cases.filter((item) => Boolean(roomIdentity(item).id)).length;
+  return { total: cases.length, assigned, unassigned: cases.length - assigned };
 }
 
 export function getDoctorCases(cases: SurgeryCase[], doctorName: string): SurgeryCase[] {

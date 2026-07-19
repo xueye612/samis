@@ -51,12 +51,15 @@
             :loading="loading"
             :pagination="false"
             size="medium"
-            :scroll="{ x: 980 }"
+            :scroll="{ x: 1320 }"
           >
             <template #columns>
               <a-table-column title="编码" :width="180"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.itemCode">{{ record.itemCode }}</span></template></a-table-column>
               <a-table-column title="名称" :width="160"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.itemName">{{ record.itemName }}</span></template></a-table-column>
               <a-table-column title="气道策略" :width="130"><template #cell="{ record }">{{ record.profile?.airwayStrategy || '—' }}</template></a-table-column>
+              <a-table-column title="适用手术" :width="160"><template #cell="{ record }"><span class="cell-ellipsis" :title="record.profile?.applicableOperationTypes">{{ record.profile?.applicableOperationTypes || '未配置' }}</span></template></a-table-column>
+              <a-table-column title="镇痛策略" :width="130"><template #cell="{ record }">{{ record.profile?.analgesiaStrategy || '未配置' }}</template></a-table-column>
+              <a-table-column title="PACU去向" :width="120"><template #cell="{ record }">{{ record.profile?.pacuDestination || '未配置' }}</template></a-table-column>
               <a-table-column title="默认模板" :width="140"><template #cell="{ record }">{{ record.profile?.defaultTemplateCode || '—' }}</template></a-table-column>
               <a-table-column title="排序" :width="80"><template #cell="{ record }">{{ record.sortNo }}</template></a-table-column>
               <a-table-column title="版本" :width="80"><template #cell="{ record }">{{ record.version }}</template></a-table-column>
@@ -264,7 +267,7 @@ onMounted(async () => { await loadPermissions(); await reload(); });
 <style scoped>
 .method-layout {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: 360px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -278,6 +281,9 @@ onMounted(async () => { await loadPermissions(); await reload(); });
 .method-category-list {
   max-height: 560px;
   overflow-y: auto;
+}
+@media (max-width: 1200px) {
+  .method-layout { grid-template-columns: 320px minmax(0, 1fr); }
 }
 .method-category-item {
   display: flex;

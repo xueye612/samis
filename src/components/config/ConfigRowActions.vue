@@ -40,11 +40,12 @@ const visibleActions = computed(() => props.actions.filter((a) => !a.hidden));
   display: inline-flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 2px;
+  gap: 0;
   white-space: nowrap;
 }
 .config-row-action-btn {
-  padding: 0 6px;
+  padding: 0 4px;
   height: 26px;
+  font-size: 12px;
 }
 </style>

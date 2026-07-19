@@ -47,6 +47,9 @@ describe('roomAdapter', () => {
       capabilities: [
         { capabilityType: 'operation_type', capabilityCode: 'OP-GA', capabilityName: '全麻' },
       ],
+      equipment: [
+        { deviceId: 71, deviceCode: 'MON-01', deviceName: '一号监护仪', deviceType: 'monitor', status: 'enabled', currentRoomId: 9012, version: 4, bindingId: 8 },
+      ],
     });
     expect(room.roomCode).toBe('ROOM-X');
     expect(room.roomId).toBe(9012);
@@ -58,6 +61,9 @@ describe('roomAdapter', () => {
     expect(room.version).toBe(3);
     expect(room.capabilities).toHaveLength(1);
     expect(room.capabilities[0].capabilityCode).toBe('OP-GA');
+    expect(room.equipment).toEqual([
+      expect.objectContaining({ deviceId: 71, deviceCode: 'MON-01', currentRoomId: 9012, bindingId: 8 }),
+    ]);
   });
 
   it('mapRoomConfiguration does not fabricate roomCode from name', () => {

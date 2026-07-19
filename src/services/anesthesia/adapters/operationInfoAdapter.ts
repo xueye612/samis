@@ -467,6 +467,7 @@ export const LOCAL_CLINICAL_KEYS = [
   'layoutWarnings', 'preVisit', 'rescue', 'airwayRecord', 'recoveryRecord', 'anesthesiaPlanes',
   'device', 'signatures', 'modificationLogs', 'recordDraft', 'professionalFieldValues',
   'printedAt', 'locked', 'status', 'recordStatus',
+  'surgeryType', 'surgeryLevel', 'postoperativeDiagnosis',
 ] as const;
 
 /** 权威 operationCase 字段 → 页面使用的平铺展示投影：远端 null 表示权威清空，必须覆盖本地/默认旧值。 */

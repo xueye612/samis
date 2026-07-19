@@ -52,6 +52,7 @@ import ReportsWorkload from '@/views/reports/ReportsWorkload.vue';
 import ReportsMethods from '@/views/reports/ReportsMethods.vue';
 import ReportsOperations from '@/views/reports/ReportsOperations.vue';
 import ConfigRooms from '@/views/config/ConfigRooms.vue';
+import ConfigAuxiliaryResources from '@/views/config/ConfigAuxiliaryResources.vue';
 import ConfigStaff from '@/views/config/ConfigStaff.vue';
 import ConfigMethods from '@/views/config/ConfigMethods.vue';
 import ConfigDrugs from '@/views/config/ConfigDrugs.vue';
@@ -80,7 +81,7 @@ const router = createRouter({
     { path: '/workbench/todos', name: 'workbenchTodos', component: WorkbenchTodos, meta: { menu: 'workbench', title: '我的待办' } },
     { path: '/workbench/no-shift', name: 'workbenchNoShift', component: WorkbenchNoShift, meta: { menu: 'workbench', title: '今日无排班' } },
     { path: '/workbench/emergency', name: 'workbenchEmergency', component: WorkbenchEmergency, meta: { menu: 'workbench', title: '紧急呼叫' } },
-    { path: '/preoperative/requests', name: 'preoperativeRequests', component: PreoperativeRequests, meta: { menu: 'preoperative', title: '手术申请接收' } },
+    { path: '/preoperative/requests', name: 'preoperativeRequests', component: PreoperativeRequests, meta: { menu: 'preoperative', title: '手术通知查看' } },
     { path: '/preoperative/consultation', name: 'preoperativeConsultation', component: PreoperativeConsultation, meta: { menu: 'preoperative', title: '麻醉会诊' } },
     { path: '/preoperative/exam-review', name: 'preoperativeExamReview', component: PreoperativeExamReview, meta: { menu: 'preoperative', title: '术前检查审核' } },
     { path: '/preoperative/consent', name: 'preoperativeConsent', component: PreoperativeConsent, meta: { menu: 'preoperative', title: '知情同意' } },
@@ -131,7 +132,8 @@ const router = createRouter({
     { path: '/reports/methods', name: 'reportsMethods', component: ReportsMethods, meta: { menu: 'reports', title: '麻醉方式分析' } },
     { path: '/reports/operations', name: 'reportsOperations', component: ReportsOperations, meta: { menu: 'reports', title: '运营分析' } },
     { path: '/config', redirect: '/config/rooms' },
-    { path: '/config/rooms', name: 'configRooms', component: ConfigRooms, meta: { menu: 'config', title: '手术间管理' } },
+    { path: '/config/rooms', name: 'configRooms', component: ConfigRooms, meta: { menu: 'config', title: '手术间目录' } },
+    { path: '/config/auxiliary-resources', name: 'configAuxiliaryResources', component: ConfigAuxiliaryResources, meta: { menu: 'config', title: '辅助区域与PACU床位' } },
     { path: '/config/staff', name: 'configStaff', component: ConfigStaff, meta: { menu: 'config', title: '麻醉人员' } },
     { path: '/config/methods', name: 'configMethods', component: ConfigMethods, meta: { menu: 'config', title: '麻醉方式字典' } },
     { path: '/config/drugs', name: 'configDrugs', component: ConfigDrugs, meta: { menu: 'config', title: '药品字典' } },

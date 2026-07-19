@@ -43,6 +43,13 @@ export class RoomConfigConflictError extends Error {
   }
 }
 
+export class CoreRoomReadOnlyError extends Error {
+  constructor(message = '核心手术间由手术护理系统维护，麻醉系统仅可读取') {
+    super(message);
+    this.name = 'CoreRoomReadOnlyError';
+  }
+}
+
 /** 是否拥有手术间配置管理权限（通配 * 或显式权限码）。 */
 export function canManageRoom(permissions: string[] | null | undefined): boolean {
   return hasPermission(permissions, ROOM_MANAGE_PERMISSION);
@@ -92,34 +99,18 @@ export interface RoomSaveResult {
 }
 
 export async function createRoomConfiguration(payload: Record<string, unknown>): Promise<RoomSaveResult> {
-  try {
-    const result = await roomApi.roomCreate(payload);
-    const data = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
-    const id = data.roomId ?? data.id;
-    return { roomId: id === undefined ? undefined : Number(id), version: Number(data.version ?? 1) };
-  } catch (error) {
-    throwIfConflict(error);
-  }
+  void payload;
+  throw new CoreRoomReadOnlyError();
 }
 
 export async function updateRoomConfiguration(payload: Record<string, unknown>): Promise<RoomSaveResult> {
-  try {
-    const result = await roomApi.roomUpdate(payload);
-    const data = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
-    return { version: Number(data.version ?? 0) };
-  } catch (error) {
-    throwIfConflict(error);
-  }
+  void payload;
+  throw new CoreRoomReadOnlyError();
 }
 
 export async function changeRoomStatus(payload: Record<string, unknown>): Promise<{ status: string; version: number }> {
-  try {
-    const result = await roomApi.roomChangeStatus(payload);
-    const data = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
-    return { status: String(data.status ?? ''), version: Number(data.version ?? 0) };
-  } catch (error) {
-    throwIfConflict(error);
-  }
+  void payload;
+  throw new CoreRoomReadOnlyError();
 }
 
 export async function loadRoomConfigurationHistory(id: number | string): Promise<RoomStatusHistoryItem[]> {
