@@ -103,3 +103,20 @@ export async function stopMonitorMockFromQuickToolbar(page: Page) {
 export async function getRecordSheetBox(page: Page) {
   return page.locator('.live-record-card').first().boundingBox();
 }
+
+// 右侧三标签侧栏：切换到指定标签并确保其内容面板可见。
+export async function openSideTab(page: Page, testId: 'side-tab-task' | 'side-tab-device' | 'side-tab-reminder') {
+  const tab = page.getByTestId(testId);
+  await expect(tab).toBeVisible({ timeout: 10_000 });
+  await tab.click();
+  await page.waitForTimeout(120);
+}
+
+// 展开患者表头完整信息（屏幕模式默认折叠为单行摘要）。
+export async function expandPatientHeader(page: Page) {
+  const editBtn = page.getByTestId('record-header-edit');
+  await expect(editBtn).toBeVisible({ timeout: 10_000 });
+  await editBtn.click();
+  await expect(page.getByTestId('record-header-expanded')).toBeVisible({ timeout: 5_000 });
+}
+

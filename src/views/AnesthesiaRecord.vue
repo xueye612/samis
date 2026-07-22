@@ -34,7 +34,7 @@
       @quality-check="runQuality"
       @section-settings="sectionSettingsVisible = true"
       @toggle-patient-queue="patientPanelOpen = !patientPanelOpen"
-      @toggle-quality-panel="qualityPanelOpen = !qualityPanelOpen"
+      @toggle-quality-panel="openReminders"
       @decrease-zoom="decreaseSheetZoom"
       @increase-zoom="increaseSheetZoom"
       @fit-width="fitSheetWidth"
@@ -43,7 +43,7 @@
       @open-conflicts="conflictPanelVisible = true"
     />
 
-    <div class="record-layout" :class="{ 'queue-collapsed': !patientPanelOpen, 'quality-collapsed': !qualityPanelOpen }">
+    <div class="record-layout" :class="{ 'queue-collapsed': !patientPanelOpen }">
       <aside v-show="patientPanelOpen" class="patient-queue">
         <div class="queue-head">
           <strong>手术间患者</strong>
@@ -171,6 +171,7 @@
                 @layout-warnings="updateLayoutWarnings"
                 @stop-medication-pump="stopPump"
                 @section-visibility-reason="handleSectionVisibilityReason"
+                @header-dirty-change="onHeaderDirtyChange"
               />
             </div>
           </section>
@@ -178,7 +179,14 @@
 
         <aside ref="toolboxRef" class="record-toolbox" :class="{ collapsed: toolboxCollapsed, 'drawer-open': toolboxDrawerVisible }">
             <div class="toolbox-head no-print">
-              <strong>记录辅助</strong>
+              <button
+                v-if="!toolboxCollapsed"
+                type="button"
+                class="toolbox-more-btn"
+                data-testid="record-more-tools"
+                @click="openMoreTools"
+              >更多工具</button>
+              <strong v-if="toolboxCollapsed" class="toolbox-collapsed-title">辅助</strong>
               <div class="toolbox-head-actions">
                 <a-button size="mini" type="text" class="toolbox-drawer-close" @click="toolboxDrawerVisible = false">关闭</a-button>
                 <a-button size="mini" type="text" @click="toolboxCollapsed = !toolboxCollapsed">
@@ -187,45 +195,50 @@
               </div>
             </div>
 
-            <template v-if="!toolboxCollapsed">
-            <div class="toolbox-scroll-zone">
-            <div class="toolbox-pinned-zone no-print">
-              <RecordRealtimeDevicePanel
-                :state="realtimeDeviceState"
-                :source-mode="deviceRealtimeSource"
-                :source-ready="deviceRealtimeSourceReady"
-              />
-              <DeviceSessionVentilatorPanel :state="deviceSessionState" />
-              <RecordRealtimeWaveformPlaceholder />
-              <RecordQuickToolbar
-                :record="current"
-                :entries="sheetQuickActions.entries"
-                :monitor-running="syncState.monitorRunning"
-                :ventilator-running="syncState.ventilatorRunning"
-                :monitoring-paused="monitoringViewUi.monitoringPaused"
-                :conflict-count="syncState.conflictCount"
-                :show-device="recordActions.showDeviceControls && showDeviceSimulationControls && deviceRealtimeSourceReady && deviceRealtimeSource === 'simulation'"
-                :raw-interval-seconds="deviceRawIntervalSeconds"
-                :display-interval-minutes="monitorDisplayIntervalMinutes"
-                :raw-interval-options="deviceRawIntervalOptions"
-                :display-interval-options="monitorIntervalOptions"
-                @stop-pump="stopPump"
-                @open-data="openDataList"
-                @toggle-monitor="toggleMonitorMock"
-                @toggle-ventilator="toggleVentilatorMock"
-                @pause-all-devices="pauseAllDevices"
-                @resume-all-devices="resumeAllDevices"
-                @stop-all-devices="stopAllDevices"
-                @update:raw-interval-seconds="updateDeviceRawIntervalSeconds"
-                @update:display-interval-minutes="updateMonitorDisplayIntervalMinutes"
-                @import-vitals="importVitals"
-                @open-sync-detail="syncDetailVisible = true"
-                @open-conflicts="conflictPanelVisible = true"
-                @open-quality="runQuality"
-              />
-            </div>
+            <!-- 折叠窄栏：仅保留图标入口，常驻 40~48px -->
+            <nav v-if="toolboxCollapsed" class="toolbox-rail no-print" data-testid="record-toolbox-rail">
+              <button type="button" class="toolbox-rail-btn" :class="{ active: sideTab === 'task' }" title="当前任务" @click="sideTab = 'task'; toolboxCollapsed = false">任务</button>
+              <button type="button" class="toolbox-rail-btn" :class="{ active: sideTab === 'device' }" title="设备" @click="sideTab = 'device'; toolboxCollapsed = false">
+                设备
+                <span v-if="deviceAnomalyCount > 0" class="toolbox-rail-badge">{{ deviceAnomalyCount }}</span>
+              </button>
+              <button type="button" class="toolbox-rail-btn" :class="{ active: sideTab === 'reminder' }" title="提醒" @click="sideTab = 'reminder'; toolboxCollapsed = false">
+                提醒
+                <span v-if="reminderBadgeCount > 0" class="toolbox-rail-badge">{{ reminderBadgeCount }}</span>
+              </button>
+              <button type="button" class="toolbox-rail-btn" title="更多工具" @click="openMoreTools">更多</button>
+            </nav>
 
-            <div class="toolbox-flow-zone">
+            <template v-if="!toolboxCollapsed">
+            <div class="toolbox-tabs no-print" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                class="toolbox-tab"
+                :class="{ active: sideTab === 'task' }"
+                data-testid="side-tab-task"
+                @click="sideTab = 'task'"
+              >当前任务</button>
+              <button
+                type="button"
+                role="tab"
+                class="toolbox-tab"
+                :class="{ active: sideTab === 'device' }"
+                data-testid="side-tab-device"
+                @click="sideTab = 'device'"
+              >设备<span v-if="deviceAnomalyCount > 0" class="toolbox-tab-badge">{{ deviceAnomalyCount }}</span></button>
+              <button
+                type="button"
+                role="tab"
+                class="toolbox-tab"
+                :class="{ active: sideTab === 'reminder' }"
+                data-testid="side-tab-reminder"
+                @click="sideTab = 'reminder'"
+              >提醒<span v-if="reminderBadgeCount > 0" class="toolbox-tab-badge">{{ reminderBadgeCount }}</span></button>
+            </div>
+            <div class="toolbox-scroll-zone">
+              <!-- 当前任务：阶段 / 关键时间 / 持续泵入 / 待确认落单 / 专业补充 / 最近录入 -->
+              <div v-show="sideTab === 'task'" class="toolbox-tab-pane" data-testid="side-pane-task">
             <IntraopWorkflowPanel
               :stage="currentStage"
               :stage-options="scenarioContext.stageOptions"
@@ -270,6 +283,20 @@
               />
             </a-card>
 
+            <section v-if="runningPumps.length" class="toolbox-pumps" data-testid="side-running-pumps">
+              <header><strong>持续泵入</strong><span>{{ runningPumps.length }} 条</span></header>
+              <div class="toolbox-pumps-list">
+                <a-button
+                  v-for="med in runningPumps"
+                  :key="med.id"
+                  size="mini"
+                  status="warning"
+                  :disabled="!canEditPumps"
+                  @click="stopPump(med.id)"
+                >停 {{ med.drug }}</a-button>
+              </div>
+            </section>
+
             <RecordRecentEntries :entries="recentEntries" @locate="locateRecentEntry" />
 
             <EventDetailPanel
@@ -282,114 +309,108 @@
               @save-field="saveProfessionalField"
               @select-event="addEvent"
             />
+              </div>
 
-            <a-collapse v-model:active-key="toolboxCollapseKeys" :bordered="false" class="toolbox-collapse">
-              <RecordDeviceWorkbenchPanel
-                v-if="showDeviceSimulationControls && deviceRealtimeSourceReady && deviceRealtimeSource === 'simulation'"
-                :sync-state="syncState"
-                :monitor-display-interval-minutes="monitorDisplayIntervalMinutes"
-                :raw-interval-seconds="deviceRawIntervalSeconds"
-                :effective-interval-minutes="effectiveMonitorIntervalMinutes"
-                :simulation-mode="deviceSimulationMode"
-                :abnormal-types="abnormalSimulationTypes"
-                :show-dev-conflict-button="showDevConflictButton"
-                :locked="current.locked"
-                :rescue-mode-active="rescueModeActive"
-                :monitor-interval-options="monitorIntervalOptions"
-                :raw-interval-options="deviceRawIntervalOptions"
-                :monitoring-view="monitoringViewUi"
-                @update:monitor-display-interval-minutes="updateMonitorDisplayIntervalMinutes"
-                @update:raw-interval-seconds="updateDeviceRawIntervalSeconds"
-                @update:simulation-mode="onDeviceSimulationModeChange"
-                @update:abnormal-types="onAbnormalSimulationTypesChange"
-                @import-vitals="importVitals"
-                @toggle-monitor="toggleMonitorMock"
-                @toggle-ventilator="toggleVentilatorMock"
-                @pause-all-devices="pauseAllDevices"
-                @resume-all-devices="resumeAllDevices"
-                @stop-all-devices="stopAllDevices"
-                @revoke-monitoring="revokeMonitoring"
-                @inject-test-conflict="injectTestConflict"
-                @open-sync-detail="syncDetailVisible = true"
-                @open-conflicts="conflictPanelVisible = true"
+              <!-- 设备：手术间 / 呼吸机 / 自动关联 / 等待入室 / 预览数据 / 最后有效时间 / 房间变化 / 紧凑参数 -->
+              <div v-show="sideTab === 'device'" class="toolbox-tab-pane" data-testid="side-pane-device">
+              <RecordRealtimeDevicePanel
+                :state="realtimeDeviceState"
+                :source-mode="deviceRealtimeSource"
+                :source-ready="deviceRealtimeSourceReady"
               />
-              <a-collapse-item key="templates" header="方案初始化" class="toolbox-collapse-item toolbox-collapse-templates">
-                <AnesthesiaTemplateSelector compact :selected-template-name="selectedTemplateName" @apply="applyTemplate" />
-              </a-collapse-item>
-              <a-collapse-item key="methods" header="麻醉方式" class="toolbox-collapse-item toolbox-collapse-methods">
-                <AnesthesiaTypeSelector
-                  compact
-                  :primary="primaryMethod"
-                  :auxiliary="auxiliaryMethods"
-                  @update:primary="updatePrimaryMethod"
-                  @update:auxiliary="updateAuxiliaryMethods"
-                />
-              </a-collapse-item>
-              <a-collapse-item key="modules" header="专业字段预览" class="toolbox-collapse-item toolbox-collapse-modules">
-                <DynamicAnesthesiaModules
-                  compact
-                  :methods="selectedMethodKeys"
-                  :focus-module-keys="scenarioContext.focusModuleKeys"
-                  :field-values="current.professionalFieldValues"
-                  :read-only="current.locked"
-                  @save-field="saveProfessionalField"
-                />
-              </a-collapse-item>
-            </a-collapse>
-            </div>
+              <DeviceSessionVentilatorPanel :state="deviceSessionState" />
+              </div>
+
+              <!-- 提醒：待补字段 / 异常体征 / 质控缺陷 / 设备异常 / 同步冲突 -->
+              <div v-show="sideTab === 'reminder'" class="toolbox-tab-pane" data-testid="side-pane-reminder">
+              <RecordQualityPanel
+                :record="current"
+                :checks="qualityChecks"
+                :abnormal-groups="panelAbnormalVitals"
+                :quality-defects="caseDefects"
+                :pending-fields="recordPendingFields"
+                :device-collecting="deviceCollectingActive"
+                @focus-defect="focusDefect"
+                @handle-abnormal-group="openAbnormalGroupHandler"
+              />
+              </div>
             </div>
             </template>
           </aside>
-
-        <a-collapse :bordered="false" class="record-detail-collapse">
-          <a-collapse-item key="detail" header="数据明细（表格维护）">
-            <RecordDetailTabs
-              v-model:active-tab="activeTab"
-              :record="current"
-              :method-keys="selectedMethodKeys"
-              :vital-items="vitalCatalog"
-              :drug-items="drugCatalog"
-              :fluid-items="fluidCatalog"
-              :quality-checks="qualityChecks"
-              :quality-defects="caseDefects"
-              @event="addEvent"
-              @drug="addDrug"
-              @fluid="addFluid"
-            />
-          </a-collapse-item>
-          <a-collapse-item key="structured" header="结构化术中记录（气道/通气/输注/输血/抢救）">
-            <StructuredClinicalEntitiesPanel
-              :operation-id="current.id"
-              :record-local-id="current.id"
-              :read-only="current.locked || !canWriteStructuredRecord"
-            />
-          </a-collapse-item>
-        </a-collapse>
 
         <button type="button" class="record-toolbox-fab no-print" data-testid="record-toolbox-fab" @click="toolboxDrawerVisible = true">
           记录辅助
         </button>
         <div v-if="toolboxDrawerVisible" class="record-toolbox-overlay no-print" data-testid="record-toolbox-overlay" @click="toolboxDrawerVisible = false" />
       </main>
-
-      <aside v-show="qualityPanelOpen" class="record-side record-side-stack">
-        <RecordQualityPanel
-          :record="current"
-          :checks="qualityChecks"
-          :abnormal-groups="panelAbnormalVitals"
-          :quality-defects="caseDefects"
-          :pending-fields="recordPendingFields"
-          :device-collecting="deviceCollectingActive"
-          @focus-defect="focusDefect"
-          @handle-abnormal-group="openAbnormalGroupHandler"
-        />
-        <RecordAuditPanel
-          :logs="current.modificationLogs ?? []"
-          :printed-at="current.printedAt"
-          :locked="current.locked"
-        />
-      </aside>
     </div>
+
+    <!-- 更多工具抽屉：收纳低频功能，复用现有组件，不新建第二套业务 -->
+    <a-drawer
+      v-model:visible="moreToolsVisible"
+      :width="440"
+      title="更多工具"
+      placement="right"
+      :footer="false"
+      unmount-on-close
+      class="no-print"
+      popup-container-position="fixed"
+    >
+      <div class="more-tools-body" data-testid="more-tools-body">
+        <section class="more-tools-section">
+          <h4 class="more-tools-title">数据明细维护</h4>
+          <RecordDetailTabs
+            v-model:active-tab="activeTab"
+            :record="current"
+            :method-keys="selectedMethodKeys"
+            :vital-items="vitalCatalog"
+            :drug-items="drugCatalog"
+            :fluid-items="fluidCatalog"
+            :quality-checks="qualityChecks"
+            :quality-defects="caseDefects"
+            @event="addEvent"
+            @drug="addDrug"
+            @fluid="addFluid"
+          />
+        </section>
+        <section class="more-tools-section">
+          <h4 class="more-tools-title">结构化术中记录（气道/通气/输注/输血/抢救）</h4>
+          <StructuredClinicalEntitiesPanel
+            :operation-id="current.id"
+            :record-local-id="current.id"
+            :read-only="current.locked || !canWriteStructuredRecord"
+          />
+        </section>
+        <section class="more-tools-section">
+          <h4 class="more-tools-title">方案初始化</h4>
+          <AnesthesiaTemplateSelector compact :selected-template-name="selectedTemplateName" @apply="applyTemplate" />
+        </section>
+        <section class="more-tools-section">
+          <h4 class="more-tools-title">专业字段总览</h4>
+          <DynamicAnesthesiaModules
+            compact
+            :methods="selectedMethodKeys"
+            :focus-module-keys="scenarioContext.focusModuleKeys"
+            :field-values="current.professionalFieldValues"
+            :read-only="current.locked"
+            @save-field="saveProfessionalField"
+          />
+        </section>
+        <section class="more-tools-section">
+          <h4 class="more-tools-title">修改日志 / 审计记录</h4>
+          <RecordAuditPanel
+            :logs="current.modificationLogs ?? []"
+            :printed-at="current.printedAt"
+            :locked="current.locked"
+          />
+        </section>
+        <section class="more-tools-section more-tools-links">
+          <a-button long @click="conflictPanelVisible = true; moreToolsVisible = false">同步冲突</a-button>
+          <a-button long @click="syncDetailVisible = true; moreToolsVisible = false">同步详情</a-button>
+          <a-button long @click="sectionSettingsVisible = true; moreToolsVisible = false">纸面显示设置</a-button>
+        </section>
+      </div>
+    </a-drawer>
 
     <PrintPreview
       v-if="printPreviewVisible && current"
@@ -524,7 +545,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router';
 import AnesthesiaTemplateApplyModal from '@/components/anesthesia/record/AnesthesiaTemplateApplyModal.vue';
 import AnesthesiaTemplateSelector from '@/components/anesthesia/record/AnesthesiaTemplateSelector.vue';
-import AnesthesiaTypeSelector from '@/components/anesthesia/record/AnesthesiaTypeSelector.vue';
 import DynamicAnesthesiaModules from '@/components/anesthesia/record/DynamicAnesthesiaModules.vue';
 import EventDetailPanel from '@/components/anesthesia/record/EventDetailPanel.vue';
 import IntraopWorkflowPanel from '@/components/anesthesia/record/IntraopWorkflowPanel.vue';
@@ -532,11 +552,8 @@ import TimelineNodeRail from '@/components/anesthesia/record/TimelineNodeRail.vu
 import LiveAnesthesiaSheet from '@/components/anesthesia/record/LiveAnesthesiaSheet.vue';
 import RecordDetailTabs from '@/components/anesthesia/record/RecordDetailTabs.vue';
 import RecordRecentEntries from '@/components/anesthesia/record/RecordRecentEntries.vue';
-import RecordQuickToolbar from '@/components/anesthesia/record/RecordQuickToolbar.vue';
 import RecordQualityPanel from '@/components/anesthesia/record/RecordQualityPanel.vue';
-import RecordDeviceWorkbenchPanel from '@/components/anesthesia/record/RecordDeviceWorkbenchPanel.vue';
 import RecordRealtimeDevicePanel from '@/components/anesthesia/record/RecordRealtimeDevicePanel.vue';
-import RecordRealtimeWaveformPlaceholder from '@/components/anesthesia/record/RecordRealtimeWaveformPlaceholder.vue';
 import StructuredClinicalEntitiesPanel from '@/components/anesthesia/record/StructuredClinicalEntitiesPanel.vue';
 import RecordWorkstationTopbar from '@/components/anesthesia/record/RecordWorkstationTopbar.vue';
 import RecordSheetQuickStrip from '@/components/anesthesia/record/RecordSheetQuickStrip.vue';
@@ -873,6 +890,14 @@ const patientPanelOpen = ref(false);
 const qualityPanelOpen = ref(false);
 const toolboxCollapsed = ref(false);
 const toolboxDrawerVisible = ref(false);
+// 右侧三标签侧栏：默认打开“当前任务”；低频功能收纳进“更多工具”抽屉。
+const sideTab = ref<'task' | 'device' | 'reminder'>('task');
+const moreToolsVisible = ref(false);
+// 打开“更多工具”抽屉：小屏下先关闭右侧侧栏抽屉，避免出现嵌套抽屉。
+const openMoreTools = () => {
+  toolboxDrawerVisible.value = false;
+  moreToolsVisible.value = true;
+};
 const recentEntries = ref<RecordRecentEntry[]>([]);
 const primaryMethod = ref<AnesthesiaMethodKey>('general');
 const auxiliaryMethods = ref<AnesthesiaMethodKey[]>([]);
@@ -1104,6 +1129,29 @@ const caseDefects = computed(() => selectedId.value ? store.caseQualityDefects(s
 const printChecks = computed(() => (current.value ? runPrintPreflightChecks(current.value, current.value.layoutWarnings ?? []) : []));
 const abnormalVitals = computed(() => selectedId.value ? store.dictionaryDrivenAbnormalVitals(selectedId.value) : []);
 const panelAbnormalVitals = computed(() => selectedId.value ? store.panelAbnormalVitals(selectedId.value) : []);
+// 持续泵入项目（当前任务标签内提供停止操作，与顶部快捷条不重复主入口）。
+const runningPumps = computed(() => current.value?.medications.filter(
+  (item) => item.mode === '持续泵入' && !item.stopTime,
+) ?? []);
+// 设备异常计数：房间变化、采集错误、离线。已恢复的异常不计入。
+const deviceAnomalyCount = computed(() => {
+  let count = 0;
+  if (deviceSessionState.value.roomChanged) count += 1;
+  if (deviceSessionState.value.error && !deviceSessionState.value.ended) count += 1;
+  if (realtimeDeviceState.value.error) count += 1;
+  if (realtimeDeviceState.value.freshness === 'offline') count += 1;
+  return count;
+});
+// 提醒标签角标：仅统计未处理的待补字段、异常体征、质控缺陷、同步冲突与设备异常。
+const reminderBadgeCount = computed(() => {
+  if (!current.value) return 0;
+  return caseDefects.value.length
+    + panelAbnormalVitals.value.length
+    + recordPendingFields.value.length
+    + (syncState.value.conflictCount ?? 0)
+    + deviceAnomalyCount.value;
+});
+const canEditPumps = computed(() => sheetQuickActions.value.entries.canEdit);
 const sheetInteractionMode = computed(() => {
   if (printPreviewVisible.value) return 'print';
   if (current.value?.locked) return 'view';
@@ -1408,19 +1456,40 @@ watch(livePageCount, (count) => {
 watch(activeTab, () => saveDraft(false));
 watch([primaryMethod, auxiliaryMethods, selectedTemplateName, pendingLandingItems, confirmedLandingItems, manualStage, selectedScenario, sectionVisibility], () => saveDraft(false), { deep: true });
 
+// 患者表头折叠编辑草稿脏状态：切换患者前确认，避免丢失未保存修改。
+const headerDirty = ref(false);
+const onHeaderDirtyChange = (dirty: boolean) => { headerDirty.value = dirty; };
+
+// 顶栏“质控/提醒”入口统一收敛到右侧“提醒”标签，不再保留独立质控侧栏。
+const openReminders = () => {
+  const willOpen = sideTab.value !== 'reminder' || toolboxCollapsed.value || !qualityPanelOpen.value;
+  sideTab.value = 'reminder';
+  qualityPanelOpen.value = willOpen;
+  if (willOpen) toolboxCollapsed.value = false;
+};
+
 const selectCase = (id: string) => {
   if (id === selectedId.value) return;
   const hint = store.prepareRecordScopeSwitch(id);
   const proceed = () => {
+    headerDirty.value = false;
     selectedId.value = id;
     router.replace(buildRecordRoute(id, recordEntrySource.value));
   };
-  if (hint.needConfirm) {
+  const runConfirm = (message: string) => {
     Modal.confirm({
       title: '切换患者',
-      content: hint.message ?? '确定切换患者？',
+      content: message,
       onOk: proceed,
     });
+  };
+  // 患者表头存在未保存草稿时，切换患者必须确认，避免丢失编辑。
+  if (headerDirty.value) {
+    runConfirm('当前患者信息有未保存修改，切换后将丢弃，是否继续？');
+    return;
+  }
+  if (hint.needConfirm) {
+    runConfirm(hint.message ?? '确定切换患者？');
     return;
   }
   proceed();
@@ -1975,6 +2044,7 @@ const saveTimelineNode = (node: MethodTimelineNode, isoTime: string) => {
 };
 const focusWorkbenchTimelineNode = (node: MethodTimelineNode) => {
   activeTimelineKey.value = node.key;
+  sideTab.value = 'task';
   liveSheetRef.value?.focusTimelineNode(node);
 };
 const stopPump = (medicationId: string) => {
@@ -2156,20 +2226,13 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  grid-template-columns: 220px minmax(0, 1fr) 260px;
+  /* 左侧手术间患者队列 + 中部主内容流；质控/提醒已并入右侧三标签侧栏，不再单独占列。 */
+  grid-template-columns: 220px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
 }
 
 .record-layout.queue-collapsed {
-  grid-template-columns: minmax(0, 1fr) 260px;
-}
-
-.record-layout.quality-collapsed {
-  grid-template-columns: 220px minmax(0, 1fr);
-}
-
-.record-layout.queue-collapsed.quality-collapsed {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -2301,9 +2364,9 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   max-width: 100%;
   overflow-x: clip;
   display: grid;
-  /* 左侧主内容流（记录单 + 数据明细 + 结构化记录）与右侧工具箱同列同级，
-     工具箱跨越主内容流全部行，sticky 保持常驻，滚动到数据明细时不再出现整块空白。 */
-  grid-template-columns: minmax(0, 1fr) clamp(300px, 19vw, 340px);
+  /* 左侧主内容流（记录单）与右侧三标签工具箱同列同级，工具箱跨越主内容流全部行，
+     sticky 保持常驻。大屏约 320px，1366 宽度控制在 280~300px。 */
+  grid-template-columns: minmax(0, 1fr) clamp(280px, 18vw, 320px);
   gap: 12px;
 }
 
@@ -2386,7 +2449,7 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   min-height: 0;
   top: var(--record-topbar-offset);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 8px;
   /* 工具箱实际起点比 sticky 阈值低 10px；扣除该差值后，底部与视口
      保持 16px 安全边距，避免右侧再出现一段无意义的页面滚动。 */
@@ -2404,6 +2467,20 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   align-self: start;
   max-height: none;
   height: auto;
+  /* 折叠后仅保留窄图标栏（40~48px）。 */
+  width: 46px;
+  min-width: 46px;
+  padding: 6px 4px;
+}
+
+/* 三标签栏：当前任务 / 设备 / 提醒。 */
+.toolbox-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 6px;
+  background: #eef2f7;
 }
 
 /* 右栏只允许这一处纵向滚动，避免常驻区在低视口下挤死下方功能。 */
@@ -2412,40 +2489,175 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 2px;
+  padding: 8px 4px 0 0;
   scrollbar-gutter: stable;
 }
 
-/* 实时设备区 + 波形占位 + 快捷录入位于单一滚动流顶部。 */
-.toolbox-pinned-zone {
-  display: grid;
-  gap: 8px;
-  padding-bottom: 8px;
-  background: rgba(255, 255, 255, 0.98);
+/* 关键时间列表不再制造狭窄的嵌套滚动条，与标签面板共用唯一滚动容器。 */
+.toolbox-scroll-zone :deep(.timeline-rail:not(.embedded) .timeline-list) {
+  max-height: none;
+  overflow: visible;
+  scrollbar-gutter: auto;
 }
 
-/* 低频工具与上方内容共用 toolbox-scroll-zone，不再产生第二条滚动条。 */
-.toolbox-flow-zone {
+.toolbox-scroll-zone > .toolbox-tab-pane > * {
+  flex: 0 0 auto;
+}
+
+.toolbox-tab {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.toolbox-tab.active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
+}
+
+.toolbox-tab-badge {
+  display: inline-block;
+  margin-left: 3px;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+/* 标签内容面板：与滚动区共用单一滚动条，不产生嵌套滚动。 */
+.toolbox-tab-pane {
   display: flex;
   flex-direction: column;
   gap: 8px;
   overflow: visible;
 }
 
-/* 工具箱只保留一个纵向滚动容器，关键时间列表不再制造狭窄的嵌套滚动条。 */
-.toolbox-flow-zone :deep(.timeline-rail:not(.embedded) .timeline-list) {
-  max-height: none;
-  overflow: visible;
-  scrollbar-gutter: auto;
+/* 折叠窄栏：仅图标/短文字入口。 */
+.toolbox-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.toolbox-flow-zone > * {
-  flex: 0 0 auto;
+.toolbox-rail-btn {
+  position: relative;
+  padding: 8px 2px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
 }
 
-/* 设备详细控制必须位于滚动区首屏，避免被工作流长卡片压到滚动区底部。 */
-.toolbox-flow-zone > .toolbox-collapse {
-  order: -1;
+.toolbox-rail-btn.active {
+  border-color: var(--primary-6, rgb(22, 93, 255));
+  color: var(--primary-6, rgb(22, 93, 255));
+}
+
+.toolbox-rail-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+/* 当前任务：持续泵入停止操作。 */
+.toolbox-pumps {
+  padding: 8px 10px;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  background: #fffbeb;
+}
+
+.toolbox-pumps header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: #92400e;
+  font-size: 12px;
+}
+
+.toolbox-pumps-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* 更多工具入口按钮。 */
+.toolbox-more-btn {
+  flex: 1 1 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--primary-6, rgb(22, 93, 255));
+  border-radius: 5px;
+  background: #fff;
+  color: var(--primary-6, rgb(22, 93, 255));
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.toolbox-collapsed-title {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  writing-mode: vertical-rl;
+  text-align: center;
+}
+
+/* 更多工具抽屉内容。 */
+.more-tools-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.more-tools-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.more-tools-section:last-child {
+  border-bottom: 0;
+}
+
+.more-tools-title {
+  margin: 0;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.more-tools-links {
+  gap: 8px;
 }
 
 .toolbox-head {
@@ -2552,7 +2764,7 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
     max-height: 100dvh;
     grid-column: auto;
     grid-row: auto;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
     border-radius: 0;
     transform: translateX(100%);
     transition: transform 0.2s ease;

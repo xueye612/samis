@@ -1,8 +1,7 @@
 import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { openAnesthesiaRecord } from './helpers/anesthesiaRecord';
-import { startMonitorMockFromQuickToolbar } from './helpers/anesthesiaRecord';
+import { expandPatientHeader, openAnesthesiaRecord, openSideTab } from './helpers/anesthesiaRecord';
 
 const shotDir = path.resolve('test-results/record-design');
 const VPS = [
@@ -15,7 +14,7 @@ test.describe('麻醉记录单工作台布局门禁', () => {
   test.setTimeout(90_000);
 
   for (const vp of VPS) {
-    test(`${vp.width}×${vp.height} 无横向溢出且四区齐备`, async ({ page }) => {
+    test(`${vp.width}×${vp.height} 无横向溢出且核心区齐备`, async ({ page }) => {
       await page.setViewportSize(vp);
       await openAnesthesiaRecord(page, 'case-or01');
       await page.waitForTimeout(800);
@@ -28,11 +27,18 @@ test.describe('麻醉记录单工作台布局门禁', () => {
       }));
       expect(overflow.doc, `${vp.width} 页面横向溢出`).toBe(false);
 
-      // 2) 四区齐备：顶部操作区、记录单主体、实时设备区、快捷录入
+      // 2) 核心区齐备：顶部操作区、记录单主体、右侧三标签侧栏
       await expect(page.locator('.record-workstation-topbar')).toBeVisible();
       await expect(page.locator('.live-record-card').first()).toBeVisible();
-      await expect(page.locator('.toolbox-pinned-zone .realtime-device-panel')).toBeVisible();
-      await expect(page.locator('.toolbox-pinned-zone .realtime-waveform-placeholder')).toBeVisible();
+      await expect(page.getByTestId('side-tab-task')).toBeVisible();
+      await expect(page.getByTestId('side-tab-device')).toBeVisible();
+      await expect(page.getByTestId('side-tab-reminder')).toBeVisible();
+
+      // 3) 默认打开“当前任务”，且设备标签内复用现有设备面板（切换后可见）
+      await expect(page.getByTestId('side-pane-task')).toBeVisible();
+      await openSideTab(page, 'side-tab-device');
+      await expect(page.getByTestId('record-realtime-device-panel')).toBeVisible();
+      await expect(page.getByTestId('device-session-panel')).toBeVisible();
 
       if (vp.width > 1100) {
         const toolboxBox = await page.locator('.record-toolbox').boundingBox();
@@ -63,41 +69,112 @@ test.describe('麻醉记录单工作台布局门禁', () => {
         expect(scrollState.lastChildVisible, '右侧最后一个工具项必须可滚入可视区').toBe(true);
       }
 
-      // 3) 实时设备区与快捷录入位于同一右栏滚动流，波形占位 ≤56px
-      const waveHeight = await page.locator('.realtime-waveform-placeholder').first().boundingBox();
-      expect(waveHeight?.height ?? 999).toBeLessThanOrEqual(56);
-
       // 证据截图：禁止 fullPage，仅截视口
       fs.mkdirSync(shotDir, { recursive: true });
       await page.screenshot({ path: path.join(shotDir, `record-gate-${vp.width}x${vp.height}.png`) });
     });
   }
 
+  for (const vp of VPS) {
+    test(`${vp.width}×${vp.height} 切换标签与滚动时右栏仍常驻视口`, async ({ page }) => {
+      await page.setViewportSize(vp);
+      await openAnesthesiaRecord(page, 'case-or01');
+      await page.waitForTimeout(800);
+
+      // 切到“提醒”并滚到页面底部，模拟向下浏览主内容流。
+      await openSideTab(page, 'side-tab-reminder');
+      await expect(page.getByTestId('side-pane-reminder')).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(300);
+
+      // 右栏必须仍在视口内且可见（不出现整块空白）。
+      const toolboxBox = await page.locator('.record-toolbox').boundingBox();
+      expect(toolboxBox).not.toBeNull();
+      expect(toolboxBox!.y).toBeGreaterThanOrEqual(-1);
+      expect(toolboxBox!.y + toolboxBox!.height).toBeLessThanOrEqual(vp.height + 1);
+
+      // 仍不得横向溢出，且右栏内部不出现第二条滚动条。
+      const state = await page.evaluate(() => {
+        const toolbox = document.querySelector('.record-toolbox');
+        const flow = toolbox?.querySelector<HTMLElement>('.toolbox-scroll-zone');
+        const nested = flow
+          ? [...flow.querySelectorAll<HTMLElement>('*')].filter((el) => {
+            const s = getComputedStyle(el);
+            return el.offsetParent !== null && ['auto', 'scroll'].includes(s.overflowY) && el.scrollHeight > el.clientHeight + 1;
+          })
+          : [];
+        return {
+          docOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+          nestedScrollerCount: nested.length,
+        };
+      });
+      expect(state.docOverflow, `${vp.width} 滚动后页面横向溢出`).toBe(false);
+      expect(state.nestedScrollerCount, '右栏不得出现嵌套滚动条').toBe(0);
+    });
+  }
+
+  test('1366×768 患者表头默认折叠、展开编辑、风险标识可见且无横向溢出', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await openAnesthesiaRecord(page, 'case-or01');
+    await page.waitForTimeout(600);
+
+    // 默认折叠为单行摘要
+    await expect(page.getByTestId('record-header-summary')).toBeVisible();
+    await expect(page.getByTestId('record-header-expanded')).toHaveCount(0);
+    // 风险标识区域始终存在
+    await expect(page.locator('.rhs-risk')).toBeVisible();
+
+    // 展开编辑信息
+    await expandPatientHeader(page);
+    await expect(page.getByText('编辑患者信息')).toBeVisible();
+
+    // 收起回到摘要
+    await page.getByRole('button', { name: '取消' }).click();
+    await expect(page.getByTestId('record-header-summary')).toBeVisible();
+
+    // 不横向溢出
+    const docOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    expect(docOverflow, '1366 折叠/展开后页面横向溢出').toBe(false);
+  });
+
+  test('正式页面无设备模拟控制（无启动/暂停/停止/频率/异常/断连/波形）', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.addInitScript(() => {
+      localStorage.setItem('samis.anesthesia.deviceRealtimeDataSource', 'simulation');
+    });
+    await openAnesthesiaRecord(page, 'case-or02');
+    await openSideTab(page, 'side-tab-device');
+
+    // 设备标签内不再出现任何手动模拟控制
+    const forbidden = ['启动监护仪', '启动呼吸机', '暂停采集', '停止采集', '继续采集', '模拟频率', '异常模拟', '模拟断连'];
+    for (const label of forbidden) {
+      await expect(page.getByRole('button', { name: label, exact: false })).toHaveCount(0);
+    }
+    // 波形占位组件已移除
+    await expect(page.locator('.realtime-waveform-placeholder')).toHaveCount(0);
+  });
+
   test('手动缩放后不被 ResizeObserver 重置', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openAnesthesiaRecord(page, 'case-or02');
     await page.waitForTimeout(800);
 
-    // 记录自动适宽缩放值
     const autoZoom = await page.evaluate(() => getComputedStyle(document.querySelector('.sheet-zoom-frame') as HTMLElement).zoom);
 
-    // 手动放大
     await page.locator('.record-workstation-topbar .clinical-actions, .record-workstation-topbar .topbar-center')
       .getByRole('button', { name: '+' }).first().click();
     await page.waitForTimeout(200);
     const manualZoom = await page.evaluate(() => getComputedStyle(document.querySelector('.sheet-zoom-frame') as HTMLElement).zoom);
 
-    // 改变视口宽度触发 ResizeObserver
     await page.setViewportSize({ width: 1600, height: 900 });
     await page.waitForTimeout(600);
     const afterResizeZoom = await page.evaluate(() => getComputedStyle(document.querySelector('.sheet-zoom-frame') as HTMLElement).zoom);
 
-    // 手动缩放后，ResizeObserver 不得将其重置回自动适宽值
     expect(manualZoom).not.toBe(autoZoom);
     expect(afterResizeZoom, '手动缩放被 ResizeObserver 重置').toBe(manualZoom);
   });
 
-  test('启动记录不代替麻醉开始，模拟监护自动采集，关键时间完整后结束进入待签名', async ({ page }) => {
+  test('启动记录不代替麻醉开始，模拟自动采集，关键时间完整后结束进入待签名', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.addInitScript(() => {
       localStorage.setItem('samis.anesthesia.deviceRealtimeDataSource', 'simulation');
@@ -134,17 +211,20 @@ test.describe('麻醉记录单工作台布局门禁', () => {
     await start.click();
     await expect(actions.getByRole('button', { name: '记录中', exact: true })).toBeDisabled();
     await expect(actions.getByRole('button', { name: '结束记录', exact: true })).toHaveCount(0);
+
+    // 设备标签内查看自动采集数值（页面不再提供手动启动按钮）
+    await openSideTab(page, 'side-tab-device');
     await expect(page.getByTestId('monitor-live-values')).toBeVisible({ timeout: 7_000 });
     expect(await page.evaluate(async () => {
       const { useAnesthesiaStore } = await import('/src/stores/anesthesia.ts');
       return useAnesthesiaStore().cases.find((row) => row.id === 'case-or02')?.anesthesiaStart ?? null;
     })).toBeNull();
 
-    await page.locator('.device-quick').getByRole('button', { name: '停止监护仪' }).click();
+    // 页面已无手动停止按钮，通过 store 停止模拟采集后再补全关键时间。
     await page.evaluate(async () => {
       const { useAnesthesiaStore } = await import('/src/stores/anesthesia.ts');
-      const store = useAnesthesiaStore();
-      const item = store.cases.find((row) => row.id === 'case-or02');
+      useAnesthesiaStore().stopAllMonitoringDevices();
+      const item = useAnesthesiaStore().cases.find((row) => row.id === 'case-or02');
       if (!item) throw new Error('case-or02 missing');
       Object.assign(item, {
         roomInTime: '2026-07-16T08:00:00+08:00',
@@ -167,80 +247,6 @@ test.describe('麻醉记录单工作台布局门禁', () => {
     await expect(page.locator('.record-workstation-topbar .clinical-actions').getByRole('button', { name: '待签名', exact: true })).toBeDisabled();
   });
 
-  test('模拟监护启动前后设备区高度固定且首帧立即显示', async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.addInitScript(() => {
-      localStorage.setItem('samis.anesthesia.deviceRealtimeDataSource', 'simulation');
-      localStorage.setItem('samis.anesthesia.deviceRawIntervalSeconds', '2');
-    });
-    await page.route('**/quality/configGet?**', async (route) => {
-      if (!route.request().url().includes('device_realtime_data_source')) return route.continue();
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ code: 0, message: 'ok', data: { key: 'device_realtime_data_source', value: 'simulation', scope: 'global', source: 'e2e' } }),
-      });
-    });
-    await openAnesthesiaRecord(page, 'case-or02');
-
-    const panel = page.getByTestId('record-realtime-device-panel');
-    await expect(page.getByTestId('device-source-mode')).toHaveText('模拟数据');
-    await expect(page.getByTestId('device-live-empty')).toContainText('模拟采集尚未启动');
-    const monitorStart = page.locator('.device-quick').getByRole('button', { name: '启动监护仪' });
-    const ventilatorStart = page.locator('.device-quick').getByRole('button', { name: '启动呼吸机' });
-    await expect(monitorStart).toHaveClass(/arco-btn-primary/);
-    await expect(ventilatorStart).toHaveClass(/arco-btn-primary/);
-    const before = await panel.boundingBox();
-
-    await startMonitorMockFromQuickToolbar(page);
-    await expect(page.getByTestId('monitor-live-values')).toBeVisible({ timeout: 7_000 });
-    await expect(page.getByTestId('device-freshness')).toHaveText('实时');
-    await expect(page.locator('.device-quick').getByText('设备读取')).toBeVisible();
-    await expect(page.locator('.device-quick').getByText('记录入单')).toBeVisible();
-    const stopButton = page.locator('.device-quick').getByRole('button', { name: '停止采集' });
-    const pauseButton = page.locator('.device-quick').getByRole('button', { name: '暂停采集' });
-    await expect(stopButton).toBeVisible();
-    await expect(pauseButton).toBeVisible();
-    const after = await panel.boundingBox();
-
-    expect(before?.height).toBe(210);
-    expect(after?.height).toBe(210);
-
-    const initialRawCount = await page.evaluate(async () => {
-      const { getAnesthesiaLocalDb } = await import('/src/services/anesthesia/localDb.ts');
-      return getAnesthesiaLocalDb().monitor_raw.count();
-    });
-    await expect.poll(async () => page.evaluate(async () => {
-      const { getAnesthesiaLocalDb } = await import('/src/services/anesthesia/localDb.ts');
-      return getAnesthesiaLocalDb().monitor_raw.count();
-    }), { timeout: 8_000 }).toBeGreaterThan(initialRawCount);
-    const latestRawHr = await page.evaluate(async () => {
-      const { getAnesthesiaLocalDb } = await import('/src/services/anesthesia/localDb.ts');
-      const rows = await getAnesthesiaLocalDb().monitor_raw.toArray();
-      return rows.sort((a, b) => b.collect_time.localeCompare(a.collect_time))[0]?.hr;
-    });
-    await expect(page.getByTestId('monitor-live-values').locator('.metric-cell').filter({ hasText: 'HR' }).locator('strong')).toHaveText(String(latestRawHr));
-
-    await pauseButton.click();
-    await expect(page.locator('.device-quick').getByRole('button', { name: '继续采集' })).toBeVisible();
-    const pausedFrame = await page.getByTestId('monitor-live-values').innerText();
-    const pausedRawCount = await page.evaluate(async () => {
-      const { getAnesthesiaLocalDb } = await import('/src/services/anesthesia/localDb.ts');
-      return getAnesthesiaLocalDb().monitor_raw.count();
-    });
-    await page.waitForTimeout(6_000);
-    expect(await page.getByTestId('monitor-live-values').innerText()).toBe(pausedFrame);
-    expect(await page.evaluate(async () => {
-      const { getAnesthesiaLocalDb } = await import('/src/services/anesthesia/localDb.ts');
-      return getAnesthesiaLocalDb().monitor_raw.count();
-    })).toBe(pausedRawCount);
-
-    await stopButton.click();
-    await page.getByRole('button', { name: '确定' }).click();
-    await expect(page.locator('.device-quick').getByRole('button', { name: '启动监护仪' })).toBeVisible();
-    await expect(page.locator('.device-quick').getByRole('button', { name: '停止采集' })).toHaveCount(0);
-  });
-
   test('已记录关键时间可在纸面上拖动并按分钟保存', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openAnesthesiaRecord(page, 'case-or03');
@@ -256,7 +262,6 @@ test.describe('麻醉记录单工作台布局门禁', () => {
 
     const nodeGrabX = nodeBox!.x + nodeBox!.width / 2;
     const nodeY = nodeBox!.y + nodeBox!.height / 2;
-    // 仅拖动约 1 分钟，既证明可编辑，也不越过已记录的下一临床节点。
     const nodeTargetX = Math.min(trackBox!.x + trackBox!.width - 24, nodeGrabX + 20);
     await node.dispatchEvent('pointerdown', { button: 0, clientX: nodeGrabX, clientY: nodeY });
     await expect(node).toHaveClass(/is-dragging/);
@@ -285,14 +290,16 @@ test.describe('麻醉记录单工作台布局门禁', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openAnesthesiaRecord(page, 'case-or02');
 
+    // 患者表头默认折叠，需展开后才能校验完整临床字段。
+    await expandPatientHeader(page);
     await expect(page.getByText('禁食状态', { exact: true })).toBeVisible();
     await expect(page.getByText('术前状况', { exact: true })).toBeVisible();
     await expect(page.getByText('手术类型', { exact: true })).toBeVisible();
     await expect(page.getByText('手术等级', { exact: true })).toBeVisible();
     await expect(page.getByText('BMI', { exact: true })).toBeVisible();
     await expect(page.getByText('术后诊断', { exact: true })).toBeVisible();
-    await expect(page.locator('.sheet-quick-strip').getByRole('button', { name: '体征', exact: true })).toHaveCount(0);
-    await expect(page.locator('.device-quick').getByRole('button', { name: '体征', exact: true })).toHaveCount(0);
+    // 顶部快捷条为唯一主入口
+    await expect(page.locator('.sheet-quick-strip').getByRole('button', { name: '出入量', exact: true })).toBeVisible();
 
     await page.locator('.sheet-quick-strip').getByRole('button', { name: '出入量', exact: true }).click();
     const outputModal = page.locator('.record-modal-backdrop.top').filter({ hasText: '出入量设置' });
@@ -316,6 +323,8 @@ test.describe('麻醉记录单工作台布局门禁', () => {
     const handoverOptions = await handoverRow.locator('select option:not([value=""])').allTextContents();
     handoverOptions.forEach((name) => expect(name).not.toMatch(/[、,，;；/|]/));
 
+    // 关键时间列表在“当前任务”标签内，不得制造嵌套滚动条。
+    await openSideTab(page, 'side-tab-task');
     const timelineList = page.locator('.timeline-workbench-card .timeline-list');
     await expect(timelineList).toBeAttached();
     const timelineOverflow = await timelineList.evaluate((element) => ({
@@ -404,11 +413,11 @@ test.describe('麻醉记录单工作台布局门禁', () => {
       ).toBeChecked();
 
       await openAnesthesiaRecord(page, 'case-or02');
+      await openSideTab(page, 'side-tab-device');
       await expect(page.getByTestId('device-source-mode')).toHaveText('真实设备');
       await expect(page.getByTestId('device-live-empty')).toContainText('未连接实时设备');
       await expect(page.getByRole('button', { name: /启动监护仪|启动呼吸机/ })).toHaveCount(0);
     } finally {
-      // 清理失败不能覆盖主体断言的原始错误；addInitScript 会在清理导航时恢复 mock 会话。
       await selectSource('模拟采集数据').catch(() => undefined);
     }
   });
