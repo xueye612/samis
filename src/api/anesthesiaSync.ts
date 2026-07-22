@@ -169,9 +169,45 @@ export const anesthesiaDeviceApi = {
     return postJson<BatchSaveResponse>('/anesthesiaDevice/batchPushVentilatorData', body);
   },
   getLatestDeviceData(operationId: string) {
-    return samisRequest<LatestDeviceDataApi>(`/anesthesiaDevice/getLatestDeviceData?operationId=${encodeURIComponent(operationId)}`);
+    // 后端已升级为统一采集会话契约（binding/latest/items）。
+    // 此处向后兼容：将统一响应映射为既有 {monitor, ventilator} 形态，
+    // 使既有实时设备面板在真实数据源路径下仍可展示呼吸机预览数据，避免静默空数据。
+    return samisRequest<LatestDeviceDataApi>(`/anesthesiaDevice/getLatestDeviceData?operationId=${encodeURIComponent(operationId)}`)
+      .then((res) => mapUnifiedToDeviceData(res));
   },
 };
+
+// 运行时检测：后端统一契约字段存在时做映射，否则原样返回（兼容旧端点/模拟数据）。
+function mapUnifiedToDeviceData(res: any): LatestDeviceDataApi {
+  if (!res || typeof res !== 'object') return { monitor: null, ventilator: null };
+  // 已是旧形态直接返回。
+  if ('monitor' in res || 'ventilator' in res) return res as LatestDeviceDataApi;
+  const latest = res.latest ?? null;
+  if (!latest) return { monitor: null, ventilator: null };
+  const metric = (code: string): number | null => {
+    const m = (latest.metrics as Array<{ code: string; value: number }> | undefined)?.find((x) => x.code === code);
+    return m ? m.value : null;
+  };
+  const ventilator: LatestDeviceRawApi = {
+    localId: latest.messageId ?? '',
+    operationId: res.operationId ?? '',
+    deviceId: res.binding?.deviceCode ?? null,
+    sourceDevice: res.binding?.deviceCode ?? null,
+    deviceType: 'ventilator',
+    collectTime: latest.observedAt ?? null,
+    ventMode: latest.metadata?.ventMode ?? null,
+    tidalVolume: metric('Vt'),
+    respiratoryRate: metric('RR'),
+    fio2: metric('FiO2'),
+    peep: metric('PEEP'),
+    peakPressure: metric('Ppeak'),
+    plateauPressure: metric('Pplat'),
+    minuteVolume: metric('MV'),
+    airwayPressure: metric('Paw'),
+    etco2: metric('EtCO2'),
+  };
+  return { monitor: null, ventilator };
+}
 
 export { ANESTHESIA_USE_MOCK, samisRequest } from '@/api/samisClient';
 export { operationInfoApi } from '@/api/operationInfo';

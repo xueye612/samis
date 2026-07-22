@@ -174,13 +174,17 @@
               />
             </div>
           </section>
+        </div>
 
-          <aside ref="toolboxRef" class="record-toolbox" :class="{ collapsed: toolboxCollapsed }">
+        <aside ref="toolboxRef" class="record-toolbox" :class="{ collapsed: toolboxCollapsed, 'drawer-open': toolboxDrawerVisible }">
             <div class="toolbox-head no-print">
               <strong>记录辅助</strong>
-              <a-button size="mini" type="text" @click="toolboxCollapsed = !toolboxCollapsed">
-                {{ toolboxCollapsed ? '展开' : '收起' }}
-              </a-button>
+              <div class="toolbox-head-actions">
+                <a-button size="mini" type="text" class="toolbox-drawer-close" @click="toolboxDrawerVisible = false">关闭</a-button>
+                <a-button size="mini" type="text" @click="toolboxCollapsed = !toolboxCollapsed">
+                  {{ toolboxCollapsed ? '展开' : '收起' }}
+                </a-button>
+              </div>
             </div>
 
             <template v-if="!toolboxCollapsed">
@@ -191,6 +195,7 @@
                 :source-mode="deviceRealtimeSource"
                 :source-ready="deviceRealtimeSourceReady"
               />
+              <DeviceSessionVentilatorPanel :state="deviceSessionState" />
               <RecordRealtimeWaveformPlaceholder />
               <RecordQuickToolbar
                 :record="current"
@@ -335,7 +340,6 @@
             </div>
             </template>
           </aside>
-        </div>
 
         <a-collapse :bordered="false" class="record-detail-collapse">
           <a-collapse-item key="detail" header="数据明细（表格维护）">
@@ -361,6 +365,11 @@
             />
           </a-collapse-item>
         </a-collapse>
+
+        <button type="button" class="record-toolbox-fab no-print" data-testid="record-toolbox-fab" @click="toolboxDrawerVisible = true">
+          记录辅助
+        </button>
+        <div v-if="toolboxDrawerVisible" class="record-toolbox-overlay no-print" data-testid="record-toolbox-overlay" @click="toolboxDrawerVisible = false" />
       </main>
 
       <aside v-show="qualityPanelOpen" class="record-side record-side-stack">
@@ -569,6 +578,13 @@ import {
   subscribeSimulatedDeviceDataCollected,
   type DeviceRealtimeSource,
 } from '@/services/anesthesia/deviceRealtimeSource';
+import {
+  createDeviceSessionPoller,
+  emptyDeviceSessionState,
+  type DeviceSessionPoller,
+  type DeviceSessionState,
+} from '@/services/anesthesia/deviceSessionPoller';
+import DeviceSessionVentilatorPanel from '@/components/anesthesia/record/DeviceSessionVentilatorPanel.vue';
 import { buildRecordReturnTarget, buildRecordRoute, normalizeRecordEntrySource } from '@/services/recordNavigation';
 import { buildRecordPagination } from '@/services/recordPaginationEngine';
 import {
@@ -801,6 +817,25 @@ const realtimeDeviceState = ref(emptyRealtimeDeviceState(selectedId.value));
 let realtimeDevicePoller: RealtimeDevicePoller | null = null;
 let unsubscribeSimulatedDeviceData: (() => void) | null = null;
 let simulatedRealtimeRefreshTimer: ReturnType<typeof setInterval> | null = null;
+
+// 后端设备采集会话（呼吸机预览，统一契约，cursor 增量轮询）。
+const deviceSessionState = ref<DeviceSessionState>(emptyDeviceSessionState(selectedId.value));
+let deviceSessionPoller: DeviceSessionPoller | null = null;
+const stopDeviceSessionPolling = () => {
+  deviceSessionPoller?.stop();
+  deviceSessionPoller = null;
+};
+const restartDeviceSessionPolling = (operationId: string) => {
+  stopDeviceSessionPolling();
+  // 切换病例：清除旧 cursor 与 items，不复用旧 binding。
+  deviceSessionState.value = emptyDeviceSessionState(operationId);
+  if (!operationId) return;
+  deviceSessionPoller = createDeviceSessionPoller({
+    operationId,
+    onState: (state) => { deviceSessionState.value = state; },
+  });
+  deviceSessionPoller.start();
+};
 const stopRealtimeDevicePolling = () => {
   realtimeDevicePoller?.stop();
   realtimeDevicePoller = null;
@@ -837,6 +872,7 @@ const qualityVisible = ref(false);
 const patientPanelOpen = ref(false);
 const qualityPanelOpen = ref(false);
 const toolboxCollapsed = ref(false);
+const toolboxDrawerVisible = ref(false);
 const recentEntries = ref<RecordRecentEntry[]>([]);
 const primaryMethod = ref<AnesthesiaMethodKey>('general');
 const auxiliaryMethods = ref<AnesthesiaMethodKey[]>([]);
@@ -886,7 +922,9 @@ const sheetWorkbenchWidth = ref(0);
 const userZoomed = ref(false);
 const manualSheetZoom = ref(1);
 let sheetWorkbenchObserver: ResizeObserver | null = null;
-const fitClamp = (value: number) => Math.min(1, Math.max(0.75, Number(value.toFixed(2))));
+// 适宽自动缩放下限提高到 0.85：避免在窄屏把关键临床文字缩到不可读；
+// 宽度仍不足时由 .sheet-workbench 自身的横向滚动承载，不再一味压缩字号。
+const fitClamp = (value: number) => Math.min(1, Math.max(0.85, Number(value.toFixed(2))));
 const autoFitZoom = computed(() => {
   const available = sheetWorkbenchWidth.value;
   if (!available) return 1;
@@ -1304,6 +1342,7 @@ watch(
 );
 watch(selectedId, async (id) => {
   restartRealtimeDevicePolling(id);
+  restartDeviceSessionPolling(id);
   if (!store.localPersistenceReady || !id) return;
   await store.setActiveAnesthesiaRecordScope(id);
   caseSheetReady.value = false;
@@ -1347,6 +1386,7 @@ watch(
   { deep: true },
 );
 onBeforeUnmount(stopRealtimeDevicePolling);
+onBeforeUnmount(stopDeviceSessionPolling);
 onBeforeUnmount(() => {
   unsubscribeSimulatedDeviceData?.();
   unsubscribeSimulatedDeviceData = null;
@@ -1561,7 +1601,7 @@ const patientRiskTags = (item: SurgeryCase) => {
   if (item.status === 'PACU' || item.transferTo === 'PACU') tags.push('PACU待转出');
   return tags;
 };
-const clampZoom = (value: number) => Math.min(1.2, Math.max(0.75, Number(value.toFixed(2))));
+const clampZoom = (value: number) => Math.min(1.2, Math.max(0.85, Number(value.toFixed(2))));
 const increaseSheetZoom = () => { userZoomed.value = true; manualSheetZoom.value = clampZoom(sheetZoom.value + 0.05); };
 const decreaseSheetZoom = () => { userZoomed.value = true; manualSheetZoom.value = clampZoom(sheetZoom.value - 0.05); };
 const fitSheetWidth = () => { userZoomed.value = false; syncSheetWorkbenchWidth(); };
@@ -2261,12 +2301,16 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   max-width: 100%;
   overflow-x: clip;
   display: grid;
+  /* 左侧主内容流（记录单 + 数据明细 + 结构化记录）与右侧工具箱同列同级，
+     工具箱跨越主内容流全部行，sticky 保持常驻，滚动到数据明细时不再出现整块空白。 */
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 19vw, 340px);
   gap: 12px;
 }
 
 .record-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(300px, 19vw, 340px);
+  grid-template-columns: minmax(0, 1fr);
+  grid-column: 1;
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -2277,7 +2321,7 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 .record-detail-collapse {
   margin-top: 4px;
-  grid-column: 1 / -1;
+  grid-column: 1;
 }
 
 .record-detail-collapse :deep(.arco-collapse-item-header) {
@@ -2336,6 +2380,8 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 .record-toolbox {
   position: sticky;
   align-self: start;
+  grid-column: 2;
+  grid-row: 1 / -1;
   min-width: 0;
   min-height: 0;
   top: var(--record-topbar-offset);
@@ -2470,7 +2516,7 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 }
 
 @media (max-width: 1280px) {
-  .record-workspace {
+  .record-center {
     grid-template-columns: minmax(0, 1fr) 280px;
   }
 }
@@ -2491,29 +2537,89 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 }
 
 @media (max-width: 1100px) {
-  .record-workspace {
+  .record-center {
     grid-template-columns: 1fr;
   }
 
+  /* 小屏不再把工具箱静态堆到页面底部，改为右侧抽屉：浮动按钮唤起、遮罩关闭。 */
   .record-toolbox {
-    position: static;
-    max-height: none;
-    height: auto;
-    overflow: visible;
-    grid-template-rows: auto;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(92vw, 360px);
+    height: 100dvh;
+    max-height: 100dvh;
+    grid-column: auto;
+    grid-row: auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    border-radius: 0;
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+    z-index: 1100;
+    box-shadow: -8px 0 24px rgba(15, 23, 42, 0.18);
+  }
+
+  .record-toolbox.drawer-open {
+    transform: translateX(0);
+  }
+
+  .toolbox-drawer-close {
+    display: inline-flex;
   }
 
   .toolbox-flow-zone {
     overflow: visible;
   }
+
+  .record-toolbox-fab {
+    display: inline-flex;
+  }
+
+  .record-toolbox-overlay {
+    display: block;
+  }
+}
+
+/* 桌面端：浮动按钮、遮罩、抽屉关闭按钮默认隐藏。 */
+.record-toolbox-fab {
+  display: none;
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 900;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 999px;
+  background: rgb(var(--primary-6, 22, 93, 255));
+  color: #fff;
+  font-size: 13px;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.22);
+  cursor: pointer;
+}
+
+.record-toolbox-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.toolbox-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.toolbox-drawer-close {
+  display: none;
 }
 
 @media (max-width: 900px) {
   .record-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .record-workspace {
     grid-template-columns: 1fr;
   }
 
@@ -2525,7 +2631,7 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 @page {
   size: A4 portrait;
-  margin: 2mm;
+  margin: 3mm 6mm;
 }
 
 .anesthesia-record-workstation.print-preview-active > .record-workstation-topbar,
@@ -2538,12 +2644,15 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   :global(html),
   :global(body),
   :global(#app) {
-    width: auto !important;
-    min-width: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
     height: auto !important;
     min-height: 0 !important;
     margin: 0 !important;
+    padding: 0 !important;
     background: #fff !important;
+    overflow: visible !important;
+    zoom: 1 !important;
   }
 
   :global(.app-shell),
