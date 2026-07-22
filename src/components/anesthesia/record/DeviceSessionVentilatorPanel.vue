@@ -3,11 +3,12 @@
     <header class="dsp-head">
       <div class="dsp-head-main">
         <strong data-testid="device-session-room">{{ roomLabel }}</strong>
-        <span data-testid="device-session-name">{{ deviceName || '正在关联设备…' }}</span>
-        <span class="dsp-mode" data-testid="device-session-mode">{{ modeLabel }}</span>
+        <span data-testid="device-session-name">{{ headerDeviceLabel }}</span>
+        <span class="dsp-mode" :class="{ 'dsp-mode--waiting': waiting }" data-testid="device-session-mode">{{ modeLabel }}</span>
       </div>
       <div class="dsp-head-tags">
-        <a-tag :color="isPreview ? 'orange' : 'blue'" size="small" data-testid="device-session-source">
+        <a-tag v-if="waiting" color="gray" size="small" data-testid="device-session-source">等待入室</a-tag>
+        <a-tag v-else :color="isPreview ? 'orange' : 'blue'" size="small" data-testid="device-session-source">
           {{ isPreview ? '预览数据' : '设备数据' }}
         </a-tag>
         <a-tag :color="freshnessColor" size="small" data-testid="device-session-freshness">{{ freshnessLabel }}</a-tag>
@@ -15,6 +16,11 @@
     </header>
 
     <div class="dsp-body">
+      <div v-if="waiting" class="dsp-waiting" data-testid="device-session-waiting">
+        <strong>等待患者入室</strong>
+        <span>患者入室后将自动关联本手术间呼吸机</span>
+      </div>
+      <template v-else>
       <a-alert
         v-if="isPreview"
         type="info"
@@ -53,6 +59,7 @@
         <a-spin v-if="state.loading" dot />
         <span>{{ emptyHint }}</span>
       </div>
+      </template>
     </div>
   </section>
 </template>
@@ -64,14 +71,17 @@ import type { DeviceSessionState } from '@/services/anesthesia/deviceSessionPoll
 
 const props = defineProps<{ state: DeviceSessionState }>();
 
-const isPreview = computed(() => props.state.source === 'preview' || props.state.status === 'preview');
+const waiting = computed(() => props.state.waitingForPatientEntry && !props.state.binding);
+const isPreview = computed(() => !waiting.value && (props.state.source === 'preview' || props.state.status === 'preview'));
 const roomLabel = computed(() => {
   const code = props.state.bindingRoomCode || props.state.binding?.roomCode || '';
   const name = props.state.bindingRoomName || props.state.binding?.roomName || '';
   return name || code || '手术间';
 });
+const headerDeviceLabel = computed(() => (waiting.value ? '' : (props.state.binding?.deviceName || '正在关联设备…')));
 const deviceName = computed(() => props.state.binding?.deviceName || '');
 const modeLabel = computed(() => {
+  if (waiting.value) return '等待入室';
   const m = props.state.binding?.bindingMode;
   return m === 'auto' ? '自动关联' : m === 'transfer' ? '已转移' : m === 'manual' ? '手动关联' : '关联中';
 });
@@ -103,11 +113,12 @@ const latestMetrics = computed(() => {
 });
 
 const freshnessLabel = computed(() => {
+  if (waiting.value) return '等待入室';
   if (props.state.ended) return '已结束';
   if (!props.state.latest) return props.state.loading ? '关联中' : '无数据';
   return `采集 ${dayjs(props.state.latest.observedAt).format('HH:mm:ss')}`;
 });
-const freshnessColor = computed(() => (props.state.ended ? 'gray' : props.state.latest ? 'green' : 'gray'));
+const freshnessColor = computed(() => (waiting.value || props.state.ended ? 'gray' : props.state.latest ? 'green' : 'gray'));
 const emptyHint = computed(() => {
   if (props.state.ended) return '病例已结束，设备采集已停止';
   if (props.state.loading) return '正在关联设备并读取数据…';
@@ -135,4 +146,8 @@ const emptyHint = computed(() => {
 .dsp-cell strong { display: block; color: #0f172a; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dsp-cell small { display: block; color: #94a3b8; font-size: 10px; }
 .dsp-empty { min-height: 60px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #64748b; font-size: 11px; text-align: center; }
+.dsp-mode--waiting { color: #64748b !important; }
+.dsp-waiting { display: grid; gap: 4px; min-height: 60px; padding: 10px; border: 1px dashed #cbd5e1; border-radius: 6px; background: #f8fafc; text-align: center; align-content: center; }
+.dsp-waiting strong { color: #334155; font-size: 13px; }
+.dsp-waiting span { color: #64748b; font-size: 11px; line-height: 1.5; }
 </style>

@@ -139,3 +139,78 @@ describe('deviceSessionPoller.createDeviceSessionPoller', () => {
     expect(state.operationId).toBe('OP-2');
   });
 });
+
+describe('deviceSessionPoller.waitingForPatientEntry', () => {
+  function waitingResponse(): DeviceSessionResponse {
+    return {
+      operationId: 'OP-1',
+      binding: null,
+      device: null,
+      latest: null,
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+      roomChanged: false,
+      bindingRoomCode: null,
+      bindingRoomName: null,
+      currentRoomCode: null,
+      currentRoomName: null,
+      waitingForPatientEntry: true,
+      status: 'waiting_for_patient_entry',
+      message: '患者尚未入室，入室后将自动关联设备',
+      serverTime: '2026-07-22T14:32:17+08:00',
+    };
+  }
+
+  it('treats waiting response as a normal state (not error, not ended)', () => {
+    const state = applySessionResponse(emptyDeviceSessionState('OP-1'), waitingResponse(), 'p1');
+    expect(state.waitingForPatientEntry).toBe(true);
+    expect(state.binding).toBeNull();
+    expect(state.latest).toBeNull();
+    expect(state.items).toEqual([]);
+    expect(state.error).toBeNull();
+    expect(state.ended).toBe(false);
+  });
+
+  it('does not show device real-time values while waiting', () => {
+    const state = applySessionResponse(emptyDeviceSessionState('OP-1'), waitingResponse(), 'p1');
+    expect(state.source).toBe('');
+    expect(state.status).toBe('waiting_for_patient_entry');
+  });
+
+  it('switches back to preview state once an active binding arrives (no poller rebuild)', () => {
+    // 先等待，再返回活动 binding（同 poller 持续轮询）
+    let state = applySessionResponse(emptyDeviceSessionState('OP-1'), waitingResponse(), 'p1');
+    expect(state.waitingForPatientEntry).toBe(true);
+    state = applySessionResponse(state, response({}), 'p2');
+    expect(state.waitingForPatientEntry).toBe(false);
+    expect(state.binding?.bindingId).toBe('B-1');
+    expect(state.latest).not.toBeNull();
+  });
+
+  it('keeps polling on waiting (success response does not stop the poller)', async () => {
+    const states: DeviceSessionState[] = [];
+    let call = 0;
+    const load = vi.fn(async () => {
+      call += 1;
+      // 两次等待后第三次返回绑定
+      return call <= 2 ? waitingResponse() : response({});
+    });
+    vi.useFakeTimers();
+    const poller = createDeviceSessionPoller({
+      operationId: 'OP-1', intervalMs: 1000, load, now: () => 0, onState: (s) => states.push({ ...s }),
+    });
+    poller.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    expect(states[states.length - 1].waitingForPatientEntry).toBe(true);
+    expect(states[states.length - 1].ended).toBe(false); // 未停止
+    await vi.advanceTimersByTimeAsync(2500); // 触发后续轮询
+    await Promise.resolve();
+    const last = states[states.length - 1];
+    expect(last.waitingForPatientEntry).toBe(false);
+    expect(last.binding?.bindingId).toBe('B-1');
+    poller.stop();
+    vi.useRealTimers();
+  });
+});

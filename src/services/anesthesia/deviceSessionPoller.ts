@@ -24,6 +24,8 @@ export interface DeviceSessionState {
   bindingRoomName: string | null;
   currentRoomCode: string | null;
   currentRoomName: string | null;
+  waitingForPatientEntry: boolean;
+  message: string | null;
   loading: boolean;
   ended: boolean;
   error: string | null;
@@ -60,6 +62,8 @@ export function emptyDeviceSessionState(operationId = ''): DeviceSessionState {
     bindingRoomName: null,
     currentRoomCode: null,
     currentRoomName: null,
+    waitingForPatientEntry: false,
+    message: null,
     loading: false,
     ended: false,
     error: null,
@@ -87,8 +91,8 @@ export function applySessionResponse(state: DeviceSessionState, res: DeviceSessi
     ...state,
     operationId: res.operationId,
     binding: res.binding,
-    source: res.device.source,
-    status: res.device.status,
+    source: res.device?.source ?? '',
+    status: res.device?.status ?? res.status ?? '',
     latest: res.latest,
     items,
     nextCursor: res.nextCursor,
@@ -97,6 +101,8 @@ export function applySessionResponse(state: DeviceSessionState, res: DeviceSessi
     bindingRoomName: res.bindingRoomName,
     currentRoomCode: res.currentRoomCode,
     currentRoomName: res.currentRoomName,
+    waitingForPatientEntry: res.waitingForPatientEntry === true,
+    message: res.message ?? null,
     loading: false,
     ended: false,
     error: null,

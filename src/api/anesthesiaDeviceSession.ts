@@ -37,8 +37,8 @@ export interface DeviceSample {
 
 export interface DeviceSessionResponse {
   operationId: string;
-  binding: DeviceSessionBinding;
-  device: { source: string; status: string };
+  binding: DeviceSessionBinding | null;
+  device: { source: string; status: string } | null;
   latest: DeviceSample | null;
   items: DeviceSample[];
   nextCursor: string | null;
@@ -48,6 +48,10 @@ export interface DeviceSessionResponse {
   bindingRoomName: string | null;
   currentRoomCode: string | null;
   currentRoomName: string | null;
+  // 患者尚未实际入室且无活动 binding 时的正常等待状态（非故障）。
+  waitingForPatientEntry?: boolean;
+  status?: string;
+  message?: string;
   serverTime: string;
 }
 
