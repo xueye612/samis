@@ -37,6 +37,10 @@
       :postoperative-diagnosis="record.postoperativeDiagnosis"
       :method-primary="methodPrimary"
       :method-auxiliary="methodAuxiliary"
+      :allergy="record.preVisit.allergy"
+      :difficult-airway="record.preVisit.difficultAirway"
+      :method-label="sheetAnesthesiaMethod"
+      @dirty-change="emit('headerDirtyChange', $event)"
       :position-options="headerPickerOptions?.positions"
       :surgery-options="headerPickerOptions?.surgeries"
       :anesthesiologist-options="headerPickerOptions?.anesthesiologists"
@@ -1001,6 +1005,7 @@ const emit = defineEmits<{
   saveSummaryNotes: [patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryNotes>];
   stopMedicationPump: [medicationId: string];
   sectionVisibilityReason: [payload: { section: 'inhaled' | 'autologous'; visible: boolean; reason: string }];
+  headerDirtyChange: [dirty: boolean];
 }>();
 
 const activeTimelineKey = ref('');
