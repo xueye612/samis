@@ -13,12 +13,10 @@ describe('record realtime device panel acceptance', () => {
     expect(panelSource).not.toContain('ECG波形');
   });
 
-  it('wires the panel to a case-scoped poller and stops it on teardown', () => {
-    expect(recordSource).toContain(':source-ready="deviceRealtimeSourceReady"');
-    expect(recordSource).toContain('createRealtimeDevicePoller');
-    expect(recordSource).toContain('loadLatestSimulatedDeviceData');
-    expect(recordSource).toContain('!operationId || !deviceRealtimeSourceReady.value');
-    expect(recordSource).toContain('realtimeDevicePoller?.stop()');
-    expect(recordSource).toContain('onBeforeUnmount(stopRealtimeDevicePolling)');
+  it('formal page no longer renders the legacy realtime mock panel (unified to session panel)', () => {
+    // 设备区域统一：正式页面不再接线旧 monitor mock 卡片，唯一来源为设备采集会话面板。
+    expect(recordSource).not.toContain('<RecordRealtimeDevicePanel');
+    expect(recordSource).not.toContain('import RecordRealtimeDevicePanel');
+    expect(recordSource).toContain('<DeviceSessionVentilatorPanel');
   });
 });

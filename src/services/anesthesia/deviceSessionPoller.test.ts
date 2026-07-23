@@ -6,7 +6,7 @@ import {
   mergeItems,
   type DeviceSessionState,
 } from '@/services/anesthesia/deviceSessionPoller';
-import type { DeviceSessionResponse, DeviceSample } from '@/api/anesthesiaDeviceSession';
+import type { DeviceMetric, DeviceSessionResponse, DeviceSample } from '@/api/anesthesiaDeviceSession';
 
 function sample(messageId: string, observedAt: string): DeviceSample {
   return {
@@ -50,6 +50,29 @@ describe('deviceSessionPoller.mergeItems', () => {
   });
   it('does not append duplicate messageId already present', () => {
     expect(mergeItems([sample('m1', 't1')], [sample('m1', 't1')])).toHaveLength(1);
+  });
+  it('does not throw when incoming is not an array (null/undefined/object)', () => {
+    expect(mergeItems([], null as unknown as DeviceSample[])).toEqual([]);
+    expect(mergeItems([], undefined as unknown as DeviceSample[])).toEqual([]);
+    expect(mergeItems([], { a: 1 } as unknown as DeviceSample[])).toEqual([]);
+  });
+});
+
+describe('deviceSessionPoller.applySessionResponse normalization', () => {
+  it('coerces non-array items/latest.metrics into safe empty arrays (no "incoming is not iterable")', () => {
+    const res = response({
+      items: null as unknown as DeviceSample[],
+      latest: { ...sample('m1', 't1'), metrics: null as unknown as DeviceMetric[] },
+    });
+    const state = applySessionResponse(emptyDeviceSessionState('OP-1'), res, 'p1');
+    expect(state.items).toEqual([]);
+    expect(Array.isArray(state.latest?.metrics)).toBe(true);
+    expect(state.latest?.metrics).toEqual([]);
+  });
+
+  it('coerces object-shaped items without throwing', () => {
+    const res = response({ items: { wrong: true } as unknown as DeviceSample[] });
+    expect(() => applySessionResponse(emptyDeviceSessionState('OP-1'), res, 'p1')).not.toThrow();
   });
 });
 

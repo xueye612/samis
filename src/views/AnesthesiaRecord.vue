@@ -43,6 +43,13 @@
       @open-conflicts="conflictPanelVisible = true"
     />
 
+    <div v-if="rescueModeActive" class="rescue-banner no-print" role="status" aria-live="polite" data-testid="rescue-banner">
+      <span class="rescue-dot" aria-hidden="true"></span>
+      <strong>抢救中</strong>
+      <span class="rescue-desc">1 分钟细线记录 · {{ currentStage }}</span>
+      <a-button size="mini" status="warning" class="rescue-exit" data-testid="rescue-exit-btn" @click="exitRescue">退出抢救</a-button>
+    </div>
+
     <div class="record-layout" :class="{ 'queue-collapsed': !patientPanelOpen }">
       <aside v-show="patientPanelOpen" class="patient-queue">
         <div class="queue-head">
@@ -96,7 +103,7 @@
         </div>
       </aside>
 
-      <main class="record-center">
+      <main class="record-center" :class="{ 'toolbox-collapsed': toolboxCollapsed }">
         <div class="record-workspace">
           <section ref="sheetWorkbenchRef" class="sheet-workbench">
             <RecordSheetQuickStrip
@@ -186,7 +193,6 @@
                 data-testid="record-more-tools"
                 @click="openMoreTools"
               >更多工具</button>
-              <strong v-if="toolboxCollapsed" class="toolbox-collapsed-title">辅助</strong>
               <div class="toolbox-head-actions">
                 <a-button size="mini" type="text" class="toolbox-drawer-close" @click="toolboxDrawerVisible = false">关闭</a-button>
                 <a-button size="mini" type="text" @click="toolboxCollapsed = !toolboxCollapsed">
@@ -195,18 +201,18 @@
               </div>
             </div>
 
-            <!-- 折叠窄栏：仅保留图标入口，常驻 40~48px -->
+            <!-- 折叠窄栏：仅保留图标入口，常驻 40~48px，真正释放侧栏宽度 -->
             <nav v-if="toolboxCollapsed" class="toolbox-rail no-print" data-testid="record-toolbox-rail">
               <button type="button" class="toolbox-rail-btn" :class="{ active: sideTab === 'task' }" title="当前任务" @click="sideTab = 'task'; toolboxCollapsed = false">任务</button>
               <button type="button" class="toolbox-rail-btn" :class="{ active: sideTab === 'device' }" title="设备" @click="sideTab = 'device'; toolboxCollapsed = false">
                 设备
-                <span v-if="deviceAnomalyCount > 0" class="toolbox-rail-badge">{{ deviceAnomalyCount }}</span>
+                <span v-if="deviceCount > 0" class="toolbox-rail-badge is-count">{{ deviceCount }}</span>
               </button>
               <button type="button" class="toolbox-rail-btn" :class="{ active: sideTab === 'reminder' }" title="提醒" @click="sideTab = 'reminder'; toolboxCollapsed = false">
                 提醒
                 <span v-if="reminderBadgeCount > 0" class="toolbox-rail-badge">{{ reminderBadgeCount }}</span>
               </button>
-              <button type="button" class="toolbox-rail-btn" title="更多工具" @click="openMoreTools">更多</button>
+              <button type="button" class="toolbox-rail-btn" title="更多工具" @click="openMoreTools">⋯</button>
             </nav>
 
             <template v-if="!toolboxCollapsed">
@@ -226,7 +232,7 @@
                 :class="{ active: sideTab === 'device' }"
                 data-testid="side-tab-device"
                 @click="sideTab = 'device'"
-              >设备<span v-if="deviceAnomalyCount > 0" class="toolbox-tab-badge">{{ deviceAnomalyCount }}</span></button>
+              >设备<span v-if="deviceCount > 0" class="toolbox-tab-badge is-count">{{ deviceCount }}</span></button>
               <button
                 type="button"
                 role="tab"
@@ -237,51 +243,21 @@
               >提醒<span v-if="reminderBadgeCount > 0" class="toolbox-tab-badge">{{ reminderBadgeCount }}</span></button>
             </div>
             <div class="toolbox-scroll-zone">
-              <!-- 当前任务：阶段 / 关键时间 / 持续泵入 / 待确认落单 / 专业补充 / 最近录入 -->
+              <!-- 当前任务：手术场景/当前阶段 / 持续泵入 / 待确认记录 / 当前事件专业补充 / 最近录入 -->
               <div v-show="sideTab === 'task'" class="toolbox-tab-pane" data-testid="side-pane-task">
             <IntraopWorkflowPanel
               :stage="currentStage"
               :stage-options="scenarioContext.stageOptions"
               :scenario="selectedScenario"
               :scenario-options="scenarioContext.scenarioOptions"
-              :method-labels="appliedMethodLabels"
-              :selected-template-name="selectedTemplateName"
               :recent-event-label="recentEventLabel"
-              :quick-events="scenarioContext.quickEvents"
               :pending-items="pendingLandingItems"
-              :completion-gaps="completionGaps"
-              :recommended-items="scenarioContext.recommendedItems"
-              :pending-guidance="scenarioContext.pendingItems"
-              :risk-items="scenarioContext.risks"
-              :next-steps="scenarioContext.nextSteps"
               :locked="current.locked"
-              :case-item="current"
               @update:stage="updateCurrentStage"
               @update:scenario="updateSurgeryScenario"
-              @quick-event="addEvent"
-              @focus-status-row="scrollToStatusRow"
               @confirm-all="confirmAllLandingItems"
               @confirm-item="confirmLandingItem"
             />
-
-            <a-card v-if="sheetMethodKeys.length" class="timeline-workbench-card" :bordered="false">
-              <template #title>关键时间</template>
-              <template #extra>
-                <span class="timeline-card-extra">{{ timelineProgressLabel }}</span>
-              </template>
-              <p v-if="timelinePendingLabels" class="timeline-card-hint">待录：{{ timelinePendingLabels }}</p>
-              <TimelineNodeRail
-                :embedded="false"
-                :show-header="false"
-                :record="current"
-                :method-keys="sheetMethodKeys"
-                :method-labels="sheetAppliedMethodLabels"
-                :locked="current.locked"
-                :active-key="activeTimelineKey"
-                @save="saveTimelineNode"
-                @focus="focusWorkbenchTimelineNode"
-              />
-            </a-card>
 
             <section v-if="runningPumps.length" class="toolbox-pumps" data-testid="side-running-pumps">
               <header><strong>持续泵入</strong><span>{{ runningPumps.length }} 条</span></header>
@@ -311,17 +287,12 @@
             />
               </div>
 
-              <!-- 设备：手术间 / 呼吸机 / 自动关联 / 等待入室 / 预览数据 / 最后有效时间 / 房间变化 / 紧凑参数 -->
+              <!-- 设备：统一以设备采集会话为唯一来源 -->
               <div v-show="sideTab === 'device'" class="toolbox-tab-pane" data-testid="side-pane-device">
-              <RecordRealtimeDevicePanel
-                :state="realtimeDeviceState"
-                :source-mode="deviceRealtimeSource"
-                :source-ready="deviceRealtimeSourceReady"
-              />
               <DeviceSessionVentilatorPanel :state="deviceSessionState" />
               </div>
 
-              <!-- 提醒：待补字段 / 异常体征 / 质控缺陷 / 设备异常 / 同步冲突 -->
+              <!-- 提醒：异常体征 / 待补字段 / 质控缺陷 / 完整性检查 / 设备异常 / 同步冲突 -->
               <div v-show="sideTab === 'reminder'" class="toolbox-tab-pane" data-testid="side-pane-reminder">
               <RecordQualityPanel
                 :record="current"
@@ -333,6 +304,21 @@
                 @focus-defect="focusDefect"
                 @handle-abnormal-group="openAbnormalGroupHandler"
               />
+              <section v-if="deviceSessionAnomalies.length" class="reminder-block" data-testid="side-device-anomalies">
+                <header><strong>设备异常</strong><span>{{ deviceSessionAnomalies.length }}项</span></header>
+                <a-alert
+                  v-for="(item, index) in deviceSessionAnomalies"
+                  :key="index"
+                  type="warning"
+                  show-icon
+                >{{ item }}</a-alert>
+              </section>
+              <section class="reminder-block reminder-links">
+                <a-button v-if="(syncState.conflictCount ?? 0) > 0" long status="danger" @click="conflictPanelVisible = true">
+                  同步冲突 {{ syncState.conflictCount }}
+                </a-button>
+                <a-button long @click="syncDetailVisible = true">同步详情</a-button>
+              </section>
               </div>
             </div>
             </template>
@@ -553,7 +539,6 @@ import LiveAnesthesiaSheet from '@/components/anesthesia/record/LiveAnesthesiaSh
 import RecordDetailTabs from '@/components/anesthesia/record/RecordDetailTabs.vue';
 import RecordRecentEntries from '@/components/anesthesia/record/RecordRecentEntries.vue';
 import RecordQualityPanel from '@/components/anesthesia/record/RecordQualityPanel.vue';
-import RecordRealtimeDevicePanel from '@/components/anesthesia/record/RecordRealtimeDevicePanel.vue';
 import StructuredClinicalEntitiesPanel from '@/components/anesthesia/record/StructuredClinicalEntitiesPanel.vue';
 import RecordWorkstationTopbar from '@/components/anesthesia/record/RecordWorkstationTopbar.vue';
 import RecordSheetQuickStrip from '@/components/anesthesia/record/RecordSheetQuickStrip.vue';
@@ -1133,14 +1118,18 @@ const panelAbnormalVitals = computed(() => selectedId.value ? store.panelAbnorma
 const runningPumps = computed(() => current.value?.medications.filter(
   (item) => item.mode === '持续泵入' && !item.stopTime,
 ) ?? []);
-// 设备异常计数：房间变化、采集错误、离线。已恢复的异常不计入。
-const deviceAnomalyCount = computed(() => {
-  let count = 0;
-  if (deviceSessionState.value.roomChanged) count += 1;
-  if (deviceSessionState.value.error && !deviceSessionState.value.ended) count += 1;
-  if (realtimeDeviceState.value.error) count += 1;
-  if (realtimeDeviceState.value.freshness === 'offline') count += 1;
-  return count;
+// 设备数量角标：表示实际已关联的设备数量（不混入异常计数）。
+const deviceCount = computed(() => (deviceSessionState.value.binding ? 1 : 0));
+// 设备异常（提醒标签）：仅以设备采集会话为唯一来源，已恢复的不计入。
+const deviceSessionAnomalies = computed<string[]>(() => {
+  const list: string[] = [];
+  if (deviceSessionState.value.roomChanged) {
+    list.push(`手术间已变化，请确认设备转移（${deviceSessionState.value.bindingRoomName || deviceSessionState.value.bindingRoomCode || '—'} → ${deviceSessionState.value.currentRoomName || deviceSessionState.value.currentRoomCode || '—'}）`);
+  }
+  if (deviceSessionState.value.error && !deviceSessionState.value.ended) {
+    list.push(deviceSessionState.value.error);
+  }
+  return list;
 });
 // 提醒标签角标：仅统计未处理的待补字段、异常体征、质控缺陷、同步冲突与设备异常。
 const reminderBadgeCount = computed(() => {
@@ -1149,7 +1138,7 @@ const reminderBadgeCount = computed(() => {
     + panelAbnormalVitals.value.length
     + recordPendingFields.value.length
     + (syncState.value.conflictCount ?? 0)
-    + deviceAnomalyCount.value;
+    + deviceSessionAnomalies.value.length;
 });
 const canEditPumps = computed(() => sheetQuickActions.value.entries.canEdit);
 const sheetInteractionMode = computed(() => {
@@ -2370,6 +2359,69 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   gap: 12px;
 }
 
+/* 侧栏折叠：真正释放侧栏宽度到窄栏（约 52px），记录单立即扩展占满释放空间。
+   不用 visibility/display 隐藏占位，而是直接收缩 grid 列宽。 */
+.record-center.toolbox-collapsed {
+  grid-template-columns: minmax(0, 1fr) 52px;
+}
+
+/* 抢救模式：轻量非打印横幅，替代整张记录单强红框。 */
+.rescue-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  padding: 4px 10px;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #dc2626;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.rescue-banner strong {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.rescue-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.18);
+}
+
+.rescue-desc {
+  color: #991b1b;
+}
+
+.rescue-exit {
+  margin-left: auto;
+}
+
+/* 提醒标签内设备异常 / 同步区块。 */
+.reminder-block {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.reminder-block header {
+  display: flex;
+  justify-content: space-between;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.reminder-links {
+  gap: 8px;
+}
+
 .record-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2537,6 +2589,12 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   font-weight: 700;
   line-height: 15px;
   text-align: center;
+}
+
+/* 设备数量角标为信息色（非告警红），表示实际设备数量。 */
+.toolbox-tab-badge.is-count,
+.toolbox-rail-badge.is-count {
+  background: #1d4ed8;
 }
 
 /* 标签内容面板：与滚动区共用单一滚动条，不产生嵌套滚动。 */
@@ -2750,6 +2808,11 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 
 @media (max-width: 1100px) {
   .record-center {
+    grid-template-columns: 1fr;
+  }
+
+  /* 小屏工具箱为覆盖式抽屉，不再占据 grid 列；折叠不释放宽度。 */
+  .record-center.toolbox-collapsed {
     grid-template-columns: 1fr;
   }
 

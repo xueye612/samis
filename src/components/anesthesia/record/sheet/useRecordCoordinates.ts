@@ -61,7 +61,12 @@ export function useRecordCoordinates(
     return buildLiveTimeScale(sheetStart.value, sheetEnd.value, intervals.minorInterval, intervals.majorInterval);
   });
 
-  const gridBackgroundStyle = computed(() => ({ '--minor-count': Math.max(1, timeScale.value.minorTicks.length - 1) }));
+  // 网格背景：细线（minor，抢救时 1 分钟）与主线（major，5 分钟）建立明显层级。
+  const gridBackgroundStyle = computed(() => {
+    const minorCount = Math.max(1, timeScale.value.minorTicks.length - 1);
+    const majorCount = Math.max(1, (timeScale.value.majorTicks?.length ?? 1) - 1);
+    return { '--minor-count': minorCount, '--major-count': majorCount };
+  });
   const bandGrid = (rows: number) => buildRecordBandGrid(timeScale.value, rows);
   const chartGrid = computed(() => buildRecordBandGrid(timeScale.value, 8));
 

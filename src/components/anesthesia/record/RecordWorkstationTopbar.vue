@@ -7,11 +7,8 @@
       <h1 class="page-title">麻醉记录单</h1>
       <div class="patient-context">
         <span class="ctx-room">{{ record?.room }}</span>
-        <strong class="ctx-name">{{ record?.patientName }}</strong>
-        <span class="ctx-surgery">{{ record?.surgeryName }}</span>
       </div>
       <a-tag size="small" :color="statusTag.color">{{ statusTag.label }}</a-tag>
-      <span v-if="deviceCollecting" class="collecting-hint">采集中</span>
       <a-button
         v-if="actions.showConflictAction && syncState.conflictCount > 0"
         size="mini"
@@ -75,7 +72,6 @@
 
         <a-button v-if="actions.showSaveDraft" size="small" @click="$emit('save-draft')">保存</a-button>
         <a-button v-if="actions.showRescue" size="small" status="danger" @click="$emit('enter-rescue')">抢救</a-button>
-        <a-button v-if="actions.showExitRescue" size="small" status="warning" @click="$emit('exit-rescue')">退出抢救</a-button>
         <a-button
           v-if="actions.showSubmitSignature"
           size="small"
@@ -250,28 +246,6 @@ onUnmounted(() => {
   font-size: 11px;
 }
 
-.ctx-name {
-  flex-shrink: 0;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.ctx-surgery {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: min(200px, 20vw);
-}
-
-.collecting-hint {
-  flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--color-success-50);
-  color: var(--color-success-600);
-  font-size: 11px;
-}
-
 .case-switch {
   width: min(168px, 18vw);
   min-width: 120px;
@@ -321,12 +295,6 @@ onUnmounted(() => {
   flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
-}
-
-@media (max-width: 1280px) {
-  .ctx-surgery {
-    display: none;
-  }
 }
 
 @media (max-width: 1100px) {

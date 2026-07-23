@@ -1,5 +1,6 @@
 import {
   anesthesiaDeviceSessionApi,
+  type DeviceMetric,
   type DeviceSample,
   type DeviceSessionBinding,
   type DeviceSessionResponse,
@@ -48,6 +49,26 @@ export interface DeviceSessionPoller {
 
 const TERMINAL_ERROR_CODES = new Set([4092, 4091]);
 
+/** 运行时归一：后端返回的列表字段可能为 null/undefined/对象/非数组，统一成数组，避免 `incoming is not iterable`。 */
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
+}
+
+/** 归一单条样本：metrics 非数组时置空，metadata 缺失时补空对象。 */
+function normalizeSample(sample: unknown): DeviceSample | null {
+  if (!sample || typeof sample !== 'object') return null;
+  const raw = sample as Partial<DeviceSample> & { metrics?: unknown };
+  return {
+    messageId: String(raw.messageId ?? ''),
+    observedAt: String(raw.observedAt ?? ''),
+    receivedAt: String(raw.receivedAt ?? ''),
+    minuteBucketAt: String(raw.minuteBucketAt ?? ''),
+    fiveMinuteBucketAt: String(raw.fiveMinuteBucketAt ?? ''),
+    metrics: asArray<DeviceMetric>(raw.metrics),
+    metadata: (raw.metadata && typeof raw.metadata === 'object') ? raw.metadata : {},
+  } as DeviceSample;
+}
+
 export function emptyDeviceSessionState(operationId = ''): DeviceSessionState {
   return {
     operationId,
@@ -73,9 +94,10 @@ export function emptyDeviceSessionState(operationId = ''): DeviceSessionState {
 
 /** 按 messageId 去重合并增量 items（页面刷新/重新挂载后不重复追加）。纯函数便于单测。 */
 export function mergeItems(existing: DeviceSample[], incoming: DeviceSample[]): DeviceSample[] {
+  const incomingList = asArray<DeviceSample>(incoming);
   const seen = new Set(existing.map((item) => item.messageId));
   const merged = [...existing];
-  for (const item of incoming) {
+  for (const item of incomingList) {
     if (!seen.has(item.messageId)) {
       seen.add(item.messageId);
       merged.push(item);
@@ -86,14 +108,17 @@ export function mergeItems(existing: DeviceSample[], incoming: DeviceSample[]): 
 
 /** 应用一次响应到状态（纯函数，便于单测）。 */
 export function applySessionResponse(state: DeviceSessionState, res: DeviceSessionResponse, polledAt: string): DeviceSessionState {
-  const items = mergeItems(state.items, res.items);
+  // 后端运行时 items/latest.metrics 可能为 null/对象/非数组，统一归一，避免遍历抛错。
+  const rawItems = asArray<unknown>(res.items).map(normalizeSample).filter((item): item is DeviceSample => item !== null);
+  const items = mergeItems(state.items, rawItems);
+  const latest = normalizeSample(res.latest);
   return {
     ...state,
     operationId: res.operationId,
     binding: res.binding,
     source: res.device?.source ?? '',
     status: res.device?.status ?? res.status ?? '',
-    latest: res.latest,
+    latest,
     items,
     nextCursor: res.nextCursor,
     roomChanged: res.roomChanged,

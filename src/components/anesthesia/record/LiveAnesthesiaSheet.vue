@@ -2818,8 +2818,8 @@ onBeforeUnmount(() => {
 }
 
 .live-record-card.is-rescue {
-  border-color: var(--sheet-rescue);
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12), 0 18px 48px rgba(15, 23, 42, 0.12);
+  /* 抢救模式不再整张强红框，仅保留默认纸面边框；抢救状态由工作台轻量横幅承载。 */
+  border-color: var(--sheet-frame);
 }
 
 .live-record-card.is-locked {
@@ -3203,9 +3203,14 @@ onBeforeUnmount(() => {
 
 .band-track,
 .chart-area {
-  background-image: linear-gradient(to right, rgba(100, 116, 139, 0.28) 1px, transparent 1px);
+  /* 双层网格：主线（major，5 分钟）深而粗，细线（minor，抢救 1 分钟）浅而细，建立明显层级。 */
+  background-image:
+    linear-gradient(to right, rgba(15, 23, 42, 0.5) 1.5px, transparent 1.5px),
+    linear-gradient(to right, rgba(100, 116, 139, 0.26) 1px, transparent 1px);
   background-repeat: repeat;
-  background-size: calc(100% / var(--minor-count, 42)) 100%;
+  background-size:
+    calc(100% / var(--major-count, 8)) 100%,
+    calc(100% / var(--minor-count, 42)) 100%;
 }
 
 .ruler-track span,

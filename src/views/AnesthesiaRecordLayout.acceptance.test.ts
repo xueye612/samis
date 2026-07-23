@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import recordHeaderSource from '@/components/anesthesia/record/sheet/RecordHeader.vue?raw';
 import recordViewSource from '@/views/AnesthesiaRecord.vue?raw';
+import topbarViewSource from '@/components/anesthesia/record/RecordWorkstationTopbar.vue?raw';
+import intraopWorkflowSource from '@/components/anesthesia/record/IntraopWorkflowPanel.vue?raw';
 
 // 这些验收用例在 node 环境下以“源码级断言”锁定布局契约，等价于 DOM 层面的结构门禁。
 // 任何破坏以下契约的改动都会让 CI 失败，避免右侧菜单/表头折叠/设备入口再次分裂。
@@ -56,7 +58,7 @@ describe('患者表头折叠（任务二）', () => {
   });
 });
 
-describe('三标签侧栏（任务三）', () => {
+describe('三标签侧栏', () => {
   it('固定为 当前任务 / 设备 / 提醒 三个一级标签', () => {
     expect(recordViewSource).toContain('data-testid="side-tab-task"');
     expect(recordViewSource).toContain('data-testid="side-tab-device"');
@@ -67,31 +69,45 @@ describe('三标签侧栏（任务三）', () => {
     expect(recordViewSource).toMatch(/sideTab = ref<'task' \| 'device' \| 'reminder'>\('task'\)/);
   });
 
-  it('当前任务归属：阶段/关键时间/持续泵入/待确认落单/最近录入/专业补充', () => {
+  it('当前任务归属：场景/阶段/持续泵入/待确认记录/专业补充/最近录入，不含完整关键时间与重复快捷操作', () => {
     expect(recordViewSource).toContain('data-testid="side-pane-task"');
     expect(recordViewSource).toContain('<IntraopWorkflowPanel');
-    expect(recordViewSource).toContain('关键时间');
     expect(recordViewSource).toContain('data-testid="side-running-pumps"');
     expect(recordViewSource).toContain('<RecordRecentEntries');
     expect(recordViewSource).toContain('<EventDetailPanel');
+    // 完整关键时间长列表已移出当前任务
+    expect(recordViewSource).not.toContain('class="timeline-workbench-card"');
+    // 当前任务面板不再渲染与顶部重复的快捷事件按钮/麻醉方式/方案/定位
+    expect(intraopWorkflowSource).not.toContain('quickEvents');
+    expect(intraopWorkflowSource).not.toContain('当前阶段推荐动作');
+    expect(intraopWorkflowSource).not.toContain('麻醉方式');
+    expect(intraopWorkflowSource).not.toContain('定位手术状态行');
   });
 
-  it('设备归属：复用现有设备会话面板，保留等待/自动关联/房间变化', () => {
+  it('设备归属：唯一以设备采集会话为来源，移除旧 monitor mock 卡片', () => {
     expect(recordViewSource).toContain('data-testid="side-pane-device"');
-    expect(recordViewSource).toContain('<RecordRealtimeDevicePanel');
     expect(recordViewSource).toContain('<DeviceSessionVentilatorPanel');
+    expect(recordViewSource).not.toContain('<RecordRealtimeDevicePanel');
+    expect(recordViewSource).not.toContain('import RecordRealtimeDevicePanel');
   });
 
-  it('提醒归属：质控/异常/待补字段并入提醒标签，不再有独立质控侧栏', () => {
+  it('提醒归属：质控/异常/待补/完整性 + 设备异常 + 同步冲突', () => {
     expect(recordViewSource).toContain('data-testid="side-pane-reminder"');
     expect(recordViewSource).toContain('<RecordQualityPanel');
+    expect(recordViewSource).toContain('data-testid="side-device-anomalies"');
     // 独立 record-side 质控列已移除
     expect(recordViewSource).not.toContain('class="record-side record-side-stack"');
   });
 
-  it('标签角标只统计未处理数量', () => {
+  it('设备角标表示实际设备数量，提醒角标统计未处理数量', () => {
     expect(recordViewSource).toContain('reminderBadgeCount');
-    expect(recordViewSource).toContain('deviceAnomalyCount');
+    expect(recordViewSource).toContain('deviceCount');
+    expect(recordViewSource).not.toContain('deviceAnomalyCount');
+  });
+
+  it('侧栏折叠真正释放宽度（收缩 grid 列，非 visibility/display 占位）', () => {
+    expect(recordViewSource).toContain("'toolbox-collapsed': toolboxCollapsed");
+    expect(recordViewSource).toContain('.record-center.toolbox-collapsed');
   });
 
   it('提供折叠窄栏与大屏固定宽度（约320，1366 控制 280~300）', () => {
@@ -101,6 +117,27 @@ describe('三标签侧栏（任务三）', () => {
 
   it('小屏使用单一覆盖式抽屉，不产生嵌套抽屉', () => {
     expect(recordViewSource).toContain('openMoreTools');
+  });
+});
+
+describe('顶部去重与抢救模式', () => {
+  it('顶部不再出现重复的“采集中”标签', () => {
+    const topbarSource = topbarViewSource;
+    expect(topbarSource).not.toContain('采集中');
+  });
+
+  it('顶部不再重复摘要已有的患者姓名/手术名称', () => {
+    const topbarSource = topbarViewSource;
+    expect(topbarSource).not.toContain('ctx-name');
+    expect(topbarSource).not.toContain('ctx-surgery');
+  });
+
+  it('抢救模式使用轻量非打印横幅，单一退出入口，移除顶栏退出抢救按钮', () => {
+    expect(recordViewSource).toContain('data-testid="rescue-banner"');
+    expect(recordViewSource).toContain('data-testid="rescue-exit-btn"');
+    const topbarSource = topbarViewSource;
+    expect(topbarSource).not.toContain("name: '退出抢救'");
+    expect(topbarSource).not.toContain("退出抢救");
   });
 });
 
