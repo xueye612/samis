@@ -239,31 +239,59 @@ const portraitPages = computed(() => {
 
 @page {
   size: A4 portrait;
-  margin: 2mm;
+  margin: 3mm 6mm;
 }
 
 @media print {
+  /* 打印双重缩放根因修复：打印时禁用一切 transform/zoom。
+     根节点不设 210mm（会超出 198mm 可打印宽度，导致 Chrome 自动缩放或右侧裁切），
+     改为 width:100% 贴合 @page 可打印区；内容区由 .print-preview-page 用 198mm 定义。 */
+  :global(html),
+  :global(body) {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    background: #fff !important;
+    overflow: visible !important;
+    zoom: 1 !important;
+  }
+
+  :global(#app) {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
   .print-preview-shell {
     position: static;
     background: #fff;
     padding: 0;
+    overflow: visible;
   }
 
   .print-preview-pages {
     display: block;
     max-width: none;
     margin: 0;
+    gap: 0;
   }
 
   .no-print {
     display: none !important;
   }
 
+  /* 打印页直接使用 mm：198mm ≈ A4(210mm) − 左右 6mm 页边距，铺满可打印宽度。 */
   .print-preview-page {
-    width: 100%;
-    max-width: none;
-    min-height: 0;
-    transform: none;
+    width: 198mm;
+    max-width: 198mm;
+    min-height: 287mm;
+    margin: 0 auto;
+    transform: none !important;
+    scale: none !important;
+    zoom: 1 !important;
     box-shadow: none;
     page-break-after: always;
     break-after: page;

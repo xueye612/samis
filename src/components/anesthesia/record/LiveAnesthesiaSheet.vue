@@ -508,6 +508,7 @@
       :compact="!printMode"
       :handover-from-options="headerPickerOptions?.anesthesiologists"
       :handover-to-options="headerPickerOptions?.nurses"
+      :operation-id="record.id"
       @update:anesthesia-effect="emit('saveSummaryField', { anesthesiaEffect: $event as '优' | '良' | '差' })"
       @update:destination="emit('saveSummaryField', { destination: $event })"
       @update:analgesia-method="emit('saveSummaryField', { analgesiaMethod: $event })"
@@ -2832,8 +2833,34 @@ onBeforeUnmount(() => {
   --sheet-left-total: 86px;
   --chart-status-row: 15px;
   --chart-scale-gutter: 46px;
-  font-size: 9.5px;
+  /* 打印/预览统一使用 pt，保证屏幕预览与实际打印字号一致；不依赖网页端 px。 */
+  font-size: 8pt;
+  font-family: Arial, "Microsoft YaHei", "SimSun", sans-serif;
   box-shadow: none;
+  /* 不再用 flex+min-height:287mm 强行铺满：那会让卡片连同边框超过 A4 可打印高度，
+     把签名区挤到第 2 页。改由内容自然排版 + 固定时间轴高度，保证单例记录单页可印。 */
+}
+
+/* 时间刻度：打印/预览统一 7.5pt Arial，数字辨识度优先。 */
+.live-record-card.is-print-mode .ruler-track span {
+  padding: 1px 3px;
+  font-size: 7.5pt;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
+}
+
+/* 监测数值：8.5pt、加粗、等宽数字；异常项保持加粗（打印靠形状/字重区分，不依赖红色）。 */
+.live-record-card.is-print-mode .monitor-value {
+  max-width: 40px;
+  padding: 0 2px;
+  font-size: 8.5pt;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
+}
+
+.live-record-card.is-print-mode .temp-scale-tick {
+  font-size: 7.5pt;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
 }
 
 /* 打印分页页码：每页右下角，不与末页签名区重叠 */
@@ -2871,21 +2898,28 @@ onBeforeUnmount(() => {
 }
 
 .live-record-card.is-print-mode :deep(.record-header .print-heading h2) {
-  font-size: 12px;
+  font-size: 12pt;
+  font-weight: 700;
+  letter-spacing: 0.3mm;
   line-height: 1;
 }
 
 .live-record-card.is-print-mode :deep(.record-header .doc-meta),
-.live-record-card.is-print-mode :deep(.paper-field-label),
 .live-record-card.is-print-mode :deep(.paper-picker-label),
-.live-record-card.is-print-mode :deep(.paper-field-value),
 .live-record-card.is-print-mode :deep(.paper-picker-readonly) {
-  font-size: 9.5px;
+  font-size: 7.5pt;
+  line-height: 1.05;
+}
+
+.live-record-card.is-print-mode :deep(.paper-field-label) {
+  font-size: 8pt;
   line-height: 1.05;
 }
 
 .live-record-card.is-print-mode :deep(.paper-field-value),
 .live-record-card.is-print-mode :deep(.paper-picker-readonly) {
+  font-size: 8.5pt;
+  font-weight: 600;
   min-height: 10px;
   padding-bottom: 0;
 }
@@ -2898,7 +2932,7 @@ onBeforeUnmount(() => {
 
 .live-record-card.is-print-mode :deep(.block-title) {
   padding: 1px 0;
-  font-size: 9px;
+  font-size: 8pt;
   line-height: 1.1;
 }
 
@@ -3171,26 +3205,26 @@ onBeforeUnmount(() => {
 }
 
 .live-record-card.is-print-mode .sheet-band {
-  min-height: calc(var(--rows, 3) * 11px);
+  min-height: calc(var(--rows, 3) * 9px);
 }
 
 .live-record-card.is-print-mode .band-track,
 .live-record-card.is-print-mode .medication-band,
 .live-record-card.is-print-mode .monitor-band {
-  min-height: calc(var(--rows, 3) * 11px);
+  min-height: calc(var(--rows, 3) * 9px);
 }
 
 .live-record-card.is-print-mode .band-side {
   padding: 2px 1px;
-  font-size: 9px;
+  font-size: 8pt;
   line-height: 1.1;
   letter-spacing: 0;
 }
 
 .live-record-card.is-print-mode .band-labels span {
-  min-height: 11px;
-  padding: 1px 2px;
-  font-size: 8.5px;
+  min-height: 9px;
+  padding: 0 2px;
+  font-size: 8pt;
   line-height: 1.05;
 }
 
@@ -3623,11 +3657,16 @@ onBeforeUnmount(() => {
   min-height: 280px;
 }
 
-.live-record-card.is-print-mode .vital-chart,
+.live-record-card.is-print-mode .vital-chart {
+  /* 固定时间轴打印高度，避免弹性铺满导致整卡超过 A4 可打印高度而拆页。 */
+  height: 60mm;
+  min-height: 60mm;
+}
+
 .live-record-card.is-print-mode .chart-layout,
 .live-record-card.is-print-mode .chart-area {
-  height: 126px;
-  min-height: 126px;
+  height: 60mm;
+  min-height: 60mm;
 }
 
 .live-record-card.is-print-mode :deep(.chart-legend-panel) {
@@ -4366,28 +4405,33 @@ onBeforeUnmount(() => {
 }
 
 .live-record-card.is-print-mode .sheet-band {
-  min-height: calc(var(--rows, 3) * 11px);
+  min-height: calc(var(--rows, 3) * 9px);
 }
 
 .live-record-card.is-print-mode .band-side {
   padding: 2px 1px;
-  font-size: 9px;
+  font-size: 8pt;
   line-height: 1.1;
   letter-spacing: 0;
 }
 
 .live-record-card.is-print-mode .band-labels span {
-  min-height: 11px;
-  padding: 1px 2px;
-  font-size: 8.5px;
+  min-height: 9px;
+  padding: 0 2px;
+  font-size: 8pt;
   line-height: 1.05;
 }
 
-.live-record-card.is-print-mode .vital-chart,
+.live-record-card.is-print-mode .vital-chart {
+  /* 固定时间轴打印高度，避免弹性铺满导致整卡超过 A4 可打印高度而拆页。 */
+  height: 60mm;
+  min-height: 60mm;
+}
+
 .live-record-card.is-print-mode .chart-layout,
 .live-record-card.is-print-mode .chart-area {
-  height: 126px;
-  min-height: 126px;
+  height: 60mm;
+  min-height: 60mm;
 }
 
 .live-record-card.is-print-mode .chart-status-symbol {
@@ -4412,16 +4456,103 @@ onBeforeUnmount(() => {
     width: 100%;
     max-width: 100%;
     overflow: visible;
-    border: 1px solid #111;
+    border: 0.45mm solid #000;
+    /* 单例记录单页：不强制 min-height:287mm（连同边框会超过可打印高度把签名区挤到第 2 页）。
+       由 .print-preview-page 定义 A4 页面，卡片内容自然排版 + 时间轴固定高度，整卡 break-inside:avoid。 */
+    box-sizing: border-box;
+    break-inside: avoid;
+    page-break-inside: avoid;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
 
-  /* 避免时间段、趋势图、底部汇总在物理分页处被拦腰截断 */
+  /* 黑白打印清晰度：文字统一近黑/纯黑，不再使用网页端浅蓝、浅灰。 */
+  .live-record-card,
+  .live-record-card .ruler-label,
+  .live-record-card .band-side,
+  .live-record-card .paper-field-label,
+  .live-record-card .paper-field-value,
+  .live-record-card .block-title,
+  .live-record-card .monitor-value,
+  .live-record-card .temp-scale-tick {
+    color: #111 !important;
+  }
+
+  .live-record-card .print-heading h2,
+  .live-record-card .paper-field-value,
+  .live-record-card .monitor-value,
+  .live-record-card .band-side {
+    color: #000 !important;
+  }
+
+  /* 边框三级：页面外框/主分区 0.45mm 纯黑；主横线/整点 0.3mm 深灰；5 分钟普通线 0.18mm 中灰。 */
+  .live-record-card .sheet-ruler,
+  .live-record-card .sheet-band,
+  .live-record-card .vital-chart {
+    border-bottom: 0.3mm solid #222 !important;
+  }
+
+  .live-record-card .ruler-label,
+  .live-record-card .band-side {
+    border-right: 0.3mm solid #222 !important;
+    background: #fff !important;
+  }
+
+  .live-record-card .print-grid-lines span {
+    border-left: 0.18mm solid #777 !important;
+  }
+
+  .live-record-card .print-grid-lines span.major,
+  .live-record-card .print-row-lines span.major,
+  .live-record-card .print-chart-horizontal-lines span.major {
+    border-color: #000 !important;
+    border-width: 0.3mm !important;
+  }
+
+  .live-record-card .ruler-track i {
+    border-left: 0.18mm solid #777 !important;
+  }
+
+  .live-record-card .ruler-track i.major {
+    border-left: 0.3mm solid #000 !important;
+  }
+
+  /* 去网页化：录入控件改为纸质记录单样式（无圆角、无阴影、纯白底、黑字）。 */
+  .live-record-card input,
+  .live-record-card textarea,
+  .live-record-card select,
+  .live-record-card .footer-input,
+  .live-record-card .form-value {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #000 !important;
+    border: none !important;
+    border-bottom: 0.18mm solid #555 !important;
+  }
+
+  .live-record-card .chart-status-symbol {
+    border: 0.3mm solid #000 !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* 时间轴纵向高度由 is-print-mode 的 flex 布局统一负责（预览与打印一致）。 */
+  .live-record-card .vital-chart,
+  .live-record-card .chart-layout,
+  .live-record-card .chart-area {
+    break-inside: avoid;
+  }
+
+  /* 避免时间段、底部汇总在物理分页处被拦腰截断；签名区不单独落到下一页。 */
   .sheet-ruler,
   .sheet-band,
-  .vital-chart,
   .reference-notes {
+    break-inside: avoid;
+  }
+
+  .live-record-card :deep(.record-footer),
+  .live-record-card .record-footer {
     break-inside: avoid;
   }
 
@@ -4446,16 +4577,6 @@ onBeforeUnmount(() => {
   .is-print-mode .chart-status-symbol {
     pointer-events: none;
     cursor: default;
-  }
-
-  .print-grid-lines span {
-    border-left-color: #8a8a8a;
-  }
-
-  .print-grid-lines span.major,
-  .print-row-lines span.major,
-  .print-chart-horizontal-lines span.major {
-    border-color: #111;
   }
 }
 </style>

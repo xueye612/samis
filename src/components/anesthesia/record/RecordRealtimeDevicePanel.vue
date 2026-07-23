@@ -14,6 +14,14 @@
     </header>
 
     <div class="realtime-device-content">
+      <div v-if="isRealDevice && sourceReady" class="realtime-device-notice" data-testid="real-device-notice">
+        <p>真实设备由设备网关持续上传，本系统当前仅接收数据，不支持远程暂停；需要暂停请在设备端操作。</p>
+        <ul class="realtime-device-concepts">
+          <li><strong>设备采集</strong>：由设备端持续采集，本系统不远程控制。</li>
+          <li><strong>原始数据接收</strong>：已成功接收并通过幂等校验的原始报文将留存。</li>
+          <li><strong>写入记录单</strong>：仅按整 5 分钟（抢救 1 分钟）刻度取代表点入单。</li>
+        </ul>
+      </div>
       <a-alert v-if="state.error" type="warning" show-icon class="realtime-device-error">
         实时刷新失败，保留最近数据：{{ state.error }}
       </a-alert>
@@ -65,6 +73,8 @@ import type { RealtimeDeviceState } from '@/services/anesthesia/realtimeDeviceDa
 import type { DeviceRealtimeSource } from '@/services/anesthesia/deviceRealtimeSource';
 
 const props = defineProps<{ state: RealtimeDeviceState; sourceMode: DeviceRealtimeSource; sourceReady: boolean }>();
+
+const isRealDevice = computed(() => props.sourceMode === 'real');
 
 const display = (value: number | null, digits?: number) => {
   if (value === null) return '—';
@@ -137,9 +147,13 @@ const ventilatorMetrics = computed(() => {
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
 .metric-grid--ventilator { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .metric-cell { min-width: 0; padding: 5px 4px; border: 1px solid #e2e8f0; border-radius: 5px; background: #fff; text-align: center; }
-.metric-cell span { display: block; color: #64748b; font-size: 9px; }
+.metric-cell span { display: block; color: #64748b; font-size: 11px; }
 .metric-cell strong { display: block; margin-top: 1px; color: #0f172a; font-size: 14px; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.metric-cell small { display: block; min-height: 12px; margin-top: 1px; color: #94a3b8; font-size: 8px; white-space: nowrap; }
+.metric-cell small { display: block; min-height: 12px; margin-top: 1px; color: #94a3b8; font-size: 10px; white-space: nowrap; }
+.realtime-device-notice { margin-bottom: 6px; padding: 6px 8px; border: 1px solid #f3d8a3; border-radius: 5px; background: #fff8ec; }
+.realtime-device-notice p { margin: 0; color: #92600a; font-size: 11px; line-height: 1.5; }
+.realtime-device-concepts { margin: 4px 0 0; padding-left: 14px; color: #7c5a13; font-size: 10px; line-height: 1.5; }
+.realtime-device-concepts strong { color: #92600a; }
 .vent-mode-row { padding: 4px 7px; border-radius: 5px; background: #eef6ff; font-size: 11px; }
 .vent-mode-row span { color: #64748b; }
 .realtime-device-empty { height: 100%; min-height: 92px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; color: #64748b; font-size: 11px; line-height: 1.55; text-align: center; }

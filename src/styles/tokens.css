@@ -78,7 +78,7 @@
   --shadow-md: 0 12px 28px rgb(15 23 42 / 8%);
   --shadow-card: var(--shadow-xs);
 
-  --font-family-base: "PingFang SC", "Microsoft YaHei", Inter, system-ui, sans-serif;
+  --font-family-base: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
   --font-size-xs: 12px;
   --font-size-sm: 13px;
   --font-size-md: 14px;

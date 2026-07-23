@@ -93,7 +93,7 @@ const router = createRouter({
     { path: '/surgery/prototype', name: 'anesthesiaPrototypeHub', component: AnesthesiaPrototypeHub, meta: { menu: 'surgery', title: '原型优化框架' } },
     { path: '/surgery/pre-visit', name: 'preVisit', component: PreVisit, meta: { menu: 'surgery', title: '术前访视/麻醉评估' } },
     { path: '/surgery/plan', name: 'anesthesiaPlan', component: AnesthesiaPlan, meta: { menu: 'surgery', title: '麻醉计划' } },
-    { path: '/surgery/handover', name: 'anesthesiaHandover', component: AnesthesiaHandover, meta: { menu: 'surgery', title: '麻醉交班' } },
+    { path: '/surgery/handover/:operationId?', name: 'anesthesiaHandover', component: AnesthesiaHandover, meta: { menu: 'surgery', title: '麻醉交班' } },
     { path: '/surgery/summary', name: 'anesthesiaSummary', component: AnesthesiaSummary, meta: { menu: 'surgery', title: '麻醉小结' } },
     { path: '/surgery/record/:id?', name: 'record', component: AnesthesiaRecord, meta: { menu: 'surgery', title: '麻醉记录单' } },
     { path: '/surgery/medications', name: 'surgeryMedications', component: SurgeryMedications, meta: { menu: 'surgery', title: '术中用药' } },

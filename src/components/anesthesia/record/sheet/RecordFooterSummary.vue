@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useRouter } from 'vue-router';
 import type { RecordSummaryFields } from '@/types/anesthesiaRecord';
 import { normalizeSingleHandoverPerson, splitHandoverPersonnel } from '@/services/anesthesia/handoverPersonnel';
 
@@ -16,6 +17,7 @@ const props = defineProps<{
   compact?: boolean;
   handoverFromOptions?: string[];
   handoverToOptions?: string[];
+  operationId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -27,6 +29,13 @@ const emit = defineEmits<{
   'update:handoverFrom': [value: string];
   'update:handoverTo': [value: string];
 }>();
+
+const router = useRouter();
+// 从记录单进入完整交班单时携带当前病例 operationId，避免交班页默认选择错误患者。
+const openFullHandover = () => {
+  const op = (props.operationId ?? '').trim();
+  router.push(op ? `/surgery/handover/${encodeURIComponent(op)}` : '/surgery/handover');
+};
 
 const effectOptions = ['优', '良', '差'] as const;
 const singleHandoverFromOptions = computed(() => splitHandoverPersonnel(props.handoverFromOptions ?? []));
@@ -223,6 +232,7 @@ const onFieldUpdate = (key: string, value: string) => {
           </select>
           <span v-else class="footer-value">{{ selectedHandoverTo || '未记录' }}</span>
         </div>
+        <button v-if="!printMode" type="button" class="footer-handover-link no-print" data-testid="open-full-handover" @click="openFullHandover">打开完整交班单 →</button>
       </div>
 
       <div class="footer-field footer-field-wide">
@@ -424,6 +434,18 @@ const onFieldUpdate = (key: string, value: string) => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px 10px;
+}
+
+.footer-handover-link {
+  grid-column: 1 / -1;
+  justify-self: end;
+  padding: 2px 8px;
+  border: 1px solid var(--primary-6, rgb(22, 93, 255));
+  border-radius: 4px;
+  background: #fff;
+  color: var(--primary-6, rgb(22, 93, 255));
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .footer-field label {
