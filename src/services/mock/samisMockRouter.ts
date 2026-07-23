@@ -1262,7 +1262,14 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
     return handleSamisDeviceBatch(parseBody(init), 'ventilator_raw') as T;
   }
   if (path.includes('/anesthesiaDevice/getLatestDeviceData')) {
-    return buildSamisSuccess({ monitor: null, ventilator: null }) as T;
+    // 会话格式：mock 模式下无配置 → 返回结构化错误，前端显示具体原因（不再无限"正在关联"）
+    return buildSamisSuccess({
+      operationId: getSearchParams(path).get('operationId') ?? '',
+      binding: null, device: null, latest: null, items: [],
+      nextCursor: null, hasMore: false, roomChanged: false,
+      status: 'room_device_not_configured', error: '手术间未配置设备，请在"手术间设备配置"中配置主设备',
+      message: '手术间未配置设备', serverTime: new Date().toISOString(),
+    }) as T;
   }
   // 独立服务器时间（不依赖设备 binding）
   if (path.includes('/system/now')) {

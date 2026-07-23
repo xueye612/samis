@@ -109,8 +109,23 @@ export function mergeItems(existing: DeviceSample[], incoming: DeviceSample[]): 
 
 /** 应用一次响应到状态（纯函数，便于单测）。 */
 export function applySessionResponse(state: DeviceSessionState, res: DeviceSessionResponse, polledAt: string): DeviceSessionState {
-  // 后端返回 serverTime 时校准本地服务器时钟，供关键时间默认“现在”使用。
+  // 后端返回 serverTime 时校准本地服务器时钟，供关键时间默认"现在"使用。
   if (res.serverTime) applyServerTime(res.serverTime);
+  // 检测后端返回的结构化错误（HTTP 200 但 status 为错误状态，如 room_device_not_configured）。
+  const errorStatuses = ['room_device_not_configured', 'device_occupied', 'room_not_found', 'error'];
+  const resStatus = (res as { status?: string }).status ?? '';
+  const resError = (res as { error?: string }).error ?? '';
+  if (!res.binding && errorStatuses.includes(resStatus)) {
+    return {
+      ...state,
+      binding: null,
+      status: resStatus,
+      loading: false,
+      ended: false,
+      error: resError || '设备关联失败',
+      polledAt,
+    };
+  }
   // 后端运行时 items/latest.metrics 可能为 null/对象/非数组，统一归一，避免遍历抛错。
   const rawItems = asArray<unknown>(res.items).map(normalizeSample).filter((item): item is DeviceSample => item !== null);
   const items = mergeItems(state.items, rawItems);
@@ -170,7 +185,9 @@ export function createDeviceSessionPoller(options: DeviceSessionPollerOptions): 
     timer = setTimeout(() => { void refresh(); }, intervalMs);
   };
   const run = async () => {
-    emit({ ...state, loading: true, error: null });
+    // 仅在首次尝试（无 binding 且无已有错误）时设 loading=true；已有 binding 或已有错误时静默刷新，不闪烁"正在关联"。
+    const isFirstAttempt = !state.binding && !state.error;
+    if (isFirstAttempt) emit({ ...state, loading: true });
     try {
       const res = await load({ operationId: options.operationId, cursor: state.nextCursor });
       if (!active) return;

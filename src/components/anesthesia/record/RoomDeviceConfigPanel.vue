@@ -13,6 +13,7 @@ import {
 // HULI 设备编号/型号只读引用，用户不可在此修改护理设备主数据。
 
 const props = defineProps<{ embedded?: boolean }>();
+const emit = defineEmits<{ 'config-changed': [] }>();
 
 const loading = ref(false);
 const rooms = ref<RoomDeviceConfigListItem[]>([]);
@@ -127,6 +128,7 @@ const doSave = async () => {
     Message.success('已保存手术间设备配置（仅影响后续新病例）');
     editorVisible.value = false;
     refresh();
+    emit('config-changed');
   } catch (e) {
     Message.error((e as Error)?.message ?? '保存失败');
   }
@@ -144,6 +146,7 @@ const removeConfig = (cfg: RoomDeviceConfig) => {
         await anesthesiaRoomDeviceConfigApi.remove({ configId: cfg.configId, reason });
         Message.success('已移除配置');
         refresh();
+        emit('config-changed');
       } catch (e) {
         Message.error((e as Error)?.message ?? '移除失败');
       }

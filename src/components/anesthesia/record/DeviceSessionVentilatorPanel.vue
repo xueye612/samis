@@ -41,6 +41,9 @@
       </a-alert>
       <a-alert v-if="state.error && !state.ended" type="warning" show-icon class="dsp-error" data-testid="device-session-error">
         {{ state.error }}
+        <template v-if="state.status === 'room_device_not_configured'" #action>
+          <a-button size="mini" type="text" @click="$emit('open-room-config')">配置设备</a-button>
+        </template>
       </a-alert>
 
       <div v-if="latestMetrics.length" class="dsp-vent" data-testid="device-session-ventilator">
@@ -70,6 +73,7 @@ import { computed } from 'vue';
 import type { DeviceSessionState } from '@/services/anesthesia/deviceSessionPoller';
 
 const props = defineProps<{ state: DeviceSessionState; displayPaused?: boolean }>();
+defineEmits<{ 'open-room-config': [] }>();
 
 const waiting = computed(() => props.state.waitingForPatientEntry && !props.state.binding);
 // associating 仅在尚未建立 binding 时为真；已有 binding 后普通轮询不再回到关联中。

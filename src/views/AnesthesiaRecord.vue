@@ -310,7 +310,7 @@
 
               <!-- 设备：统一以设备采集会话为唯一来源 -->
               <div v-show="sideTab === 'device'" class="toolbox-tab-pane" data-testid="side-pane-device">
-              <DeviceSessionVentilatorPanel :state="deviceSessionState" :display-paused="deviceDisplayPaused" />
+              <DeviceSessionVentilatorPanel :state="deviceSessionState" :display-paused="deviceDisplayPaused" @open-room-config="openMoreTools(); moreToolTab = 'roomDevice'" />
               <section class="device-ops no-print" data-testid="device-case-ops">
                 <a-button v-if="deviceBound" size="mini" @click="openDeviceDetail">设备详情</a-button>
                 <a-button v-if="deviceDisplayPaused" size="mini" type="primary" @click="deviceDisplayPaused = false">恢复显示</a-button>
@@ -429,7 +429,7 @@
           <a-button long @click="sectionSettingsVisible = true">纸面显示设置</a-button>
         </section>
         <section v-show="moreToolTab === 'roomDevice'" class="more-tools-section">
-          <RoomDeviceConfigPanel embedded />
+          <RoomDeviceConfigPanel embedded @config-changed="() => { deviceSessionPoller?.refresh(); }" />
         </section>
       </div>
     </a-drawer>
