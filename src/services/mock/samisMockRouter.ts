@@ -610,15 +610,23 @@ const roomDeviceConfigMock = {
     }
     const list = mockRooms.map((room) => {
       const configs = activeByRoom.get(room.roomId) ?? [];
-      const primaryVent = configs.find((c) => c.deviceType === 'ventilator' && c.deviceRole === 'primary') ?? null;
-      const conflictCount = configs.filter((c) => c.deviceRole === 'primary').length > 1 ? 1 : 0;
+      const deviceConfigs: Record<string, { primaryDevice: typeof configs[0] | null; secondaryDevices: typeof configs; configStatus: string }> = {};
+      let anyConfigured = false;
+      for (const dt of ['monitor', 'ventilator', 'anesthesia_machine']) {
+        const dtConfigs = configs.filter((c) => c.deviceType === dt);
+        const dtPrimary = dtConfigs.find((c) => c.deviceRole === 'primary') ?? null;
+        if (dtPrimary) anyConfigured = true;
+        deviceConfigs[dt] = { primaryDevice: dtPrimary, secondaryDevices: dtConfigs.filter((c) => c.deviceRole === 'secondary'), configStatus: dtPrimary ? 'configured' : 'unconfigured' };
+      }
+      const conflictCount = configs.filter((c) => c.deviceRole === 'primary').length > 1 && new Set(configs.filter((c) => c.deviceRole === 'primary').map((c) => c.deviceType)).size < configs.filter((c) => c.deviceRole === 'primary').length ? 1 : 0;
       return {
         roomId: room.roomId, roomCode: room.roomCode, roomName: room.roomName,
-        hasPrimaryVentilator: primaryVent !== null,
-        configStatus: (conflictCount > 0 ? 'conflict' : primaryVent ? 'configured' : 'unconfigured') as 'configured' | 'unconfigured' | 'conflict',
+        hasPrimaryVentilator: Boolean(deviceConfigs.ventilator?.primaryDevice),
+        configStatus: (conflictCount > 0 ? 'conflict' : anyConfigured ? 'configured' : 'unconfigured') as 'configured' | 'unconfigured' | 'conflict',
         conflictCount,
-        primaryDevice: primaryVent,
-        secondaryDevices: configs.filter((c) => c.deviceRole === 'secondary'),
+        deviceConfigs,
+        primaryDevice: deviceConfigs.ventilator?.primaryDevice ?? null,
+        secondaryDevices: deviceConfigs.ventilator?.secondaryDevices ?? [],
         anomalies: conflictCount > 0 ? ['存在多个启用主设备'] : ([] as string[]),
         lastChangedAt: configs.reduce<string | null>((m, c) => (!m || c.updatedAt > m ? c.updatedAt : m), null),
       };

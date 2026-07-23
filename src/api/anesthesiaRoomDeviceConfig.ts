@@ -28,6 +28,12 @@ export interface RoomDeviceConfig {
   updatedAt: string | null;
 }
 
+export interface RoomDeviceTypeConfig {
+  primaryDevice: RoomDeviceConfig | null;
+  secondaryDevices: RoomDeviceConfig[];
+  configStatus: 'configured' | 'unconfigured';
+}
+
 export interface RoomDeviceConfigListItem {
   roomId: number;
   roomCode: string;
@@ -35,6 +41,9 @@ export interface RoomDeviceConfigListItem {
   hasPrimaryVentilator: boolean;
   configStatus: 'configured' | 'unconfigured' | 'conflict';
   conflictCount: number;
+  /** 按设备类型分组的配置（前端据此展示监护仪/呼吸机独立区域）。 */
+  deviceConfigs: Record<string, RoomDeviceTypeConfig>;
+  /** 向后兼容。 */
   primaryDevice: RoomDeviceConfig | null;
   secondaryDevices: RoomDeviceConfig[];
   anomalies: string[];

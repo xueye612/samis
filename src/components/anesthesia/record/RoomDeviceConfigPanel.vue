@@ -21,8 +21,9 @@ const options = ref<{ rooms: RoomDeviceOption[]; deviceTypes: string[]; deviceCa
 const selectedRoomId = ref<number | null>(null);
 const roomKeyword = ref('');
 
-const DEVICE_TYPE_LABEL: Record<string, string> = { ventilator: '呼吸机', monitor: '监护仪', anesthesia_machine: '麻醉机' };
+const DEVICE_TYPE_LABEL: Record<string, string> = { ventilator: '呼吸机/麻醉机', monitor: '监护仪', anesthesia_machine: '麻醉机' };
 const deviceTypeLabel = (code: string) => DEVICE_TYPE_LABEL[code] ?? code;
+const DISPLAY_DEVICE_TYPES = ['monitor', 'ventilator'] as const;
 
 const filteredRooms = computed(() => {
   const kw = roomKeyword.value.trim().toLowerCase();
@@ -74,14 +75,14 @@ const deviceOptions = computed(() => options.value.deviceCandidates.map((cand) =
 }));
 const selectableDeviceOptions = computed(() => deviceOptions.value.filter((o) => !o.disabled));
 
-const openCreate = (room: RoomDeviceConfigListItem, role: 'primary' | 'secondary') => {
+const openCreate = (room: RoomDeviceConfigListItem, role: 'primary' | 'secondary', deviceType = 'ventilator') => {
   editorMode.value = role === 'secondary' ? 'secondary' : 'create';
-  form.value = { roomId: room.roomId, sourceDeviceId: 0, deviceType: 'ventilator', deviceRole: role, centralDeviceNo: '', reason: '' };
+  form.value = { roomId: room.roomId, sourceDeviceId: 0, deviceType, deviceRole: role, centralDeviceNo: '', reason: '' };
   editorVisible.value = true;
 };
-const openReplace = (room: RoomDeviceConfigListItem) => {
+const openReplace = (room: RoomDeviceConfigListItem, deviceType = 'ventilator') => {
   editorMode.value = 'replace';
-  form.value = { roomId: room.roomId, sourceDeviceId: 0, deviceType: room.primaryDevice?.deviceType ?? 'ventilator', deviceRole: 'primary', centralDeviceNo: '', reason: '更换主设备' };
+  form.value = { roomId: room.roomId, sourceDeviceId: 0, deviceType, deviceRole: 'primary', centralDeviceNo: '', reason: '更换主设备' };
   editorVisible.value = true;
 };
 const openEditCentral = (cfg: RoomDeviceConfig) => {
@@ -210,45 +211,35 @@ const readonly = computed(() => Boolean((window as unknown as { __SAMIS_READONLY
           <a-alert v-for="(msg, i) in selected.anomalies" :key="i" type="warning" show-icon>{{ msg }}</a-alert>
         </div>
 
-        <!-- 首次配置空态 -->
-        <div v-if="!selected.primaryDevice && !readonly" class="rdc-first-config" data-testid="rdc-first-config">
-          <p>当前手术间尚未配置主设备</p>
-          <a-button type="primary" size="small" @click="openCreate(selected, 'primary')">配置主设备</a-button>
-        </div>
-
-        <div class="rdc-section">
+        <!-- 按设备用途分组：监护仪 / 呼吸机或麻醉机，各自独立配置 -->
+        <div v-for="dt in DISPLAY_DEVICE_TYPES" :key="dt" class="rdc-section">
           <div class="rdc-section-head">
-            <strong>主设备</strong>
-            <a-button v-if="!readonly && selected.primaryDevice" size="mini" type="primary" @click="openReplace(selected)">更换主设备</a-button>
-            <a-button v-else-if="!readonly" size="mini" type="primary" @click="openCreate(selected, 'primary')">首次配置</a-button>
+            <strong>{{ deviceTypeLabel(dt) }}</strong>
+            <div v-if="!readonly" class="rdc-section-actions">
+              <a-button v-if="(selected.deviceConfigs?.[dt]?.primaryDevice) ?? null" size="mini" type="primary" @click="openReplace(selected, dt)">更换主设备</a-button>
+              <a-button v-else size="mini" type="primary" @click="openCreate(selected, 'primary', dt)">配置主{{ deviceTypeLabel(dt) }}</a-button>
+              <a-button size="mini" @click="openCreate(selected, 'secondary', dt)">添加备用</a-button>
+            </div>
           </div>
-          <div v-if="selected.primaryDevice" class="rdc-fields">
-            <div><span>设备编号</span><strong>{{ selected.primaryDevice.deviceCode }}</strong></div>
-            <div><span>设备型号</span><strong>{{ selected.primaryDevice.deviceModel || '—' }}</strong></div>
-            <div><span>设备用途</span><strong>{{ deviceTypeLabel(selected.primaryDevice.deviceType) }}</strong></div>
-            <div><span>中央采集编号</span><strong>{{ selected.primaryDevice.centralDeviceNo || '—' }}</strong></div>
-            <div><span>配置状态</span><strong :class="{ 'is-active': selected.primaryDevice.enabled }">{{ selected.primaryDevice.enabled ? '启用' : '已停用' }}</strong></div>
-            <div><span>最近修改</span><strong>{{ selected.primaryDevice.updatedAt ?? '—' }}</strong></div>
+          <div v-if="(selected.deviceConfigs?.[dt]?.primaryDevice) ?? null" class="rdc-fields">
+            <div><span>设备编号</span><strong>{{ selected.deviceConfigs[dt].primaryDevice!.deviceCode }}</strong></div>
+            <div><span>设备型号</span><strong>{{ selected.deviceConfigs[dt].primaryDevice!.deviceModel || '—' }}</strong></div>
+            <div><span>中央采集编号</span><strong>{{ selected.deviceConfigs[dt].primaryDevice!.centralDeviceNo || '—' }}</strong></div>
+            <div><span>配置状态</span><strong :class="{ 'is-active': selected.deviceConfigs[dt].primaryDevice!.enabled }">{{ selected.deviceConfigs[dt].primaryDevice!.enabled ? '启用' : '已停用' }}</strong></div>
+            <div><span>最近修改</span><strong>{{ selected.deviceConfigs[dt].primaryDevice!.updatedAt ?? '—' }}</strong></div>
+            <div v-if="!readonly" class="rdc-field-actions">
+              <a-button size="mini" @click="openEditCentral(selected.deviceConfigs[dt].primaryDevice!)">修改中央采集编号</a-button>
+              <a-button size="mini" status="danger" @click="removeConfig(selected.deviceConfigs[dt].primaryDevice!)">移除</a-button>
+            </div>
           </div>
-          <div v-else class="rdc-empty">未配置主设备，新病例入室后将无法自动关联。</div>
-          <div v-if="selected.primaryDevice && !readonly" class="rdc-actions">
-            <a-button size="mini" @click="openEditCentral(selected.primaryDevice)">修改中央采集编号</a-button>
-            <a-button size="mini" status="danger" @click="removeConfig(selected.primaryDevice)">移除配置</a-button>
-          </div>
-        </div>
-
-        <div class="rdc-section">
-          <div class="rdc-section-head">
-            <strong>备用设备</strong>
-            <a-button v-if="!readonly" size="mini" @click="openCreate(selected, 'secondary')">添加备用设备</a-button>
-          </div>
-          <div v-if="selected.secondaryDevices.length" class="rdc-secondary-list">
-            <div v-for="sec in selected.secondaryDevices" :key="sec.configId" class="rdc-secondary-item">
+          <div v-else class="rdc-empty">未配置主{{ deviceTypeLabel(dt) }}</div>
+          <!-- 备用设备 -->
+          <div v-if="(selected.deviceConfigs?.[dt]?.secondaryDevices ?? []).length" class="rdc-secondary-list">
+            <div v-for="sec in (selected.deviceConfigs[dt]?.secondaryDevices ?? [])" :key="sec.configId" class="rdc-secondary-item">
               <span>{{ sec.deviceCode }} · {{ sec.deviceModel || '—' }} · {{ sec.centralDeviceNo || '—' }}</span>
               <a-button v-if="!readonly" size="mini" status="danger" @click="removeConfig(sec)">移除</a-button>
             </div>
           </div>
-          <div v-else class="rdc-empty">无备用设备</div>
         </div>
 
         <div class="rdc-section">
@@ -259,7 +250,7 @@ const readonly = computed(() => Boolean((window as unknown as { __SAMIS_READONLY
     </div>
 
     <!-- 保存配置（含变更预览）。下拉层挂到弹窗内容，保证在抽屉之上可点击。 -->
-    <a-modal v-model:visible="editorVisible" :title="editorMode === 'central' ? '修改中央采集编号' : (editorMode === 'secondary' ? '添加备用设备' : (editorMode === 'replace' ? '更换主设备' : '首次配置'))" :on-before-ok="() => { confirmSave(); return false; }" ok-text="预览并保存" :width="520">
+    <a-modal v-model:visible="editorVisible" :title="editorMode === 'central' ? '修改中央采集编号' : (editorMode === 'secondary' ? '添加备用设备' : (editorMode === 'replace' ? '更换主设备' : '首次配置'))" :on-before-ok="() => { confirmSave(); return false; }" ok-text="预览并保存" :width="520" :mask-closable="false">
       <div class="rdc-form">
         <div class="rdc-field">
           <span>手术间</span>
@@ -357,7 +348,9 @@ const readonly = computed(() => Boolean((window as unknown as { __SAMIS_READONLY
 .rdc-first-config { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; padding: 18px; border: 1px dashed #cbd5e1; border-radius: 8px; background: #f8fafc; color: #334155; }
 .rdc-first-config p { margin: 0; font-size: 13px; }
 .rdc-section { display: grid; gap: 8px; padding: 10px; border: 1px solid #e5edf5; border-radius: 8px; background: #fff; }
-.rdc-section-head { display: flex; align-items: center; justify-content: space-between; }
+.rdc-section-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px; }
+.rdc-section-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.rdc-field-actions { display: flex; gap: 6px; grid-column: 1 / -1; padding-top: 4px; }
 .rdc-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
 .rdc-fields > div { display: grid; gap: 2px; }
 .rdc-fields span { color: #64748b; font-size: 11px; }
