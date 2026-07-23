@@ -533,7 +533,41 @@ function getSearchParams(path: string) {
   return new URL(path, 'http://local').searchParams;
 }
 
-// SAMIS 手术间设备采集配置 mock 内存态（仅前端 dev 热加载验证用；HULI 编号/型号只读）。
+// 关键时间 mock 内存态（仅 dev 验证用，模拟后端闭环：审计追加 + 原始保护 + 版本递增）。
+const mockTimelineNodes = new Map<string, Array<{ nodeCode: string; nodeName: string; eventTime: string | null; originalEventTime: string | null; source: string | null; recorded: boolean }>>();
+const mockTimelineVersion = new Map<string, number>();
+const NODE_ORDER: Record<string, number> = { 'room-in': 10, 'anes-start': 20, 'induction': 30, 'intubation': 40, 'puncture': 40, 'positioning': 40, 'sedation-start': 40, 'local': 40, 'catheter': 50, 'plane': 55, 'block-assess': 55, 'surgery-start': 60, 'surgery-end': 70, 'extubation': 80, 'anes-end': 85, 'leave-room': 90 };
+const HULI_NODES = ['room-in', 'leave-room'];
+function handleTimelineNodeGet(op: string) {
+  const list = mockTimelineNodes.get(op) ?? [];
+  return Object.entries(NODE_ORDER).map(([code, order]) => {
+    const ev = list.find((n) => n.nodeCode === code);
+    return { nodeCode: code, nodeName: ev?.nodeName ?? code, order, eventTime: ev?.eventTime ?? null, originalEventTime: ev?.originalEventTime ?? null, source: ev?.source ?? null, isHuliSource: HULI_NODES.includes(code), recorded: Boolean(ev?.eventTime) };
+  }).sort((a, b) => a.order - b.order);
+}
+function handleTimelineNodeSave(body: { operationId: string; nodeCode: string; nodeName?: string; newTime: string | null; reason?: string; timelineOrderOverride?: boolean; source?: string; expectedVersion: number }) {
+  const op = body.operationId;
+  const list = mockTimelineNodes.get(op) ?? [];
+  const ver = (mockTimelineVersion.get(op) ?? 0) + 1;
+  mockTimelineVersion.set(op, ver);
+  const existing = list.find((n) => n.nodeCode === body.nodeCode);
+  const isHuli = HULI_NODES.includes(body.nodeCode);
+  if (body.newTime === null || body.newTime === undefined || body.newTime === '') {
+    if (existing) { existing.eventTime = null; existing.recorded = false; }
+  } else {
+    if (existing) {
+      if (isHuli && !existing.originalEventTime && existing.eventTime) existing.originalEventTime = existing.eventTime;
+      existing.eventTime = body.newTime; existing.source = body.source ?? '人工录入'; existing.recorded = true;
+    } else {
+      list.push({ nodeCode: body.nodeCode, nodeName: body.nodeName ?? body.nodeCode, eventTime: body.newTime, originalEventTime: null, source: body.source ?? '人工录入', recorded: true });
+    }
+  }
+  mockTimelineNodes.set(op, list);
+  const updated = list.find((n) => n.nodeCode === body.nodeCode) ?? null;
+  return { operationId: op, syncVersion: ver, nodeCode: body.nodeCode, changed: true, eventTime: updated?.eventTime ?? null, originalEventTime: updated?.originalEventTime ?? null, source: updated?.source ?? null, nodes: handleTimelineNodeGet(op) };
+}
+
+
 interface MockRoomDeviceConfig {
   configId: number;
   roomId: number;
@@ -1229,6 +1263,18 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
   }
   if (path.includes('/anesthesiaDevice/getLatestDeviceData')) {
     return buildSamisSuccess({ monitor: null, ventilator: null }) as T;
+  }
+  // 独立服务器时间（不依赖设备 binding）
+  if (path.includes('/system/now')) {
+    return buildSamisSuccess({ serverTime: new Date().toISOString(), timezone: 'Asia/Shanghai' }) as T;
+  }
+  // 关键时间正式保存 + 读取（后端闭环 mock）
+  if (path.endsWith('/anesthesiaRecord/saveTimelineNode') && init?.method === 'POST') {
+    return buildSamisSuccess(handleTimelineNodeSave(parseBody(init))) as T;
+  }
+  if (path.includes('/anesthesiaRecord/getTimelineNodes')) {
+    const op = getSearchParams(path).get('operationId') ?? '';
+    return buildSamisSuccess({ nodes: handleTimelineNodeGet(op) }) as T;
   }
   // ---- SAMIS 手术间设备采集配置（mock 内存态，便于前端热加载验证） ----
   if (path.includes('/anesthesiaDevice/roomDeviceConfigList')) {

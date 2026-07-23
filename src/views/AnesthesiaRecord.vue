@@ -272,6 +272,8 @@
                 :method-keys="sheetMethodKeys"
                 :method-labels="sheetAppliedMethodLabels"
                 :locked="current.locked"
+                :can-revise="canReviseTimeline"
+                :can-override="canOverrideTimelineOrder"
                 :active-key="activeTimelineKey"
                 @save="saveTimelineNode"
                 @focus="focusWorkbenchTimelineNode"
@@ -588,6 +590,8 @@ import { ANESTHESIA_USE_MOCK } from '@/api/samisResponse';
 import { authApi } from '@/api/auth';
 import { anesthesiaDeviceSessionApi } from '@/api/anesthesiaDeviceSession';
 import { anesthesiaRoomDeviceConfigApi } from '@/api/anesthesiaRoomDeviceConfig';
+import { anesthesiaTimelineApi } from '@/api/anesthesiaTimeline';
+import { initServerClock, isServerClockCalibrated } from '@/services/serverClock';
 import { useRealAnesthesiaRecord, useRealAnesthesiaSync, useRealOperationInfo } from '@/config/apiFlags';
 import dayjs from 'dayjs';
 import { persistCaseNow, restoreCasePageNo } from '@/services/anesthesia/anesthesiaPersistenceBridge';
@@ -736,6 +740,9 @@ const showE2eActions = computed(() => import.meta.env.DEV || (typeof localStorag
 const showDevConflictButton = computed(() => import.meta.env.DEV && ANESTHESIA_USE_MOCK);
 const recordPermissions = ref<string[]>([]);
 const canWriteStructuredRecord = computed(() => recordPermissions.value.some((code) => code === '*' || code === 'record.*' || code === 'record.write'));
+// 关键时间权限：修改/清除需 record.revise；异常顺序覆盖需 record.timeline.override。
+const canReviseTimeline = computed(() => recordPermissions.value.some((code) => code === '*' || code === 'record.*' || code === 'record.revise'));
+const canOverrideTimelineOrder = computed(() => recordPermissions.value.some((code) => code === '*' || code === 'record.*' || code === 'record.revise' || code === 'record.timeline.override'));
 const loadRecordPermissions = async () => {
   try {
     const result = await authApi.myPermissions();
@@ -1657,6 +1664,8 @@ const selectCase = (id: string) => {
 };
 
 onMounted(async () => {
+  // 独立获取服务器时间（不依赖设备 binding），用于关键时间默认"现在"。
+  void initServerClock(() => anesthesiaTimelineApi.getServerNow());
   // 纸面适宽：观测 sheet-workbench 可用宽度，仅在非手动缩放态驱动 autoFitZoom
   await nextTick();
   if (sheetWorkbenchRef.value && typeof ResizeObserver !== 'undefined') {
@@ -2186,22 +2195,50 @@ watch(selectedMethodKeys, (keys) => {
 });
 const saveSummaryField = (patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryFields>) => store.updateRecordSummary(selectedId.value, patch);
 const saveSummaryNotes = (patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryNotes>) => store.updateRecordSummaryNotes(selectedId.value, patch);
-const commitTimelineNode = (node: MethodTimelineNode, isoTime: string, opts: { reason?: string; previousTime?: string; source?: string; overrideOrder?: boolean; clear?: boolean }) => {
+// 关键时间后端版本号（乐观锁）。
+const timelineSyncVersion = ref(0);
+// 关键时间统一提交：先调后端 saveTimelineNode（权限+审计+原始保护），成功后用返回值更新 Store。
+const commitTimelineNode = async (node: MethodTimelineNode, isoTime: string, opts: { reason?: string; previousTime?: string; source?: string; overrideOrder?: boolean; clear?: boolean }) => {
   const record = current.value;
   if (!record) return;
-  const pageNo = store.applyTimelineNode(selectedId.value, node, isoTime, opts);
-  if (pageNo >= 1) livePageNo.value = pageNo;
-  activeTimelineKey.value = node.key;
-  if (opts.clear) {
-    recentEventLabel.value = `清除 ${node.label}`;
-    pushRecentEntry({ kind: 'timeline', label: `清除${node.label}`, time: opts.previousTime || '', target: 'timeline', refId: node.key });
-  } else {
-    recentEventLabel.value = `${node.label} ${dayjs(isoTime).format('HH:mm')}`;
-    pushRecentEntry({ kind: 'timeline', label: node.label, time: isoTime, target: 'timeline', refId: node.key });
+  try {
+    const result = await anesthesiaTimelineApi.saveTimelineNode({
+      operationId: record.id,
+      nodeCode: node.key,
+      nodeName: node.label,
+      newTime: opts.clear ? null : isoTime,
+      reason: opts.reason,
+      timelineOrderOverride: opts.overrideOrder === true,
+      source: opts.source,
+      expectedVersion: timelineSyncVersion.value,
+    });
+    // 后端保存成功：用返回值更新 Store（IndexedDB 仅缓存，后端为真值）。
+    timelineSyncVersion.value = result.syncVersion;
+    const appliedTime = opts.clear ? '' : (result.eventTime ?? isoTime);
+    const pageNo = store.applyTimelineNode(selectedId.value, node, appliedTime, opts);
+    if (pageNo >= 1) livePageNo.value = pageNo;
+    activeTimelineKey.value = node.key;
+    if (opts.clear) {
+      recentEventLabel.value = `清除 ${node.label}`;
+      pushRecentEntry({ kind: 'timeline', label: `清除${node.label}`, time: opts.previousTime || '', target: 'timeline', refId: node.key });
+    } else {
+      recentEventLabel.value = `${node.label} ${dayjs(appliedTime).format('HH:mm')}`;
+      pushRecentEntry({ kind: 'timeline', label: node.label, time: appliedTime, target: 'timeline', refId: node.key });
+    }
+    activeTab.value = 'anesthesia';
+    liveSheetRef.value?.flashEventType(node.eventType ?? node.label);
+    Message.success(opts.clear ? `已清除：${node.label}（历史审计保留）` : `已更新：${node.label}`);
+  } catch (e) {
+    const err = e as { code?: number; message?: string };
+    if (err.code === 4003) {
+      Message.error(err.message ?? '无权限修改关键时间');
+    } else if (err.code === 4091) {
+      Message.error('记录版本冲突，请刷新后重试');
+      timelineSyncVersion.value = 0;
+    } else {
+      Message.error(err.message ?? '关键时间保存失败');
+    }
   }
-  activeTab.value = 'anesthesia';
-  liveSheetRef.value?.flashEventType(node.eventType ?? node.label);
-  Message.success(opts.clear ? `已清除：${node.label}（历史审计保留）` : `已更新：${node.label}`);
 };
 
 /**

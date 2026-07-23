@@ -56,7 +56,7 @@
                 <a-button size="mini" type="primary" :disabled="locked || !canSave" @click="saveNode">保存</a-button>
                 <a-button v-if="canConfirmOverride" size="mini" status="warning" @click="confirmOverride">确认仍然保存</a-button>
                 <a-button size="mini" :disabled="locked" @click="saveNow">现在</a-button>
-                <a-button v-if="isModify" size="mini" status="danger" :disabled="locked || !editorReason.trim()" @click="clearNode">清除</a-button>
+                <a-button v-if="isModify" size="mini" status="danger" :disabled="locked || !canClear || !editorReason.trim()" @click="clearNode">清除</a-button>
               </a-space>
             </div>
           </template>
@@ -111,7 +111,7 @@
               <a-button size="mini" type="primary" :disabled="locked || !canSave" @click="saveNode">保存</a-button>
               <a-button v-if="canConfirmOverride" size="mini" status="warning" @click="confirmOverride">确认仍然保存</a-button>
               <a-button size="mini" :disabled="locked" @click="saveNow">现在</a-button>
-              <a-button v-if="isModify" size="mini" status="danger" :disabled="locked || !editorReason.trim()" @click="clearNode">清除</a-button>
+              <a-button v-if="isModify" size="mini" status="danger" :disabled="locked || !canClear || !editorReason.trim()" @click="clearNode">清除</a-button>
             </a-space>
           </div>
         </template>
@@ -140,12 +140,18 @@ const props = withDefaults(defineProps<{
   sheetEnd?: string;
   activeKey?: string;
   showHeader?: boolean;
+  /** 修改/清除权限（前端仅控制按钮，后端再次校验）。 */
+  canRevise?: boolean;
+  /** 异常顺序覆盖权限。 */
+  canOverride?: boolean;
 }>(), {
   methodLabels: () => [],
   locked: false,
   embedded: true,
   activeKey: '',
   showHeader: true,
+  canRevise: true,
+  canOverride: true,
 });
 
 const emit = defineEmits<{
@@ -177,10 +183,11 @@ const validation = computed(() => {
 const isModify = computed(() => Boolean(popoverNode.value?.recorded && popoverNode.value?.time));
 const orderConflict = computed(() => validation.value?.orderConflict === true);
 const isHardError = computed(() => validation.value?.severity === 'error');
-/** 修改/清除/顺序覆盖时原因必填；首录且顺序正常可不填。 */
+/** 修改/清除/顺序覆盖时原因必填；首录且顺序正常可不填。无权限时整体禁用。 */
 const reasonRequired = computed(() => isModify.value || orderConflict.value);
 const canSave = computed(() => {
   if (props.locked) return false;
+  if (isModify.value && !props.canRevise) return false;
   if (!editorTime.value) return false;
   if (isHardError.value) return false;
   if (reasonRequired.value && !editorReason.value.trim()) return false;
@@ -188,7 +195,8 @@ const canSave = computed(() => {
   if (isModify.value && popoverNode.value?.time && editorTime.value === dayjs(popoverNode.value.time).format('HH:mm')) return false;
   return true;
 });
-const canConfirmOverride = computed(() => orderConflict.value && !isHardError.value && canSave.value);
+const canConfirmOverride = computed(() => orderConflict.value && !isHardError.value && canSave.value && props.canOverride);
+const canClear = computed(() => isModify.value && props.canRevise);
 
 const timeScale = computed(() => {
   if (props.sheetStart && props.sheetEnd) {
