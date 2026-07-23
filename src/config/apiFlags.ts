@@ -40,6 +40,20 @@ export function useRealDevice(): boolean {
   return isRealModule(API_MODE, 'anesthesiaDevice');
 }
 
+/**
+ * 手术间设备配置专用 mock 开关（默认关闭）。
+ *
+ * 该功能（房间列表 + HULI 设备候选）默认必须直连真实后端，读取 HULI operation_room
+ * 与 physical_equipment。即使全局 VITE_ANESTHESIA_USE_MOCK=true 且
+ * VITE_USE_REAL_DEVICE=false，本功能仍走真实后端，避免静默回退到内置 1/2/3 号 mock 房间。
+ *
+ * 仅在自动化测试或显式设置 VITE_ROOM_DEVICE_MOCK_ENABLED=true 时启用 mock。
+ */
+export function useRoomDeviceMock(): boolean {
+  const flag = (import.meta.env.VITE_ROOM_DEVICE_MOCK_ENABLED as string | undefined) ?? '';
+  return flag === 'true' || flag === '1';
+}
+
 export function useRealAnesthesiaDict(): boolean {
   return isRealModule(API_MODE, 'anesthesiaDict');
 }

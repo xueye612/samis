@@ -1,4 +1,6 @@
+import { normalizeSamisPath, samisHttpFetch } from '@/api/samisHttpClient';
 import { samisRequest } from '@/api/samisClient';
+import { useRoomDeviceMock } from '@/config/apiFlags';
 
 /**
  * SAMIS 手术间设备采集配置契约（后端 /anesthesiaDevice/roomDevice*）。
@@ -6,6 +8,18 @@ import { samisRequest } from '@/api/samisClient';
  * 所有权边界：手术间-设备关联、主/备角色、centralDeviceNo 全部归属 SAMIS；
  * deviceCode / deviceModel 只读快照自 HULI，前端不得提供修改 HULI 设备基础信息的入口。
  */
+
+/**
+ * 房间设备配置请求：默认直连真实后端（读取 HULI operation_room / physical_equipment），
+ * 不受 anesthesiaDevice 模块级 mock 开关影响。仅当显式开启
+ * VITE_ROOM_DEVICE_MOCK_ENABLED 时才走 mock，避免页面静默回退到内置 1/2/3 号 mock 房间。
+ */
+async function roomDeviceRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  if (useRoomDeviceMock()) {
+    return samisRequest(path, init, { forceMock: true });
+  }
+  return samisHttpFetch<T>(normalizeSamisPath(path), init);
+}
 
 export interface RoomDeviceConfig {
   configId: number;
@@ -91,7 +105,7 @@ export interface SaveRoomDeviceConfigPayload {
 
 export const anesthesiaRoomDeviceConfigApi = {
   list(): Promise<{ list: RoomDeviceConfigListItem[]; total: number }> {
-    return samisRequest(`/anesthesiaDevice/roomDeviceConfigList`);
+    return roomDeviceRequest(`/anesthesiaDevice/roomDeviceConfigList`);
   },
   options(params?: { keyword?: string; deviceStatus?: string; page?: number; pageSize?: number }): Promise<RoomDeviceOptionsResponse> {
     const query = new URLSearchParams();
@@ -100,17 +114,17 @@ export const anesthesiaRoomDeviceConfigApi = {
     if (params?.page) query.set('page', String(params.page));
     if (params?.pageSize) query.set('pageSize', String(params.pageSize));
     const qs = query.toString();
-    return samisRequest(`/anesthesiaDevice/roomDeviceOptions${qs ? `?${qs}` : ''}`);
+    return roomDeviceRequest(`/anesthesiaDevice/roomDeviceOptions${qs ? `?${qs}` : ''}`);
   },
   save(body: SaveRoomDeviceConfigPayload): Promise<RoomDeviceConfig> {
-    return samisRequest(`/anesthesiaDevice/saveRoomDeviceConfig`, {
+    return roomDeviceRequest(`/anesthesiaDevice/saveRoomDeviceConfig`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
   },
   remove(body: { configId: number; reason: string }): Promise<{ configId: number; enabled: boolean; effectiveTo: string; idempotent: boolean }> {
-    return samisRequest(`/anesthesiaDevice/removeRoomDeviceConfig`, {
+    return roomDeviceRequest(`/anesthesiaDevice/removeRoomDeviceConfig`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -122,6 +136,6 @@ export const anesthesiaRoomDeviceConfigApi = {
       if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
     });
     const qs = query.toString();
-    return samisRequest(`/anesthesiaDevice/roomDeviceConfigHistory${qs ? `?${qs}` : ''}`);
+    return roomDeviceRequest(`/anesthesiaDevice/roomDeviceConfigHistory${qs ? `?${qs}` : ''}`);
   },
 };

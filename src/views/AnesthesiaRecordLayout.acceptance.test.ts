@@ -216,6 +216,16 @@ describe('手术间设备配置（SAMIS）边界', () => {
     // HULI 设备候选只读，前端不提供修改入口
     expect(roomDeviceApiSource).toContain('readOnly: true');
   });
+
+  it('默认直连真实后端，不走内置 mock 房间（专用开关默认关闭）', () => {
+    // 专用请求封装：默认 samisHttpFetch 直连，仅 useRoomDeviceMock() 为真时才回退 mock
+    expect(roomDeviceApiSource).toContain('roomDeviceRequest');
+    expect(roomDeviceApiSource).toContain('useRoomDeviceMock');
+    expect(roomDeviceApiSource).toContain('samisHttpFetch');
+    // 明确不得硬编码内置 mock 房间 OR-01/1号
+    expect(roomDeviceApiSource).not.toContain("'OR-01'");
+    expect(roomDeviceApiSource).not.toContain('1号手术间');
+  });
 });
 
 describe('设备标签病例操作与状态', () => {

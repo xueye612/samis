@@ -16,6 +16,7 @@ const props = defineProps<{ embedded?: boolean }>();
 const emit = defineEmits<{ 'config-changed': [] }>();
 
 const loading = ref(false);
+const loadError = ref<string | null>(null);
 const rooms = ref<RoomDeviceConfigListItem[]>([]);
 const options = ref<{ rooms: RoomDeviceOption[]; deviceTypes: string[]; deviceCandidates: HuliDeviceCandidate[] }>({ rooms: [], deviceTypes: ['ventilator'], deviceCandidates: [] });
 const selectedRoomId = ref<number | null>(null);
@@ -34,6 +35,7 @@ const selected = computed(() => rooms.value.find((r) => r.roomId === selectedRoo
 
 const refresh = async () => {
   loading.value = true;
+  loadError.value = null;
   try {
     const [listRes, optRes] = await Promise.all([anesthesiaRoomDeviceConfigApi.list(), anesthesiaRoomDeviceConfigApi.options()]);
     rooms.value = listRes.list;
@@ -42,7 +44,9 @@ const refresh = async () => {
       selectedRoomId.value = rooms.value[0].roomId;
     }
   } catch (e) {
-    Message.error((e as Error)?.message ?? '加载手术间设备配置失败');
+    // 加载失败不得静默回退到内置 mock 房间，显式提示并保留空列表。
+    rooms.value = [];
+    loadError.value = (e as Error)?.message ? `手术间目录加载失败：${(e as Error).message}` : '手术间目录加载失败，请检查后端服务后重试';
   } finally {
     loading.value = false;
   }
@@ -54,26 +58,46 @@ const editorVisible = ref(false);
 const editorMode = ref<'create' | 'replace' | 'secondary' | 'central'>('create');
 const form = ref({ roomId: 0, sourceDeviceId: 0, deviceType: 'ventilator', deviceRole: 'primary' as 'primary' | 'secondary', centralDeviceNo: '', reason: '' });
 const targetDevice = computed(() => options.value.deviceCandidates.find((d) => d.deviceId === form.value.sourceDeviceId) ?? null);
-const oldPrimary = computed(() => selected.value?.primaryDevice ?? null);
+const oldPrimary = computed(() => selected.value?.deviceConfigs?.[form.value.deviceType]?.primaryDevice ?? selected.value?.primaryDevice ?? null);
 
-// 候选过滤：停用/被其他房间占用由后端 selectable 决定；当前房间主设备不能再次选为备用设备。
-const deviceOptions = computed(() => options.value.deviceCandidates.map((cand) => {
-  const isCurrentPrimary = selected.value?.primaryDevice?.sourceDeviceId === cand.deviceId;
-  const disabled = !cand.selectable || isCurrentPrimary;
-  let reason = cand.disabledReason;
-  if (isCurrentPrimary) reason = '当前手术间主设备，不能作为备用';
-  if (!cand.deviceName) {
-    // 不因 deviceName 为空过滤，仍展示编号/型号
+/** 当前房间已配置同类型设备 ID（避免重复选择同一物理设备）。 */
+const usedDeviceIdsInCurrentRoom = computed(() => {
+  const set = new Set<number>();
+  const cfg = selected.value?.deviceConfigs?.[form.value.deviceType];
+  if (cfg) {
+    // 更换主设备时旧 primary 允许被替换选中，故仅在非 replace 场景计入。
+    if (cfg.primaryDevice && editorMode.value !== 'replace') set.add(cfg.primaryDevice.sourceDeviceId);
+    for (const s of cfg.secondaryDevices) set.add(s.sourceDeviceId);
   }
-  return {
-    value: cand.deviceId,
-    label: `${cand.deviceCode}${cand.deviceName ? ` · ${cand.deviceName}` : ''}${cand.deviceModel ? ` · ${cand.deviceModel}` : ''}`,
-    disabled,
-    reason: disabled ? (reason ?? '不可选择') : null,
-    cand,
-  } as { value: number; label: string; disabled: boolean; reason: string | null; cand: HuliDeviceCandidate };
-}));
+  return set;
+});
+
+// 候选过滤：按入口固定的 deviceType 筛选；停用/被其他房间占用由后端 selectable 决定；
+// 当前房间已配置的同一物理设备不可重复选择。deviceName 为空仍展示编号/型号。
+const deviceOptions = computed(() => {
+  const fixedType = form.value.deviceType;
+  return options.value.deviceCandidates
+    .filter((cand) => cand.huliDeviceType === fixedType || !cand.huliDeviceType)
+    .map((cand) => {
+      const alreadyInRoom = usedDeviceIdsInCurrentRoom.value.has(cand.deviceId);
+      const disabled = !cand.selectable || alreadyInRoom;
+      let reason = cand.disabledReason;
+      if (alreadyInRoom) reason = '当前手术间已配置该设备';
+      return {
+        value: cand.deviceId,
+        label: `${cand.deviceCode}${cand.deviceName ? ` · ${cand.deviceName}` : ''}${cand.deviceModel ? ` · ${cand.deviceModel}` : ''}`,
+        disabled,
+        reason: disabled ? (reason ?? '不可选择') : null,
+        cand,
+      } as { value: number; label: string; disabled: boolean; reason: string | null; cand: HuliDeviceCandidate };
+    });
+});
 const selectableDeviceOptions = computed(() => deviceOptions.value.filter((o) => !o.disabled));
+const candidateEmptyReason = computed(() => {
+  if (options.value.deviceCandidates.length === 0) return 'HULI 设备目录（physical_equipment）暂无在用设备，请联系设备管理员录入设备后再配置';
+  if (deviceOptions.value.length === 0) return `无 ${deviceTypeLabel(form.value.deviceType)} 类型设备候选`;
+  return null;
+});
 
 const openCreate = (room: RoomDeviceConfigListItem, role: 'primary' | 'secondary', deviceType = 'ventilator') => {
   editorMode.value = role === 'secondary' ? 'secondary' : 'create';
@@ -183,6 +207,10 @@ const readonly = computed(() => Boolean((window as unknown as { __SAMIS_READONLY
     </header>
 
     <div class="rdc-body">
+      <div v-if="loadError" class="rdc-load-error">
+        <a-alert type="error" show-icon>{{ loadError }}</a-alert>
+        <a-button size="mini" type="primary" :loading="loading" @click="refresh">重新加载</a-button>
+      </div>
       <aside class="rdc-rooms">
         <div class="rdc-rooms-head">
           <span>手术间</span>
@@ -273,17 +301,15 @@ const readonly = computed(() => Boolean((window as unknown as { __SAMIS_READONLY
               {{ opt.label }}<span v-if="opt.reason" class="rdc-occupied">（{{ opt.reason }}）</span>
             </a-option>
             <template #empty>
-              <span class="rdc-empty-opt">无可用设备（设备可能均已停用或被其他手术间占用）</span>
+              <span class="rdc-empty-opt">{{ candidateEmptyReason ?? '无可用设备' }}</span>
             </template>
           </a-select>
-          <small v-if="!selectableDeviceOptions.length && form.sourceDeviceId === 0" class="rdc-empty-note">当前无可选设备：停用/被占用设备均不可选择，但可在上方列表查看原因。</small>
+          <small v-if="candidateEmptyReason && form.sourceDeviceId === 0" class="rdc-empty-note">{{ candidateEmptyReason }}</small>
         </label>
-        <label class="rdc-field">
+        <div class="rdc-field">
           <span>设备用途</span>
-          <a-select v-model="form.deviceType" popup-container="body" :disabled="editorMode === 'central'">
-            <a-option v-for="t in options.deviceTypes" :key="t" :value="t">{{ deviceTypeLabel(t) }}</a-option>
-          </a-select>
-        </label>
+          <a-input :model-value="deviceTypeLabel(form.deviceType)" readonly />
+        </div>
         <div class="rdc-field">
           <span>主/备用</span>
           <a-radio-group v-model="form.deviceRole" :disabled="editorMode === 'central' || editorMode === 'replace'">
@@ -360,6 +386,7 @@ const readonly = computed(() => Boolean((window as unknown as { __SAMIS_READONLY
 .rdc-secondary-list { display: grid; gap: 6px; }
 .rdc-secondary-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid #e5edf5; border-radius: 6px; font-size: 12px; }
 .rdc-empty { color: #94a3b8; font-size: 12px; padding: 6px 0; }
+.rdc-load-error { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; grid-column: 1 / -1; }
 .rdc-occupied { color: #b45309; }
 .rdc-form { display: grid; gap: 10px; }
 .rdc-field { display: grid; gap: 4px; }
