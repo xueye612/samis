@@ -33,6 +33,8 @@ export interface RoomDeviceConfigListItem {
   roomCode: string;
   roomName: string;
   hasPrimaryVentilator: boolean;
+  configStatus: 'configured' | 'unconfigured' | 'conflict';
+  conflictCount: number;
   primaryDevice: RoomDeviceConfig | null;
   secondaryDevices: RoomDeviceConfig[];
   anomalies: string[];
@@ -50,7 +52,10 @@ export interface HuliDeviceCandidate {
   enabled: boolean;
   readOnly: true;
   sourceSystem: 'HULI';
-  occupied: { roomId: number; roomName: string; deviceType: string; deviceRole: string } | null;
+  occupied: boolean;
+  configuredRoomName: string | null;
+  selectable: boolean;
+  disabledReason: string | null;
 }
 
 export interface RoomDeviceOption {

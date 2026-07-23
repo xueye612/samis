@@ -258,3 +258,29 @@ describe('患者信息与生命体征布局修复', () => {
     expect(detailTabsSource).toContain('#empty');
   });
 });
+
+describe('关键时间唯一入口恢复', () => {
+  it('当前任务含“关键时间”区域，复用 TimelineNodeRail 单数据源 saveTimelineNode', () => {
+    expect(recordViewSource).toContain('class="keytime-card"');
+    expect(recordViewSource).toContain('<TimelineNodeRail');
+    expect(recordViewSource).toContain('@save="saveTimelineNode"');
+    // 不再移除关键时间（旧 timeline-workbench-card 改名为 keytime-card，不产生第二套）
+    expect(recordViewSource).toContain('keytime-progress');
+  });
+
+  it('顶部快捷事件与关键时间共用同一保存路径 saveTimelineNode（无第二套状态）', () => {
+    expect(recordViewSource).toContain('saveTimelineNode(');
+  });
+});
+
+describe('手术间设备配置收尾', () => {
+  it('返回全部启用手术间含未配置，带 configStatus/conflictCount', () => {
+    expect(roomDeviceApiSource).toContain('configStatus');
+    expect(roomDeviceApiSource).toContain('conflictCount');
+  });
+
+  it('候选带 selectable/disabledReason，前端不 hardcode 占用判断', () => {
+    expect(roomDeviceApiSource).toContain('selectable');
+    expect(roomDeviceApiSource).toContain('disabledReason');
+  });
+});

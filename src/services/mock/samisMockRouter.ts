@@ -577,12 +577,15 @@ const roomDeviceConfigMock = {
     const list = mockRooms.map((room) => {
       const configs = activeByRoom.get(room.roomId) ?? [];
       const primaryVent = configs.find((c) => c.deviceType === 'ventilator' && c.deviceRole === 'primary') ?? null;
+      const conflictCount = configs.filter((c) => c.deviceRole === 'primary').length > 1 ? 1 : 0;
       return {
         roomId: room.roomId, roomCode: room.roomCode, roomName: room.roomName,
         hasPrimaryVentilator: primaryVent !== null,
+        configStatus: (conflictCount > 0 ? 'conflict' : primaryVent ? 'configured' : 'unconfigured') as 'configured' | 'unconfigured' | 'conflict',
+        conflictCount,
         primaryDevice: primaryVent,
         secondaryDevices: configs.filter((c) => c.deviceRole === 'secondary'),
-        anomalies: [] as string[],
+        anomalies: conflictCount > 0 ? ['存在多个启用主设备'] : ([] as string[]),
         lastChangedAt: configs.reduce<string | null>((m, c) => (!m || c.updatedAt > m ? c.updatedAt : m), null),
       };
     });
@@ -590,11 +593,16 @@ const roomDeviceConfigMock = {
   },
   options(keyword?: string) {
     const active = mockRoomDeviceConfigSeed.filter((c) => c.enabled && !c.effectiveTo);
-    const occupied = new Map(active.map((c) => [c.sourceDeviceId, { roomId: c.roomId, roomName: c.roomName, deviceType: c.deviceType, deviceRole: c.deviceRole }]));
+    const occupiedMap = new Map(active.map((c) => [c.sourceDeviceId, c.roomName]));
     const kw = (keyword ?? '').toLowerCase();
     const candidates = mockDeviceCandidates
       .filter((c) => !kw || c.deviceCode.toLowerCase().includes(kw) || c.deviceName.toLowerCase().includes(kw) || c.deviceModel.toLowerCase().includes(kw))
-      .map((c) => ({ ...c, occupied: occupied.get(c.deviceId) ?? null }));
+      .map((c) => {
+        const occupied = occupiedMap.has(c.deviceId);
+        const configuredRoomName = occupiedMap.get(c.deviceId) ?? null;
+        const disabledReason = !c.enabled ? '设备已停用' : (occupied ? `已配置到：${configuredRoomName}` : null);
+        return { ...c, occupied, configuredRoomName, selectable: disabledReason === null, disabledReason };
+      });
     return { rooms: mockRooms, deviceTypes: ['ventilator', 'monitor', 'anesthesia_machine'], deviceCandidates: candidates, deviceCandidatesTotal: candidates.length };
   },
   save(body: { roomId: number; sourceDeviceId: number; deviceType: string; deviceRole: string; centralDeviceNo?: string; reason?: string }) {

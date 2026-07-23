@@ -259,6 +259,25 @@
               @confirm-item="confirmLandingItem"
             />
 
+            <!-- 关键时间：唯一主要录入与修改入口（复用 TimelineNodeRail 单数据源 saveTimelineNode）。 -->
+            <a-card v-if="sheetMethodKeys.length" class="keytime-card" :bordered="false">
+              <template #title>关键时间</template>
+              <template #extra>
+                <span class="keytime-progress">{{ timelineProgressLabel }}</span>
+              </template>
+              <TimelineNodeRail
+                :embedded="false"
+                :show-header="false"
+                :record="current"
+                :method-keys="sheetMethodKeys"
+                :method-labels="sheetAppliedMethodLabels"
+                :locked="current.locked"
+                :active-key="activeTimelineKey"
+                @save="saveTimelineNode"
+                @focus="focusWorkbenchTimelineNode"
+              />
+            </a-card>
+
             <section v-if="runningPumps.length" class="toolbox-pumps" data-testid="side-running-pumps">
               <header><strong>持续泵入</strong><span>{{ runningPumps.length }} 条</span></header>
               <div class="toolbox-pumps-list">
@@ -2592,6 +2611,23 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 .reminder-summary-tag { padding: 1px 7px; border-radius: 999px; background: #fff; border: 1px solid #e2e8f0; color: #475569; }
 .reminder-summary-empty { color: #94a3b8; }
 
+/* 当前任务→关键时间区域（复用 TimelineNodeRail 单数据源，唯一主要入口）。 */
+.keytime-card {
+  border: 1px solid #dbe6f3;
+  background: #fff;
+}
+.keytime-card :deep(.arco-card-header) {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f2f5;
+}
+.keytime-card :deep(.arco-card-body) {
+  padding: 4px 8px 8px;
+}
+.keytime-progress {
+  color: #64748b;
+  font-size: 12px;
+}
+
 /* 设备标签病例操作区。 */
 .device-ops {
   display: flex;
@@ -2904,17 +2940,20 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   max-width: 90vw;
 }
 
+/* 一级导航单独占一行，水平滚动不换行，不与下方业务标题重叠。 */
 .more-tools-nav {
   position: sticky;
   top: 0;
   z-index: 2;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
-  padding: 6px;
-  margin: -16px -16px 8px;
+  padding: 8px 12px;
+  margin: 0 -16px 8px;
   border-bottom: 1px solid #eef2f7;
   background: #fff;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .more-tools-nav-btn {
