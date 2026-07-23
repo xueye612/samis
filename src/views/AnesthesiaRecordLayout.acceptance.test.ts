@@ -3,6 +3,8 @@ import recordHeaderSource from '@/components/anesthesia/record/sheet/RecordHeade
 import recordViewSource from '@/views/AnesthesiaRecord.vue?raw';
 import topbarViewSource from '@/components/anesthesia/record/RecordWorkstationTopbar.vue?raw';
 import intraopWorkflowSource from '@/components/anesthesia/record/IntraopWorkflowPanel.vue?raw';
+import detailTabsSource from '@/components/anesthesia/record/RecordDetailTabs.vue?raw';
+import roomDeviceApiSource from '@/api/anesthesiaRoomDeviceConfig.ts?raw';
 
 // 这些验收用例在 node 环境下以“源码级断言”锁定布局契约，等价于 DOM 层面的结构门禁。
 // 任何破坏以下契约的改动都会让 CI 失败，避免右侧菜单/表头折叠/设备入口再次分裂。
@@ -178,5 +180,81 @@ describe('重复入口清理与模拟控制删除（任务五）', () => {
 
   it('顶部仍保留唯一主入口（给药/液体/输血/出入量/血气/关键事件）', () => {
     expect(recordViewSource).toContain('<RecordSheetQuickStrip');
+  });
+});
+
+describe('更多工具抽屉布局与一级导航', () => {
+  it('一级导航含数据明细/结构化记录/麻醉方案模板/手术间设备配置等独立工具', () => {
+    expect(recordViewSource).toContain("label: '数据明细'");
+    expect(recordViewSource).toContain("label: '结构化记录'");
+    // 方案初始化批量初始化麻醉方式+结构化落单 → 保留并改名为麻醉方案模板（不删除）
+    expect(recordViewSource).toContain("label: '麻醉方案模板'");
+    expect(recordViewSource).toContain("label: '手术间设备配置'");
+    // 数据明细下的患者/麻醉/生命体征/用药为二级标签，不再与一级工具同层
+    expect(recordViewSource).not.toContain("方案初始化");
+  });
+
+  it('抽屉宽度 620~720 且最大 90vw，仅一个纵向滚动容器', () => {
+    expect(recordViewSource).toContain(':width="660"');
+    expect(recordViewSource).toContain('max-width: 90vw');
+    expect(recordViewSource).toContain('more-tools-scroll');
+  });
+
+  it('接入 RoomDeviceConfigPanel（SAMIS 手术间设备配置）', () => {
+    expect(recordViewSource).toContain('<RoomDeviceConfigPanel');
+    expect(recordViewSource).toContain("import RoomDeviceConfigPanel");
+  });
+});
+
+describe('手术间设备配置（SAMIS）边界', () => {
+  it('API 只读引用 HULI 设备编号/型号，保存房间关系与中央采集编号', () => {
+    expect(roomDeviceApiSource).toContain('roomDeviceConfigList');
+    expect(roomDeviceApiSource).toContain('saveRoomDeviceConfig');
+    expect(roomDeviceApiSource).toContain('centralDeviceNo');
+    expect(roomDeviceApiSource).toContain('deviceCode');
+    expect(roomDeviceApiSource).toContain('deviceModel');
+    // HULI 设备候选只读，前端不提供修改入口
+    expect(roomDeviceApiSource).toContain('readOnly: true');
+  });
+});
+
+describe('设备标签病例操作与状态', () => {
+  it('提供设备详情/更换当前设备/停止解除关联/暂停显示/确认转移', () => {
+    expect(recordViewSource).toContain('data-testid="device-case-ops"');
+    expect(recordViewSource).toContain('更换当前设备');
+    expect(recordViewSource).toContain('停止并解除关联');
+    expect(recordViewSource).toContain('暂停显示');
+    expect(recordViewSource).toContain('确认设备转移');
+    expect(recordViewSource).toContain('anesthesiaDeviceSessionApi.cancel');
+  });
+
+  it('暂停显示只暂停前端刷新（不修改 binding），与停止采集明确区分', () => {
+    expect(recordViewSource).toContain('deviceDisplayPaused');
+    expect(recordViewSource).toContain('显示已暂停，后台仍在采集');
+    expect(recordViewSource).not.toContain('暂停采集');
+  });
+
+  it('关联状态：已有 binding 后轮询不显示关联中，区分 associating/bound', () => {
+    expect(recordViewSource).toContain(':display-paused="deviceDisplayPaused"');
+  });
+});
+
+describe('提醒计数来源', () => {
+  it('角标按稳定 issueId 去重并显示分类细分（非硬编码）', () => {
+    expect(recordViewSource).toContain('reminderIssues');
+    expect(recordViewSource).toContain('reminderBreakdown');
+    expect(recordViewSource).toContain('data-testid="reminder-breakdown"');
+  });
+});
+
+describe('患者信息与生命体征布局修复', () => {
+  it('不再使用 a-descriptions 窄表格（避免逐字竖排），改响应式描述网格', () => {
+    expect(detailTabsSource).toContain('detail-info-grid');
+    expect(detailTabsSource).toContain('detail-info-item--full');
+  });
+
+  it('生命体征时间列固定左侧 + 空状态', () => {
+    expect(detailTabsSource).toContain('fixed="left"');
+    expect(detailTabsSource).toContain('#empty');
   });
 });

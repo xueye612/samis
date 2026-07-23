@@ -69,21 +69,29 @@ import dayjs from 'dayjs';
 import { computed } from 'vue';
 import type { DeviceSessionState } from '@/services/anesthesia/deviceSessionPoller';
 
-const props = defineProps<{ state: DeviceSessionState }>();
+const props = defineProps<{ state: DeviceSessionState; displayPaused?: boolean }>();
 
 const waiting = computed(() => props.state.waitingForPatientEntry && !props.state.binding);
+// associating 仅在尚未建立 binding 时为真；已有 binding 后普通轮询不再回到关联中。
+const associating = computed(() => !waiting.value && !props.state.binding && props.state.loading);
 const isPreview = computed(() => !waiting.value && (props.state.source === 'preview' || props.state.status === 'preview'));
 const roomLabel = computed(() => {
   const code = props.state.bindingRoomCode || props.state.binding?.roomCode || '';
   const name = props.state.bindingRoomName || props.state.binding?.roomName || '';
   return name || code || '手术间';
 });
-const headerDeviceLabel = computed(() => (waiting.value ? '' : (props.state.binding?.deviceName || '正在关联设备…')));
-const deviceName = computed(() => props.state.binding?.deviceName || '');
+const headerDeviceLabel = computed(() => {
+  if (waiting.value) return '';
+  if (props.state.binding) return props.state.binding.deviceName || '已关联设备';
+  return associating.value ? '正在关联设备…' : '未关联设备';
+});
 const modeLabel = computed(() => {
   if (waiting.value) return '等待入室';
-  const m = props.state.binding?.bindingMode;
-  return m === 'auto' ? '自动关联' : m === 'transfer' ? '已转移' : m === 'manual' ? '手动关联' : '关联中';
+  if (props.state.binding) {
+    const m = props.state.binding.bindingMode;
+    return m === 'auto' ? '自动关联' : m === 'transfer' ? '已转移' : m === 'manual' ? '手动关联' : '已关联';
+  }
+  return associating.value ? '关联中' : '未关联';
 });
 const ventMode = computed(() => (props.state.latest?.metadata?.ventMode as string | undefined) ?? '');
 
@@ -115,13 +123,16 @@ const latestMetrics = computed(() => {
 const freshnessLabel = computed(() => {
   if (waiting.value) return '等待入室';
   if (props.state.ended) return '已结束';
-  if (!props.state.latest) return props.state.loading ? '关联中' : '无数据';
-  return `采集 ${dayjs(props.state.latest.observedAt).format('HH:mm:ss')}`;
+  if (props.displayPaused) return '显示已暂停';
+  if (props.state.binding && props.state.latest) return `采集 ${dayjs(props.state.latest.observedAt).format('HH:mm:ss')}`;
+  if (props.state.binding) return '已关联·等待数据';
+  return associating.value ? '关联中' : '未关联';
 });
 const freshnessColor = computed(() => (waiting.value || props.state.ended ? 'gray' : props.state.latest ? 'green' : 'gray'));
 const emptyHint = computed(() => {
   if (props.state.ended) return '病例已结束，设备采集已停止';
-  if (props.state.loading) return '正在关联设备并读取数据…';
+  if (props.state.binding) return '已关联，等待采集数据…';
+  if (associating.value) return '正在关联设备并读取数据…';
   if (props.state.error) return props.state.error;
   return '正在自动关联设备…';
 });

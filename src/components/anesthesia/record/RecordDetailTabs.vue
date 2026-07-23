@@ -1,17 +1,19 @@
 <template>
   <a-tabs v-model:active-key="activeKey" class="record-detail-tabs" lazy-load>
     <a-tab-pane key="patient" title="患者信息">
-      <a-descriptions :column="3" bordered>
-        <a-descriptions-item label="患者">{{ record.patientName }} {{ record.gender }} {{ formatAge(record.age) }}</a-descriptions-item>
-        <a-descriptions-item label="住院号">{{ record.patientId ?? record.id }}</a-descriptions-item>
-        <a-descriptions-item label="科室">{{ record.department }}</a-descriptions-item>
-        <a-descriptions-item label="诊断">{{ record.diagnosis }}</a-descriptions-item>
-        <a-descriptions-item label="手术">{{ record.surgeryName }}</a-descriptions-item>
-        <a-descriptions-item label="身高/体重">{{ record.preVisit.height }}cm / {{ record.preVisit.weight }}kg</a-descriptions-item>
-        <a-descriptions-item label="ASA">{{ record.asa }}</a-descriptions-item>
-        <a-descriptions-item label="过敏史">{{ record.preVisit.allergy }}</a-descriptions-item>
-        <a-descriptions-item label="禁食">{{ record.preVisit.fasting }}</a-descriptions-item>
-      </a-descriptions>
+      <div class="detail-info-grid">
+        <div class="detail-info-item"><span>姓名</span><strong>{{ record.patientName }}</strong></div>
+        <div class="detail-info-item"><span>性别/年龄</span><strong>{{ record.gender }} {{ formatAge(record.age) }}</strong></div>
+        <div class="detail-info-item"><span>住院号</span><strong>{{ record.patientId ?? record.id }}</strong></div>
+        <div class="detail-info-item"><span>科室</span><strong>{{ record.department || '—' }}</strong></div>
+        <div class="detail-info-item"><span>ASA</span><strong>{{ record.asa || '—' }}</strong></div>
+        <div class="detail-info-item"><span>身高/体重</span><strong>{{ record.preVisit.height }}cm / {{ record.preVisit.weight }}kg</strong></div>
+        <div class="detail-info-item"><span>过敏史</span><strong>{{ record.preVisit.allergy || '无' }}</strong></div>
+        <div class="detail-info-item"><span>禁食</span><strong>{{ record.preVisit.fasting || '—' }}</strong></div>
+        <div class="detail-info-item detail-info-item--full"><span>诊断</span><strong>{{ record.diagnosis || '—' }}</strong></div>
+        <div class="detail-info-item detail-info-item--full"><span>拟施手术</span><strong>{{ record.surgeryName || '—' }}</strong></div>
+        <div class="detail-info-item detail-info-item--full"><span>实施手术</span><strong>{{ record.actualSurgeryName || record.surgeryName || '—' }}</strong></div>
+      </div>
     </a-tab-pane>
 
     <a-tab-pane key="anesthesia" title="麻醉信息">
@@ -30,8 +32,11 @@
 
     <a-tab-pane key="vitals" title="生命体征">
       <a-table :data="record.vitals" :pagination="{ pageSize: 8 }" size="small" :scroll="{ x: 980 }">
+        <template #empty>
+          <a-empty description="暂无生命体征记录" />
+        </template>
         <template #columns>
-          <a-table-column title="时间" :width="96">
+          <a-table-column title="时间" :width="96" fixed="left">
             <template #cell="{ record: row }">{{ formatTime(row.time) }}</template>
           </a-table-column>
           <a-table-column v-for="item in vitalItems" :key="item.shortCode" :title="item.shortCode" :width="86">
@@ -211,6 +216,44 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   margin-top: 12px;
 }
 
+/* 患者信息响应式描述网格：标签列固定宽度，内容列占剩余宽度，诊断/手术整行，
+   长文本正常换行，绝不再逐字竖排（不使用 table-layout:fixed 的窄表格）。 */
+.detail-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.detail-info-item {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 6px;
+  align-items: baseline;
+  padding: 7px 9px;
+  border: 1px solid #eef2f7;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.detail-info-item--full {
+  grid-column: 1 / -1;
+}
+
+.detail-info-item span {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.detail-info-item strong {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 .defect-card {
   margin-bottom: 12px;
 }
@@ -222,7 +265,8 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
 }
 
 .timeline-edit-hint {
-  margin-top: 12px;
+  margin-top: 10px;
+  font-size: 12px;
 }
 
 @media (max-width: 1200px) {

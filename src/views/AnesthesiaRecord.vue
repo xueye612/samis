@@ -289,11 +289,25 @@
 
               <!-- 设备：统一以设备采集会话为唯一来源 -->
               <div v-show="sideTab === 'device'" class="toolbox-tab-pane" data-testid="side-pane-device">
-              <DeviceSessionVentilatorPanel :state="deviceSessionState" />
+              <DeviceSessionVentilatorPanel :state="deviceSessionState" :display-paused="deviceDisplayPaused" />
+              <section class="device-ops no-print" data-testid="device-case-ops">
+                <a-button v-if="deviceBound" size="mini" @click="openDeviceDetail">设备详情</a-button>
+                <a-button v-if="deviceDisplayPaused" size="mini" type="primary" @click="deviceDisplayPaused = false">恢复显示</a-button>
+                <a-button v-else size="mini" @click="deviceDisplayPaused = true">暂停显示</a-button>
+                <a-button v-if="deviceSessionState.roomChanged" size="mini" status="warning" :loading="deviceOpLoading" @click="confirmDeviceTransfer">确认设备转移</a-button>
+                <a-button v-if="deviceBound" size="mini" @click="refreshDeviceOpRooms(); deviceTransferForm = { targetRoomId: 0, reason: '' }; deviceTransferVisible = true">更换当前设备</a-button>
+                <a-button v-if="deviceBound" size="mini" status="danger" @click="deviceStopReason = ''; deviceStopVisible = true">停止并解除关联</a-button>
+              </section>
+              <a-alert v-if="deviceDisplayPaused" type="info" class="device-paused-hint">显示已暂停，后台仍在采集；恢复后读取最新值（不修改 binding）。</a-alert>
               </div>
 
               <!-- 提醒：异常体征 / 待补字段 / 质控缺陷 / 完整性检查 / 设备异常 / 同步冲突 -->
               <div v-show="sideTab === 'reminder'" class="toolbox-tab-pane" data-testid="side-pane-reminder">
+              <div class="reminder-summary" data-testid="reminder-breakdown">
+                <strong>提醒 {{ reminderBadgeCount }}</strong>
+                <span v-for="item in reminderBreakdown" :key="item.key" class="reminder-summary-tag">{{ item.label }} {{ item.count }}</span>
+                <span v-if="!reminderBadgeCount" class="reminder-summary-empty">暂无未处理提醒</span>
+              </div>
               <RecordQualityPanel
                 :record="current"
                 :checks="qualityChecks"
@@ -334,17 +348,19 @@
     <!-- 更多工具抽屉：收纳低频功能，复用现有组件，不新建第二套业务 -->
     <a-drawer
       v-model:visible="moreToolsVisible"
-      :width="440"
+      :width="660"
       title="更多工具"
       placement="right"
       :footer="false"
       unmount-on-close
-      class="no-print"
+      class="no-print more-tools-drawer"
       popup-container-position="fixed"
     >
-      <div class="more-tools-body" data-testid="more-tools-body">
-        <section class="more-tools-section">
-          <h4 class="more-tools-title">数据明细维护</h4>
+      <nav class="more-tools-nav no-print" data-testid="more-tools-nav">
+        <button v-for="item in moreToolTabs" :key="item.key" type="button" class="more-tools-nav-btn" :class="{ active: moreToolTab === item.key }" @click="moreToolTab = item.key">{{ item.label }}</button>
+      </nav>
+      <div class="more-tools-scroll" data-testid="more-tools-body">
+        <section v-show="moreToolTab === 'detail'" class="more-tools-section">
           <RecordDetailTabs
             v-model:active-tab="activeTab"
             :record="current"
@@ -359,20 +375,17 @@
             @fluid="addFluid"
           />
         </section>
-        <section class="more-tools-section">
-          <h4 class="more-tools-title">结构化术中记录（气道/通气/输注/输血/抢救）</h4>
+        <section v-show="moreToolTab === 'structured'" class="more-tools-section">
           <StructuredClinicalEntitiesPanel
             :operation-id="current.id"
             :record-local-id="current.id"
             :read-only="current.locked || !canWriteStructuredRecord"
           />
         </section>
-        <section class="more-tools-section">
-          <h4 class="more-tools-title">方案初始化</h4>
+        <section v-show="moreToolTab === 'template'" class="more-tools-section">
           <AnesthesiaTemplateSelector compact :selected-template-name="selectedTemplateName" @apply="applyTemplate" />
         </section>
-        <section class="more-tools-section">
-          <h4 class="more-tools-title">专业字段总览</h4>
+        <section v-show="moreToolTab === 'modules'" class="more-tools-section">
           <DynamicAnesthesiaModules
             compact
             :methods="selectedMethodKeys"
@@ -382,21 +395,60 @@
             @save-field="saveProfessionalField"
           />
         </section>
-        <section class="more-tools-section">
-          <h4 class="more-tools-title">修改日志 / 审计记录</h4>
+        <section v-show="moreToolTab === 'audit'" class="more-tools-section">
           <RecordAuditPanel
             :logs="current.modificationLogs ?? []"
             :printed-at="current.printedAt"
             :locked="current.locked"
           />
         </section>
-        <section class="more-tools-section more-tools-links">
-          <a-button long @click="conflictPanelVisible = true; moreToolsVisible = false">同步冲突</a-button>
-          <a-button long @click="syncDetailVisible = true; moreToolsVisible = false">同步详情</a-button>
-          <a-button long @click="sectionSettingsVisible = true; moreToolsVisible = false">纸面显示设置</a-button>
+        <section v-show="moreToolTab === 'settings'" class="more-tools-section more-tools-links">
+          <a-button long @click="conflictPanelVisible = true">同步冲突</a-button>
+          <a-button long @click="syncDetailVisible = true">同步详情</a-button>
+          <a-button long @click="sectionSettingsVisible = true">纸面显示设置</a-button>
+        </section>
+        <section v-show="moreToolTab === 'roomDevice'" class="more-tools-section">
+          <RoomDeviceConfigPanel embedded />
         </section>
       </div>
     </a-drawer>
+
+    <!-- 设备详情 -->
+    <a-modal v-model:visible="deviceDetailVisible" title="当前病例设备详情" :footer="false" :width="460" class="no-print">
+      <div class="device-detail-grid">
+        <div><span>当前手术间</span><strong>{{ deviceSessionState.binding?.roomName || deviceSessionState.bindingRoomName || current?.room || '—' }}</strong></div>
+        <div><span>设备编号</span><strong>{{ deviceSessionState.binding?.deviceCode || '—' }}</strong></div>
+        <div><span>设备型号</span><strong>{{ deviceDetailConfig?.deviceModel || '—' }}</strong></div>
+        <div><span>中央采集编号</span><strong>{{ deviceDetailConfig?.centralDeviceNo || '—' }}</strong></div>
+        <div><span>关联时间</span><strong>{{ deviceSessionState.binding?.effectiveFrom || '—' }}</strong></div>
+        <div><span>关联方式</span><strong>{{ deviceSessionState.binding?.bindingMode || '—' }}</strong></div>
+        <div><span>采集状态</span><strong>{{ deviceSessionState.ended ? '已停止' : (deviceSessionState.binding ? '采集中' : '未关联') }}</strong></div>
+      </div>
+    </a-modal>
+
+    <!-- 更换当前设备（仅当前病例 binding，不改永久房间配置） -->
+    <a-modal v-model:visible="deviceTransferVisible" title="更换当前病例设备" :on-before-ok="() => { doDeviceTransfer(); return false; }" ok-text="确认更换" :width="420" class="no-print">
+      <p class="device-op-tip">仅更换当前病例 binding，不修改永久房间设备配置。</p>
+      <div class="rdc-field" style="margin-bottom:10px">
+        <span>目标手术间（取该房间 primary 设备）</span>
+        <a-select v-model="deviceTransferForm.targetRoomId" popup-container="body" placeholder="选择手术间">
+          <a-option v-for="r in deviceOpRooms" :key="r.roomId" :value="r.roomId">{{ r.roomName }}（{{ r.roomCode }}）</a-option>
+        </a-select>
+      </div>
+      <div class="rdc-field">
+        <span>更换原因（必填）</span>
+        <a-input v-model="deviceTransferForm.reason" placeholder="如：设备故障临时更换" />
+      </div>
+    </a-modal>
+
+    <!-- 停止并解除关联 -->
+    <a-modal v-model:visible="deviceStopVisible" title="停止并解除关联" :on-before-ok="() => { doDeviceStop(); return false; }" ok-text="确认停止" :width="420" class="no-print">
+      <p class="device-op-tip">将结束当前 binding，后端停止读取；不修改永久房间配置。重新开始时创建新 binding。</p>
+      <div class="rdc-field">
+        <span>停止原因（必填）</span>
+        <a-input v-model="deviceStopReason" placeholder="如：设备拆除 / 采集结束" />
+      </div>
+    </a-modal>
 
     <PrintPreview
       v-if="printPreviewVisible && current"
@@ -515,6 +567,8 @@
 import { Message, Modal } from '@arco-design/web-vue';
 import { ANESTHESIA_USE_MOCK } from '@/api/samisResponse';
 import { authApi } from '@/api/auth';
+import { anesthesiaDeviceSessionApi } from '@/api/anesthesiaDeviceSession';
+import { anesthesiaRoomDeviceConfigApi } from '@/api/anesthesiaRoomDeviceConfig';
 import { useRealAnesthesiaRecord, useRealAnesthesiaSync, useRealOperationInfo } from '@/config/apiFlags';
 import dayjs from 'dayjs';
 import { persistCaseNow, restoreCasePageNo } from '@/services/anesthesia/anesthesiaPersistenceBridge';
@@ -539,6 +593,7 @@ import LiveAnesthesiaSheet from '@/components/anesthesia/record/LiveAnesthesiaSh
 import RecordDetailTabs from '@/components/anesthesia/record/RecordDetailTabs.vue';
 import RecordRecentEntries from '@/components/anesthesia/record/RecordRecentEntries.vue';
 import RecordQualityPanel from '@/components/anesthesia/record/RecordQualityPanel.vue';
+import RoomDeviceConfigPanel from '@/components/anesthesia/record/RoomDeviceConfigPanel.vue';
 import StructuredClinicalEntitiesPanel from '@/components/anesthesia/record/StructuredClinicalEntitiesPanel.vue';
 import RecordWorkstationTopbar from '@/components/anesthesia/record/RecordWorkstationTopbar.vue';
 import RecordSheetQuickStrip from '@/components/anesthesia/record/RecordSheetQuickStrip.vue';
@@ -827,6 +882,75 @@ const stopDeviceSessionPolling = () => {
   deviceSessionPoller?.stop();
   deviceSessionPoller = null;
 };
+// 设备标签病例操作：暂停显示（仅前端，后端继续采集）/ 设备详情 / 更换当前设备 / 停止解除关联。
+const deviceDisplayPaused = ref(false);
+const deviceDetailVisible = ref(false);
+const deviceDetailConfig = ref<{ centralDeviceNo: string; deviceModel: string } | null>(null);
+const openDeviceDetail = async () => {
+  deviceDetailVisible.value = true;
+  deviceDetailConfig.value = null;
+  try {
+    const res = await anesthesiaRoomDeviceConfigApi.list();
+    const room = res.list.find((r) => r.roomCode === current.value?.room);
+    const primary = room?.primaryDevice;
+    if (primary) deviceDetailConfig.value = { centralDeviceNo: primary.centralDeviceNo, deviceModel: primary.deviceModel };
+  } catch { /* 房间配置未取到时不阻塞详情 */ }
+};
+const deviceTransferVisible = ref(false);
+const deviceStopVisible = ref(false);
+const deviceOpRooms = ref<Array<{ roomId: number; roomName: string; roomCode: string }>>([]);
+const deviceTransferForm = ref({ targetRoomId: 0, reason: '' });
+const deviceStopReason = ref('');
+const deviceOpLoading = ref(false);
+const deviceBound = computed(() => Boolean(deviceSessionState.value.binding));
+const deviceCurrentRoomId = computed(() => {
+  const code = current.value?.room;
+  const hit = deviceOpRooms.value.find((r) => r.roomCode === code);
+  return hit?.roomId ?? 0;
+});
+const refreshDeviceOpRooms = async () => {
+  try {
+    const res = await anesthesiaRoomDeviceConfigApi.list();
+    deviceOpRooms.value = res.list.map((r) => ({ roomId: r.roomId, roomName: r.roomName, roomCode: r.roomCode }));
+  } catch { deviceOpRooms.value = []; }
+};
+const confirmDeviceTransfer = async () => {
+  if (!current.value || deviceCurrentRoomId.value <= 0) return;
+  deviceOpLoading.value = true;
+  try {
+    await anesthesiaDeviceSessionApi.transfer({ operationId: current.value.id, targetRoomId: deviceCurrentRoomId.value, reason: '确认手术间设备转移' });
+    Message.success('已转移至当前手术间设备');
+    deviceSessionPoller?.refresh();
+  } catch (e) { Message.error((e as Error)?.message ?? '转移失败'); }
+  finally { deviceOpLoading.value = false; }
+};
+const doDeviceTransfer = async () => {
+  if (!current.value || deviceTransferForm.value.targetRoomId <= 0 || !deviceTransferForm.value.reason.trim()) {
+    Message.warning('请选择目标手术间并填写原因'); return;
+  }
+  deviceOpLoading.value = true;
+  try {
+    await anesthesiaDeviceSessionApi.transfer({ operationId: current.value.id, targetRoomId: deviceTransferForm.value.targetRoomId, reason: deviceTransferForm.value.reason });
+    Message.success('已更换当前病例设备（不影响永久房间配置）');
+    deviceTransferVisible.value = false;
+    deviceTransferForm.value = { targetRoomId: 0, reason: '' };
+    deviceSessionPoller?.refresh();
+  } catch (e) { Message.error((e as Error)?.message ?? '更换失败'); }
+  finally { deviceOpLoading.value = false; }
+};
+const doDeviceStop = async () => {
+  const bindingId = deviceSessionState.value.binding?.bindingId;
+  if (!bindingId || !deviceStopReason.value.trim()) { Message.warning('请填写停止原因'); return; }
+  deviceOpLoading.value = true;
+  try {
+    await anesthesiaDeviceSessionApi.cancel({ bindingId, reason: deviceStopReason.value });
+    Message.success('已停止并解除当前病例设备关联');
+    deviceStopVisible.value = false;
+    deviceStopReason.value = '';
+    deviceSessionPoller?.refresh();
+  } catch (e) { Message.error((e as Error)?.message ?? '停止失败'); }
+  finally { deviceOpLoading.value = false; }
+};
 const restartDeviceSessionPolling = (operationId: string) => {
   stopDeviceSessionPolling();
   // 切换病例：清除旧 cursor 与 items，不复用旧 binding。
@@ -878,6 +1002,17 @@ const toolboxDrawerVisible = ref(false);
 // 右侧三标签侧栏：默认打开“当前任务”；低频功能收纳进“更多工具”抽屉。
 const sideTab = ref<'task' | 'device' | 'reminder'>('task');
 const moreToolsVisible = ref(false);
+// 更多工具一级导航：每个低频工具独立一页，不再纵向堆叠成超长页面。
+const moreToolTab = ref<'detail' | 'structured' | 'template' | 'modules' | 'audit' | 'settings' | 'roomDevice'>('detail');
+const moreToolTabs = [
+  { key: 'detail' as const, label: '数据明细' },
+  { key: 'structured' as const, label: '结构化记录' },
+  { key: 'template' as const, label: '麻醉方案模板' },
+  { key: 'modules' as const, label: '专业字段' },
+  { key: 'audit' as const, label: '日志与审计' },
+  { key: 'settings' as const, label: '纸面设置' },
+  { key: 'roomDevice' as const, label: '手术间设备配置' },
+];
 // 打开“更多工具”抽屉：小屏下先关闭右侧侧栏抽屉，避免出现嵌套抽屉。
 const openMoreTools = () => {
   toolboxDrawerVisible.value = false;
@@ -1131,14 +1266,32 @@ const deviceSessionAnomalies = computed<string[]>(() => {
   }
   return list;
 });
-// 提醒标签角标：仅统计未处理的待补字段、异常体征、质控缺陷、同步冲突与设备异常。
-const reminderBadgeCount = computed(() => {
-  if (!current.value) return 0;
-  return caseDefects.value.length
-    + panelAbnormalVitals.value.length
-    + recordPendingFields.value.length
-    + (syncState.value.conflictCount ?? 0)
-    + deviceSessionAnomalies.value.length;
+// 提醒标签：按稳定 issueId 去重的统一问题列表，避免完整性检查与各来源重复计数。
+interface ReminderIssue { id: string; label: string; category: 'pending' | 'defect' | 'abnormal' | 'device' | 'conflict' }
+const reminderIssues = computed<ReminderIssue[]>(() => {
+  if (!current.value) return [];
+  const issues: ReminderIssue[] = [];
+  recordPendingFields.value.forEach((f) => issues.push({ id: `pending:${f.key}`, label: f.label, category: 'pending' }));
+  caseDefects.value.forEach((d) => issues.push({ id: `defect:${d.defectId}`, label: d.defectType, category: 'defect' }));
+  panelAbnormalVitals.value.forEach((a) => issues.push({ id: `abnormal:${a.id}`, label: a.summary, category: 'abnormal' }));
+  deviceSessionAnomalies.value.forEach((msg, i) => issues.push({ id: `device:${i}:${msg.slice(0, 12)}`, label: msg, category: 'device' }));
+  const conflictCount = syncState.value.conflictCount ?? 0;
+  for (let i = 0; i < conflictCount; i += 1) issues.push({ id: `conflict:${i}`, label: '同步冲突', category: 'conflict' });
+  // 稳定 id 去重
+  const seen = new Set<string>();
+  return issues.filter((it) => (seen.has(it.id) ? false : (seen.add(it.id), true)));
+});
+const reminderBadgeCount = computed(() => reminderIssues.value.length);
+const reminderBreakdown = computed(() => {
+  const map: Record<string, number> = { pending: 0, defect: 0, abnormal: 0, device: 0, conflict: 0 };
+  reminderIssues.value.forEach((it) => { map[it.category] += 1; });
+  return [
+    { key: 'pending', label: '待完善', count: map.pending },
+    { key: 'defect', label: '质控缺陷', count: map.defect },
+    { key: 'abnormal', label: '异常体征', count: map.abnormal },
+    { key: 'device', label: '设备异常', count: map.device },
+    { key: 'conflict', label: '同步冲突', count: map.conflict },
+  ].filter((it) => it.count > 0);
 });
 const canEditPumps = computed(() => sheetQuickActions.value.entries.canEdit);
 const sheetInteractionMode = computed(() => {
@@ -1600,7 +1753,7 @@ const stopAllDevices = () => {
 };
 const pauseAllDevices = () => {
   const result = store.pauseAllMonitoringDevices();
-  if (!result.ok) Message.warning(result.message ?? '无法暂停采集');
+  if (!result.ok) Message.warning(result.message ?? '无法暂停设备模拟');
   else void realtimeDevicePoller?.refresh();
 };
 const resumeAllDevices = () => {
@@ -2422,6 +2575,64 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   gap: 8px;
 }
 
+/* 提醒计数来源细分。 */
+.reminder-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #eef2f7;
+  border-radius: 6px;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
+.reminder-summary strong { color: #0f172a; font-size: 13px; }
+.reminder-summary-tag { padding: 1px 7px; border-radius: 999px; background: #fff; border: 1px solid #e2e8f0; color: #475569; }
+.reminder-summary-empty { color: #94a3b8; }
+
+/* 设备标签病例操作区。 */
+.device-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.device-paused-hint {
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.device-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.device-detail-grid > div {
+  display: grid;
+  gap: 2px;
+}
+
+.device-detail-grid span {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.device-detail-grid strong {
+  color: #0f172a;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.device-op-tip {
+  margin: 0 0 10px;
+  color: #64748b;
+  font-size: 12px;
+}
+
 .record-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2688,23 +2899,54 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   text-align: center;
 }
 
-/* 更多工具抽屉内容。 */
-.more-tools-body {
+/* 更多工具抽屉：宽度 660（最大 90vw），一级导航固定顶部，内容唯一纵向滚动。 */
+.more-tools-drawer {
+  max-width: 90vw;
+}
+
+.more-tools-nav {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px;
+  margin: -16px -16px 8px;
+  border-bottom: 1px solid #eef2f7;
+  background: #fff;
+}
+
+.more-tools-nav-btn {
+  padding: 5px 10px;
+  border: 1px solid #e5edf5;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.more-tools-nav-btn.active {
+  border-color: #165dff;
+  background: #f6fbff;
+  color: #165dff;
+  font-weight: 700;
+}
+
+/* 唯一纵向滚动容器：抽屉内部各卡片不再各自滚动。 */
+.more-tools-scroll {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
 }
 
 .more-tools-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #f0f2f5;
-}
-
-.more-tools-section:last-child {
-  border-bottom: 0;
 }
 
 .more-tools-title {

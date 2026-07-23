@@ -77,4 +77,12 @@ export const anesthesiaDeviceSessionApi = {
       body: JSON.stringify(body),
     });
   },
+  /** 停止并解除当前病例采集关联（cancelBinding），不修改永久房间配置。 */
+  cancel(body: { bindingId: string; reason: string }) {
+    return samisRequest<{ bindingId: string; status: string; effectiveTo: string }>(`/anesthesiaDevice/cancelBinding`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
 };

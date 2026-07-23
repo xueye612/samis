@@ -533,6 +533,113 @@ function getSearchParams(path: string) {
   return new URL(path, 'http://local').searchParams;
 }
 
+// SAMIS 手术间设备采集配置 mock 内存态（仅前端 dev 热加载验证用；HULI 编号/型号只读）。
+interface MockRoomDeviceConfig {
+  configId: number;
+  roomId: number;
+  roomCode: string;
+  roomName: string;
+  sourceDeviceId: number;
+  deviceCode: string;
+  deviceModel: string;
+  deviceName: string | null;
+  deviceType: string;
+  deviceRole: 'primary' | 'secondary';
+  centralDeviceNo: string;
+  enabled: boolean;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  changeReason: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+const mockRoomDeviceConfigSeed: MockRoomDeviceConfig[] = [
+  { configId: 1, roomId: 1, roomCode: 'OR-01', roomName: '1号手术间', sourceDeviceId: 11, deviceCode: 'VENT-OR-01', deviceModel: 'A9500', deviceName: '1号呼吸机', deviceType: 'ventilator', deviceRole: 'primary', centralDeviceNo: 'CENTRAL-VENT-01', enabled: true, effectiveFrom: '2026-07-01 08:00:00', effectiveTo: null, changeReason: '初始配置', createdBy: 'mock', createdAt: '2026-07-01 08:00:00', updatedAt: '2026-07-20 09:00:00' },
+];
+const mockDeviceCandidates = [
+  { deviceId: 11, deviceCode: 'VENT-OR-01', deviceModel: 'A9500', deviceName: '1号呼吸机', huliDeviceType: 'ventilator', status: 'enabled', enabled: true, readOnly: true as const, sourceSystem: 'HULI' as const },
+  { deviceId: 12, deviceCode: 'VENT-OR-02', deviceModel: 'B730', deviceName: '2号呼吸机', huliDeviceType: 'ventilator', status: 'enabled', enabled: true, readOnly: true as const, sourceSystem: 'HULI' as const },
+  { deviceId: 13, deviceCode: 'MON-OR-01', deviceModel: 'M9000', deviceName: '1号监护仪', huliDeviceType: 'monitor', status: 'enabled', enabled: true, readOnly: true as const, sourceSystem: 'HULI' as const },
+  { deviceId: 14, deviceCode: 'VENT-NEW', deviceModel: 'C880', deviceName: '新呼吸机', huliDeviceType: 'ventilator', status: 'enabled', enabled: true, readOnly: true as const, sourceSystem: 'HULI' as const },
+];
+const mockRooms = [
+  { roomId: 1, roomCode: 'OR-01', roomName: '1号手术间' },
+  { roomId: 2, roomCode: 'OR-02', roomName: '2号手术间' },
+  { roomId: 3, roomCode: 'OR-03', roomName: '3号手术间' },
+];
+const roomDeviceConfigMock = {
+  list() {
+    const activeByRoom = new Map<number, MockRoomDeviceConfig[]>();
+    for (const cfg of mockRoomDeviceConfigSeed.filter((c) => c.enabled && !c.effectiveTo)) {
+      (activeByRoom.get(cfg.roomId) ?? activeByRoom.set(cfg.roomId, []).get(cfg.roomId)!).push(cfg);
+    }
+    const list = mockRooms.map((room) => {
+      const configs = activeByRoom.get(room.roomId) ?? [];
+      const primaryVent = configs.find((c) => c.deviceType === 'ventilator' && c.deviceRole === 'primary') ?? null;
+      return {
+        roomId: room.roomId, roomCode: room.roomCode, roomName: room.roomName,
+        hasPrimaryVentilator: primaryVent !== null,
+        primaryDevice: primaryVent,
+        secondaryDevices: configs.filter((c) => c.deviceRole === 'secondary'),
+        anomalies: [] as string[],
+        lastChangedAt: configs.reduce<string | null>((m, c) => (!m || c.updatedAt > m ? c.updatedAt : m), null),
+      };
+    });
+    return { list, total: list.length };
+  },
+  options(keyword?: string) {
+    const active = mockRoomDeviceConfigSeed.filter((c) => c.enabled && !c.effectiveTo);
+    const occupied = new Map(active.map((c) => [c.sourceDeviceId, { roomId: c.roomId, roomName: c.roomName, deviceType: c.deviceType, deviceRole: c.deviceRole }]));
+    const kw = (keyword ?? '').toLowerCase();
+    const candidates = mockDeviceCandidates
+      .filter((c) => !kw || c.deviceCode.toLowerCase().includes(kw) || c.deviceName.toLowerCase().includes(kw) || c.deviceModel.toLowerCase().includes(kw))
+      .map((c) => ({ ...c, occupied: occupied.get(c.deviceId) ?? null }));
+    return { rooms: mockRooms, deviceTypes: ['ventilator', 'monitor', 'anesthesia_machine'], deviceCandidates: candidates, deviceCandidatesTotal: candidates.length };
+  },
+  save(body: { roomId: number; sourceDeviceId: number; deviceType: string; deviceRole: string; centralDeviceNo?: string; reason?: string }) {
+    const device = mockDeviceCandidates.find((c) => c.deviceId === body.sourceDeviceId)!;
+    const room = mockRooms.find((r) => r.roomId === body.roomId)!;
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    // 同房间同类型 primary：停用旧 primary
+    if (body.deviceRole === 'primary') {
+      for (const c of mockRoomDeviceConfigSeed) {
+        if (c.roomId === body.roomId && c.deviceType === body.deviceType && c.deviceRole === 'primary' && c.enabled && !c.effectiveTo && c.sourceDeviceId !== body.sourceDeviceId) {
+          c.enabled = false; c.effectiveTo = now; c.changeReason = `更换主设备：${body.reason ?? ''}`;
+        }
+      }
+    }
+    const existing = mockRoomDeviceConfigSeed.find((c) => c.roomId === body.roomId && c.deviceType === body.deviceType && c.deviceRole === body.deviceRole && c.enabled && !c.effectiveTo && c.sourceDeviceId === body.sourceDeviceId);
+    if (existing) { existing.centralDeviceNo = body.centralDeviceNo || existing.centralDeviceNo; existing.updatedAt = now; return existing; }
+    const nextId = mockRoomDeviceConfigSeed.reduce((m, c) => Math.max(m, c.configId), 0) + 1;
+    const created: MockRoomDeviceConfig = {
+      configId: nextId, roomId: room.roomId, roomCode: room.roomCode, roomName: room.roomName,
+      sourceDeviceId: device.deviceId, deviceCode: device.deviceCode, deviceModel: device.deviceModel, deviceName: device.deviceName,
+      deviceType: body.deviceType, deviceRole: body.deviceRole as 'primary' | 'secondary',
+      centralDeviceNo: body.centralDeviceNo || device.deviceCode, enabled: true, effectiveFrom: now, effectiveTo: null,
+      changeReason: body.reason ?? '配置变更', createdBy: 'mock', createdAt: now, updatedAt: now,
+    };
+    mockRoomDeviceConfigSeed.push(created);
+    return created;
+  },
+  remove(body: { configId: number; reason?: string }) {
+    const cfg = mockRoomDeviceConfigSeed.find((c) => c.configId === body.configId);
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    let idempotent = true;
+    if (cfg && cfg.enabled && !cfg.effectiveTo) {
+      cfg.enabled = false; cfg.effectiveTo = now; cfg.changeReason = body.reason ?? '移除'; cfg.updatedAt = now; idempotent = false;
+    }
+    return { configId: body.configId, enabled: false, effectiveTo: now, idempotent };
+  },
+  history(params: URLSearchParams) {
+    let rows = [...mockRoomDeviceConfigSeed].sort((a, b) => (b.effectiveFrom > a.effectiveFrom ? 1 : -1));
+    const roomId = params.get('roomId');
+    if (roomId) rows = rows.filter((c) => c.roomId === Number(roomId));
+    return { list: rows, total: rows.length };
+  },
+};
+
+
 function operationCaseDate(item: (typeof anesthesiaCases)[0]) {
   return dayjs(item.scheduledStart ?? item.plannedStart).format('YYYY-MM-DD');
 }
@@ -1114,6 +1221,22 @@ export async function routeSamisMock<T>(path: string, init?: RequestInit): Promi
   }
   if (path.includes('/anesthesiaDevice/getLatestDeviceData')) {
     return buildSamisSuccess({ monitor: null, ventilator: null }) as T;
+  }
+  // ---- SAMIS 手术间设备采集配置（mock 内存态，便于前端热加载验证） ----
+  if (path.includes('/anesthesiaDevice/roomDeviceConfigList')) {
+    return buildSamisSuccess(roomDeviceConfigMock.list()) as T;
+  }
+  if (path.includes('/anesthesiaDevice/roomDeviceOptions')) {
+    return buildSamisSuccess(roomDeviceConfigMock.options(getSearchParams(path).get('keyword') ?? undefined)) as T;
+  }
+  if (path.endsWith('/anesthesiaDevice/saveRoomDeviceConfig') && init?.method === 'POST') {
+    return buildSamisSuccess(roomDeviceConfigMock.save(parseBody(init))) as T;
+  }
+  if (path.endsWith('/anesthesiaDevice/removeRoomDeviceConfig') && init?.method === 'POST') {
+    return buildSamisSuccess(roomDeviceConfigMock.remove(parseBody(init))) as T;
+  }
+  if (path.includes('/anesthesiaDevice/roomDeviceConfigHistory')) {
+    return buildSamisSuccess(roomDeviceConfigMock.history(getSearchParams(path))) as T;
   }
   if (path.includes('/anesthesiaRecord/getRecordDetail')) {
     const operationId = getSearchParams(path).get('operationId') ?? '';
