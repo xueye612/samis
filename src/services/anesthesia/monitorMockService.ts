@@ -2,7 +2,7 @@ import dayjs from 'dayjs';
 
 import type { AnesthesiaRecordDeviceState, SurgeryCase, VitalSign } from '@/types/anesthesia';
 
-import { resolveRecordSheetNowIso, timeToFractionalMinutes } from '@/services/anesthesiaRecordEngine';
+import { isRescueModeActive, resolveRecordSheetNowIso, timeToFractionalMinutes } from '@/services/anesthesiaRecordEngine';
 
 import { getAnesthesiaLocalDb } from '@/services/anesthesia/localDb';
 
@@ -64,10 +64,31 @@ export function readMonitorDisplayIntervalMinutes(): number {
   return clampMonitorDisplayIntervalMinutes(Number(localStorage.getItem(MONITOR_DISPLAY_INTERVAL_STORAGE_KEY)));
 }
 
-function resolveVitalBucketKey(ts: string, displayIntervalMinutes: number) {
+export function resolveVitalBucketKey(ts: string, displayIntervalMinutes: number) {
   const mins = timeToFractionalMinutes(dayjs(ts).format('HH:mm:ss'));
   if (mins === null) return `${displayIntervalMinutes}-0`;
   return `${displayIntervalMinutes}-${Math.floor(mins / displayIntervalMinutes)}`;
+}
+
+/**
+ * 归一化时间槽标准时间（秒归零、整刻度对齐），monitor 与 ventilator 共用同一分桶规则，
+ * 与后端 ingest 的整 5 分钟 / 抢救 1 分钟刻度一致。
+ * 例：10:07:32 → 10:05:00；10:09:59 → 10:05:00；10:10:00 → 10:10:00。
+ */
+export function resolveVitalSlotTime(ts: string, displayIntervalMinutes: number): string {
+  const d = dayjs(ts);
+  const mins = timeToFractionalMinutes(d.format('HH:mm:ss'));
+  if (mins === null) return ts;
+  const slotStart = Math.floor(mins / displayIntervalMinutes) * displayIntervalMinutes;
+  return d.startOf('day').add(slotStart, 'minute').format('YYYY-MM-DDTHH:mm:00');
+}
+
+/**
+ * 代表点稳定幂等 ID：由 recordLocalId + 数据类型 + 槽时间决定。
+ * 同一槽位刷新/重连/重复报文均产生同一 ID，避免每次模拟随机生成导致服务端幂等命中旧值。
+ */
+export function buildStableVitalId(recordLocalId: string, slotTime: string, kind: 'monitor' | 'ventilator' = 'monitor'): string {
+  return `vitslot-${kind}-${recordLocalId}-${dayjs(slotTime).format('YYYYMMDDHHmm')}`;
 }
 
 function resolveCollectStatus(_mode: DeviceSimulationMode): AnesthesiaRecordDeviceState['collectStatus'] {
@@ -96,14 +117,16 @@ export function startMonitorMockService(
   let stopped = false;
   const simulationMode = options?.simulationMode ?? readDeviceSimulationMode();
   const abnormalTypes = options?.abnormalTypes ?? readAbnormalSimulationTypes();
-  const rescueMode = options?.rescueMode ?? isRescueDeviceSimulation(simulationMode);
-  const displayIntervalMinutes = resolveMonitorDisplayIntervalMinutes({
-    rescueMode,
+  const rescueForced = options?.rescueMode ?? isRescueDeviceSimulation(simulationMode);
+  const rawIntervalMs = resolveDeviceRawIntervalMs(simulationMode);
+
+  // 显示体征采集间隔按【当前病例抢救态】每 tick 实时解析，而非启动时一次性冻结。
+  // 这样退出/清除抢救后，下一 tick 立即恢复 5 分钟；抢救有效期内保持 1 分钟。
+  const displayIntervalFor = (caseItem: SurgeryCase): number => resolveMonitorDisplayIntervalMinutes({
+    rescueMode: rescueForced || isRescueModeActive(caseItem),
     simulationMode,
     displayIntervalMinutes: options?.displayIntervalMinutes,
   });
-  const rawIntervalMs = resolveDeviceRawIntervalMs(simulationMode);
-  let lastVitalBucketKey = '';
 
   const resolveBoundCase = () => {
     const caseItem = resolveCase();
@@ -192,24 +215,32 @@ export function startMonitorMockService(
   };
 
   const maybePersistDisplayVital = async (ts: string, sample: ReturnType<typeof buildMonitorSample>, caseItem: SurgeryCase) => {
+    // 时间槽与后端 ingest 一致：常规整 5 分钟、抢救 1 分钟，按 floor(分钟/间隔) 整刻度对齐。
+    // 间隔每 tick 按当前病例抢救态解析（退出抢救后立即恢复 5 分钟）。
+    const displayIntervalMinutes = displayIntervalFor(caseItem);
+    const slotTime = resolveVitalSlotTime(ts, displayIntervalMinutes);
     const bucketKey = resolveVitalBucketKey(ts, displayIntervalMinutes);
-    if (bucketKey === lastVitalBucketKey) return;
 
     const displaySample = simulationMode === 'abnormal'
       ? buildMonitorSample({ abnormal: true, abnormalType: pickAbnormalSimulationType(abnormalTypes) })
       : sample;
 
+    // 严格按时间槽匹配（不再用“±间隔分钟”的跨槽就近合并），保证每槽一个代表点。
     const existingIndex = caseItem.vitals.findIndex((v) =>
-      Math.abs(dayjs(v.time).diff(ts, 'minute')) < displayIntervalMinutes,
+      resolveVitalBucketKey(String(v.time ?? ''), displayIntervalMinutes) === bucketKey,
     );
+    // 人工录入或人工修正的数据优先，设备不得覆盖。
     if (existingIndex >= 0 && !canDeviceOverwriteVital(caseItem.vitals[existingIndex], '设备采集')) {
-      lastVitalBucketKey = bucketKey;
       return;
     }
 
+    const isNewBucket = existingIndex < 0;
+    // 稳定 ID：新槽生成确定性 ID；同槽更新复用既有 ID，保证服务端按主键更新而非重复 create。
+    const stableId = isNewBucket ? buildStableVitalId(recordLocalId, slotTime, 'monitor') : (caseItem.vitals[existingIndex].id ?? buildStableVitalId(recordLocalId, slotTime, 'monitor'));
     const vital: VitalSign = {
-      id: `vital-${Date.now()}`,
-      time: ts,
+      id: stableId,
+      // 业务 time 归一为槽标准时间（整刻度、秒归零）；设备实际采集时间仍保留在 monitor_raw。
+      time: slotTime,
       HR: displaySample.hr,
       SBP: displaySample.sbp,
       DBP: displaySample.dbp,
@@ -222,8 +253,8 @@ export function startMonitorMockService(
       source: '设备采集',
     };
     if (existingIndex >= 0) {
+      // 同一时间槽选取最新有效样本覆盖（与后端 upsert 一致），保留稳定 id。
       const existing = caseItem.vitals[existingIndex];
-      vital.id = existing.id ?? vital.id;
       caseItem.vitals[existingIndex] = { ...existing, ...vital };
     } else {
       caseItem.vitals.push(vital);
@@ -233,21 +264,22 @@ export function startMonitorMockService(
     await db.vital_signs.put(mapVitalToRow(recordLocalId, savedVital, 1));
     const vitalBaseVersion = await readEntityBaseSyncVersion(recordLocalId, 'vital_sign', savedVital.id!);
     // 设备派生 vital_sign 门控：仅当开启真实设备同步（3d）才入队；手工 vital 由 store 另行走 vital_sign 处理器。
+    // 首次写入 create；同槽已存在用 update，携带稳定主键，避免服务端幂等返回旧值静默覆盖前端最新状态。
     if (useRealDevice()) {
       await enqueueSyncItem({
         recordLocalId,
         operationId: recordLocalId,
         entityType: 'vital_sign',
         entityLocalId: savedVital.id!,
-        operationType: 'create',
+        operationType: isNewBucket ? 'create' : 'update',
         baseSyncVersion: vitalBaseVersion,
         apiPath: ANESTHESIA_SYNC_QUEUE_API_PATH,
         payload: savedVital,
       });
       triggerAnesthesiaSyncAfterChange('vital_sign');
     }
-    onVitalAppended(recordLocalId, savedVital);
-    lastVitalBucketKey = bucketKey;
+    // 仅在新代表点出现时回调（最近记录/刷新），同槽覆盖静默更新数值。
+    if (isNewBucket) onVitalAppended(recordLocalId, savedVital);
 
     if (caseItem.device) {
       caseItem.device.lastCollectTime = ts;
