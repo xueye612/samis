@@ -245,6 +245,10 @@ export interface SurgeryCase {
   professionalFieldValues?: Record<string, string>;
   anesthesiaEnd?: string;
   roomInTime?: string;
+  /** HULI 原始入室时间快照（患者入室扫描来源），SAMIS 修正值覆盖 roomInTime 时保留原始，不回写 HULI。 */
+  originalRoomInTime?: string;
+  /** HULI 原始离室时间快照，同 originalRoomInTime。 */
+  originalLeaveRoomTime?: string;
   position?: string;
   transferIcuPlanned?: boolean;
   cancelStage?: string;
@@ -298,11 +302,16 @@ export interface AnesthesiaRecordModificationLog {
   time: string;
   operator: string;
   field: string;
-  label: string;
+  label?: string;
   before: string;
   after: string;
   reason: string;
-  status: '录入修改' | '已记录';
+  status: string;
+  /** 关键时间顺序异常覆盖保存标记。 */
+  timelineOrderOverride?: boolean;
+  /** 关键时间数据来源（HULI扫描/人工录入/快捷事件/设备采集）。 */
+  timelineSource?: string;
+  [key: string]: unknown;
 }
 
 export interface AnesthesiaRecordDraft {

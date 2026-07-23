@@ -40,18 +40,23 @@
             <strong>{{ nodeDisplayClock(node) }}</strong>
           </button>
           <template #content>
-            <div class="timeline-popover">
-              <p>{{ node.label }}</p>
-              <a-time-picker
-                v-model="editorTime"
-                format="HH:mm"
-                value-format="HH:mm"
-                style="width: 100%"
-                :disabled="locked"
-              />
-              <a-space>
-                <a-button size="mini" type="primary" :disabled="locked" @click="saveNow(node)">现在</a-button>
-                <a-button size="mini" type="primary" :disabled="locked" @click="saveNode(node)">保存</a-button>
+            <div class="timeline-popover timeline-popover--rich">
+              <p>{{ (popoverNode && popoverNode.key === node.key && popoverNode.label) || node.label }}</p>
+              <div v-if="isModify && popoverNode?.time" class="tp-row"><span>原时间</span><strong>{{ formatTimelineClock(popoverNode.time) }}</strong></div>
+              <div class="tp-row"><span>新时间</span>
+                <a-time-picker v-model="editorTime" format="HH:mm" value-format="HH:mm" style="width: 100%" :disabled="locked" />
+              </div>
+              <a-alert v-if="validation && orderConflict" type="warning" show-icon class="tp-alert">{{ validation.message }}</a-alert>
+              <a-alert v-else-if="isHardError" type="error" show-icon class="tp-alert">{{ validation?.message }}</a-alert>
+              <label class="tp-reason">
+                <span>修改原因{{ reasonRequired ? '（必填）' : '' }}</span>
+                <a-input v-model="editorReason" :placeholder="reasonRequired ? '修改/清除/异常覆盖需填写原因' : '可留空'" :disabled="locked" />
+              </label>
+              <a-space wrap class="tp-actions">
+                <a-button size="mini" type="primary" :disabled="locked || !canSave" @click="saveNode">保存</a-button>
+                <a-button v-if="canConfirmOverride" size="mini" status="warning" @click="confirmOverride">确认仍然保存</a-button>
+                <a-button size="mini" :disabled="locked" @click="saveNow">现在</a-button>
+                <a-button v-if="isModify" size="mini" status="danger" :disabled="locked || !editorReason.trim()" @click="clearNode">清除</a-button>
               </a-space>
             </div>
           </template>
@@ -85,23 +90,28 @@
             <i v-if="index < nodes.length - 1" class="timeline-stem"></i>
           </span>
           <span class="timeline-row-main">
-            <span class="node-label">{{ node.label }}</span>
+            <span class="node-label">{{ node.label }}<em v-if="node.source && node.source !== '未记录'" class="node-source">{{ node.source }}</em></span>
             <span class="node-time">{{ node.recorded ? formatTimelineClock(node.time) : '待记录' }}</span>
           </span>
         </button>
         <template #content>
-          <div class="timeline-popover">
-            <p>{{ node.label }}</p>
-            <a-time-picker
-              v-model="editorTime"
-              format="HH:mm"
-              value-format="HH:mm"
-              style="width: 100%"
-              :disabled="locked"
-            />
-            <a-space>
-              <a-button size="mini" type="primary" :disabled="locked" @click="saveNow(node)">现在</a-button>
-              <a-button size="mini" type="primary" :disabled="locked" @click="saveNode(node)">保存</a-button>
+          <div class="timeline-popover timeline-popover--rich">
+            <p>{{ (popoverNode && popoverNode.key === node.key && popoverNode.label) || node.label }}</p>
+            <div v-if="isModify && popoverNode?.time" class="tp-row"><span>原时间</span><strong>{{ formatTimelineClock(popoverNode.time) }}</strong></div>
+            <div class="tp-row"><span>新时间</span>
+              <a-time-picker v-model="editorTime" format="HH:mm" value-format="HH:mm" style="width: 100%" :disabled="locked" />
+            </div>
+            <a-alert v-if="validation && orderConflict" type="warning" show-icon class="tp-alert">{{ validation.message }}</a-alert>
+            <a-alert v-else-if="isHardError" type="error" show-icon class="tp-alert">{{ validation?.message }}</a-alert>
+            <label class="tp-reason">
+              <span>修改原因{{ reasonRequired ? '（必填）' : '' }}</span>
+              <a-input v-model="editorReason" :placeholder="reasonRequired ? '修改/清除/异常覆盖需填写原因' : '可留空'" :disabled="locked" />
+            </label>
+            <a-space wrap class="tp-actions">
+              <a-button size="mini" type="primary" :disabled="locked || !canSave" @click="saveNode">保存</a-button>
+              <a-button v-if="canConfirmOverride" size="mini" status="warning" @click="confirmOverride">确认仍然保存</a-button>
+              <a-button size="mini" :disabled="locked" @click="saveNow">现在</a-button>
+              <a-button v-if="isModify" size="mini" status="danger" :disabled="locked || !editorReason.trim()" @click="clearNode">清除</a-button>
             </a-space>
           </div>
         </template>
@@ -115,7 +125,8 @@ import dayjs from 'dayjs';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { buildRecordBandGrid, buildLiveTimeScale, timeToPercent } from '@/services/anesthesiaRecordEngine';
 import { resolveTimelineNodeLanes } from '@/services/recordLayoutEngine';
-import { buildTimelineNodeStates, buildRecordClockIso, buildRecordNowIso, formatTimelineClock, resolveTimelineDragIso, type MethodTimelineNode } from '@/services/methodTimelineEngine';
+import { buildTimelineNodeStates, buildRecordClockIso, buildRecordNowIso, formatTimelineClock, resolveTimelineDragIso, validateTimelineNodeTime, resolveTimelineNodeSource, type MethodTimelineNode } from '@/services/methodTimelineEngine';
+import { getServerNowClock, getServerNowIso } from '@/services/serverClock';
 import type { AnesthesiaMethodKey } from '@/mock/anesthesiaRecordPrototype';
 import type { SurgeryCase } from '@/types/anesthesia';
 
@@ -138,13 +149,15 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-  save: [node: MethodTimelineNode, isoTime: string];
+  save: [node: MethodTimelineNode, isoTime: string, options?: { reason?: string; overrideOrder?: boolean; clear?: boolean; source?: string }];
   focus: [node: MethodTimelineNode];
 }>();
 
 const trackRef = ref<HTMLElement | null>(null);
 const popoverKey = ref('');
+const popoverNode = ref<(MethodTimelineNode & { time?: string; recorded?: boolean; source?: string }) | null>(null);
 const editorTime = ref('');
+const editorReason = ref('');
 const dragKey = ref('');
 const dragPercent = ref(0);
 const dragIso = ref('');
@@ -154,6 +167,28 @@ let dragNode: MethodTimelineNode | null = null;
 let suppressClick = false;
 
 const nodes = computed(() => buildTimelineNodeStates(props.record, props.methodKeys));
+
+/** 预览顺序校验（区分可覆盖的 warning 与不可覆盖的 error）。 */
+const validation = computed(() => {
+  if (!popoverNode.value || !editorTime.value) return null;
+  const iso = buildIsoTime(editorTime.value);
+  return validateTimelineNodeTime(props.record, props.methodKeys, popoverNode.value, iso);
+});
+const isModify = computed(() => Boolean(popoverNode.value?.recorded && popoverNode.value?.time));
+const orderConflict = computed(() => validation.value?.orderConflict === true);
+const isHardError = computed(() => validation.value?.severity === 'error');
+/** 修改/清除/顺序覆盖时原因必填；首录且顺序正常可不填。 */
+const reasonRequired = computed(() => isModify.value || orderConflict.value);
+const canSave = computed(() => {
+  if (props.locked) return false;
+  if (!editorTime.value) return false;
+  if (isHardError.value) return false;
+  if (reasonRequired.value && !editorReason.value.trim()) return false;
+  // 修改且时间未变化不提交
+  if (isModify.value && popoverNode.value?.time && editorTime.value === dayjs(popoverNode.value.time).format('HH:mm')) return false;
+  return true;
+});
+const canConfirmOverride = computed(() => orderConflict.value && !isHardError.value && canSave.value);
 
 const timeScale = computed(() => {
   if (props.sheetStart && props.sheetEnd) {
@@ -204,8 +239,56 @@ const buildIsoTime = (clock: string) => buildRecordClockIso(props.record, clock)
 const openPopover = (node: MethodTimelineNode & { time?: string }) => {
   if (props.locked || suppressClick) return;
   popoverKey.value = node.key;
-  editorTime.value = node.time ? dayjs(node.time).format('HH:mm') : dayjs(buildRecordNowIso(props.record)).format('HH:mm');
+  popoverNode.value = node;
+  // 默认时间优先服务器时间：首录用服务器当前，修改时回填原时间。
+  editorTime.value = node.time ? dayjs(node.time).format('HH:mm') : getServerNowClock();
+  editorReason.value = '';
   emit('focus', node);
+};
+
+const closePopover = () => {
+  popoverKey.value = '';
+  popoverNode.value = null;
+  editorReason.value = '';
+};
+
+const onPopoverVisible = (key: string, visible: boolean) => {
+  if (!visible) closePopover();
+  else popoverKey.value = key;
+};
+
+const submitSave = (overrideOrder: boolean) => {
+  if (!popoverNode.value || !editorTime.value || props.locked) return;
+  if (reasonRequired.value && !editorReason.value.trim()) return;
+  const iso = buildIsoTime(editorTime.value);
+  emit('save', popoverNode.value, iso, {
+    reason: editorReason.value.trim(),
+    overrideOrder,
+    source: '人工录入',
+  });
+  closePopover();
+};
+
+const saveNode = () => submitSave(false);
+const confirmOverride = () => submitSave(true);
+
+const saveNow = () => {
+  if (!popoverNode.value || props.locked) return;
+  const iso = getServerNowIso();
+  // 现在保存仍需尊重修改/异常原因规则；若需原因且未填，回填时间供用户补原因。
+  editorTime.value = dayjs(iso).format('HH:mm');
+  if (!reasonRequired.value) {
+    emit('save', popoverNode.value, iso, { reason: editorReason.value.trim(), overrideOrder: false, source: '人工录入' });
+    closePopover();
+  }
+};
+
+const clearNode = () => {
+  if (!popoverNode.value || props.locked) return;
+  // 清除视为修改，原因必填（由 view 二次确认）。
+  if (!editorReason.value.trim()) return;
+  emit('save', popoverNode.value, '', { reason: editorReason.value.trim(), clear: true, source: '人工录入' });
+  closePopover();
 };
 
 const removeDragListeners = () => {
@@ -271,24 +354,8 @@ const startDrag = (event: PointerEvent, node: MethodTimelineNode & { displayPerc
   window.addEventListener('pointercancel', cancelDrag);
 };
 
-const onPopoverVisible = (key: string, visible: boolean) => {
-  popoverKey.value = visible ? key : '';
-};
-
-const saveNode = (node: MethodTimelineNode) => {
-  if (!editorTime.value || props.locked) return;
-  emit('save', node, buildIsoTime(editorTime.value));
-  popoverKey.value = '';
-};
-
-const saveNow = (node: MethodTimelineNode) => {
-  if (props.locked) return;
-  emit('save', node, buildRecordNowIso(props.record));
-  popoverKey.value = '';
-};
-
 watch(() => props.record.id, () => {
-  popoverKey.value = '';
+  closePopover();
   resetDrag();
 });
 
@@ -564,8 +631,40 @@ defineExpose({ trackRef });
   width: 180px;
 }
 
+.timeline-popover--rich {
+  width: 260px;
+}
+
 .timeline-popover p {
   margin: 0;
   font-weight: 700;
+}
+
+.tp-row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.tp-row span { color: #64748b; }
+.tp-row strong { color: #0f172a; }
+
+.tp-alert { font-size: 11px; }
+
+.tp-reason { display: grid; gap: 4px; font-size: 12px; color: #475569; }
+
+.tp-actions { justify-content: flex-start; }
+
+.node-source {
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #eef2ff;
+  color: #475569;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 500;
 }
 </style>

@@ -86,9 +86,10 @@ import {
 } from '@/services/scheduleHelpers';
 import {
   applyTimelineNodeTime,
+  clearTimelineNodeTime,
   type MethodTimelineNode,
 } from '@/services/methodTimelineEngine';
-import { upsertTimedKeyOperationLine } from '@/utils/numberedNotes';
+import { upsertTimedKeyOperationLine, removeTimedKeyOperationLine } from '@/utils/numberedNotes';
 import {
   applyLandingSyncFields,
   applyProfessionalFieldLanding,
@@ -2448,24 +2449,62 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       bumpDatasetVersion();
       this.datasetVersion += 1;
     },
-    applyTimelineNode(caseId: string, node: MethodTimelineNode, isoTime: string): number {
+    applyTimelineNode(
+      caseId: string,
+      node: MethodTimelineNode,
+      isoTime: string,
+      options: {
+        reason?: string;
+        previousTime?: string;
+        source?: string;
+        overrideOrder?: boolean;
+        clear?: boolean;
+      } = {},
+    ): number {
       const target = this.cases.find((entry) => entry.id === caseId);
       if (!target || target.locked) return this.recordPageDrafts[caseId] ?? 1;
-      applyTimelineNodeTime(target, node, isoTime);
-      const clock = dayjs(isoTime).format('HH:mm');
+      const reason = (options.reason ?? '').trim();
+      const source = options.source ?? '人工录入';
+      // HULI 原始值保护：入室/离室被覆盖前保留原始快照（不回写 HULI）。
+      if (!options.clear) {
+        if (node.syncField === 'roomInTime' && target.roomInTime && !target.originalRoomInTime) {
+          target.originalRoomInTime = target.roomInTime;
+        }
+        if (node.syncField === 'leaveRoomTime' && target.leaveRoomTime && !target.originalLeaveRoomTime) {
+          target.originalLeaveRoomTime = target.leaveRoomTime;
+        }
+      }
+      if (options.clear) {
+        clearTimelineNodeTime(target, node);
+      } else {
+        applyTimelineNodeTime(target, node, isoTime);
+      }
+      const clock = options.clear ? '已清除' : dayjs(isoTime).format('HH:mm');
       if (!target.recordSummary) target.recordSummary = {};
       if (!target.recordSummary.notes) target.recordSummary.notes = {};
-      target.recordSummary.notes.keyOperations = upsertTimedKeyOperationLine(
-        target.recordSummary.notes.keyOperations,
-        node.label,
-        clock,
-      );
-      this.recordFieldChange(caseId, '关键时间', '', `${node.label} ${isoTime}`, '时间轴节点');
+      target.recordSummary.notes.keyOperations = options.clear
+        ? removeTimedKeyOperationLine(target.recordSummary.notes.keyOperations, node.label)
+        : upsertTimedKeyOperationLine(target.recordSummary.notes.keyOperations, node.label, clock);
+      // 完整审计：原时间/新时间/原因/来源/顺序覆盖标记（不物理删除历史）。
+      target.modificationLogs = target.modificationLogs ?? [];
+      target.modificationLogs.unshift({
+        id: `mod-${Date.now()}`,
+        time: dayjs().toISOString(),
+        operator: this.currentDoctorName,
+        field: '关键时间',
+        label: node.label,
+        before: options.previousTime ?? '',
+        after: options.clear ? '已清除' : isoTime,
+        reason: reason || (options.clear ? '清除关键时间' : '时间轴节点'),
+        status: target.locked ? '已记录' : options.overrideOrder ? '顺序覆盖修改' : '录入修改',
+        timelineOrderOverride: options.overrideOrder === true,
+        timelineSource: source,
+      });
       this.syncRecordDocument(caseId);
       syncCaseToDataset(getMutableDataset(), target);
       bumpDatasetVersion();
       this.datasetVersion += 1;
-      if (node.key === 'room-in' || node.syncField === 'roomInTime') {
+      if (!options.clear && (node.key === 'room-in' || node.syncField === 'roomInTime')) {
         return this.focusRecordPageByTime(caseId, isoTime);
       }
       return this.recordPageDrafts[caseId] ?? 1;

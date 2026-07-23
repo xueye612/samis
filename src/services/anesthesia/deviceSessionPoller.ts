@@ -5,6 +5,7 @@ import {
   type DeviceSessionBinding,
   type DeviceSessionResponse,
 } from '@/api/anesthesiaDeviceSession';
+import { applyServerTime } from '@/services/serverClock';
 
 /**
  * 设备采集会话轮询状态。
@@ -108,6 +109,8 @@ export function mergeItems(existing: DeviceSample[], incoming: DeviceSample[]): 
 
 /** 应用一次响应到状态（纯函数，便于单测）。 */
 export function applySessionResponse(state: DeviceSessionState, res: DeviceSessionResponse, polledAt: string): DeviceSessionState {
+  // 后端返回 serverTime 时校准本地服务器时钟，供关键时间默认“现在”使用。
+  if (res.serverTime) applyServerTime(res.serverTime);
   // 后端运行时 items/latest.metrics 可能为 null/对象/非数组，统一归一，避免遍历抛错。
   const rawItems = asArray<unknown>(res.items).map(normalizeSample).filter((item): item is DeviceSample => item !== null);
   const items = mergeItems(state.items, rawItems);

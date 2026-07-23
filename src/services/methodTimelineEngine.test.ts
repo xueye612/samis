@@ -92,7 +92,7 @@ describe('methodTimelineEngine', () => {
     }, '08:10')).format('YYYY-MM-DD HH:mm')).toBe('2026-07-16 08:10');
   });
 
-  it('rejects a key time that crosses an already recorded clinical neighbour', () => {
+  it('flags a key time that crosses an already recorded clinical neighbour as order conflict (overridable)', () => {
     const record = {
       ...anesthesiaCases[0],
       roomInTime: '2026-07-16T08:00:00+08:00',
@@ -103,14 +103,34 @@ describe('methodTimelineEngine', () => {
     };
     const node = getMethodTimelineNodes(['general']).find((item) => item.key === 'surgery-start')!;
 
-    expect(validateTimelineNodeTime(record, ['general'], node, '2026-07-16T08:05:00+08:00')).toEqual({
-      valid: false,
-      message: '手术开始不得早于麻醉开始（08:10）',
-    });
-    expect(validateTimelineNodeTime(record, ['general'], node, '2026-07-16T10:05:00+08:00')).toEqual({
-      valid: false,
-      message: '手术开始不得晚于手术结束（10:00）',
-    });
-    expect(validateTimelineNodeTime(record, ['general'], node, '2026-07-16T08:45:00+08:00')).toEqual({ valid: true });
+    // 顺序异常不再硬拦截：返回 warning + orderConflict，可填原因覆盖保存。
+    const before = validateTimelineNodeTime(record, ['general'], node, '2026-07-16T08:05:00+08:00');
+    expect(before.valid).toBe(false);
+    expect(before.severity).toBe('warning');
+    expect(before.orderConflict).toBe(true);
+    expect(before.message).toContain('手术开始');
+    expect(before.message).toContain('麻醉开始');
+    expect(before.message).toContain('08:10');
+
+    const after = validateTimelineNodeTime(record, ['general'], node, '2026-07-16T10:05:00+08:00');
+    expect(after.valid).toBe(false);
+    expect(after.severity).toBe('warning');
+    expect(after.orderConflict).toBe(true);
+    expect(after.message).toContain('手术结束');
+    expect(after.message).toContain('10:00');
+
+    // 正常顺序直接允许保存。
+    const ok = validateTimelineNodeTime(record, ['general'], node, '2026-07-16T08:45:00+08:00');
+    expect(ok.valid).toBe(true);
+    expect(ok.severity).toBe('ok');
+  });
+
+  it('hard-rejects invalid time or non-belonging node (not overridable)', () => {
+    const record = { ...anesthesiaCases[0], events: [] };
+    const node = getMethodTimelineNodes(['general']).find((item) => item.key === 'surgery-start')!;
+    const invalid = validateTimelineNodeTime(record, ['general'], node, 'not-a-time');
+    expect(invalid.valid).toBe(false);
+    expect(invalid.severity).toBe('error');
+    expect(invalid.orderConflict).toBeUndefined();
   });
 });

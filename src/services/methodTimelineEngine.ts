@@ -83,14 +83,26 @@ export function resolveTimelineDragIso(
   return buildRecordClockIso(record, percentToTime(percent, start, end, 1));
 }
 
+export type TimelineValidationSeverity = 'ok' | 'warning' | 'error';
+
 export interface TimelineTimeValidationResult {
   valid: boolean;
   message?: string;
+  /** severity：error 为不可覆盖的硬错误；warning 为顺序异常，填原因+权限后可覆盖保存。 */
+  severity?: TimelineValidationSeverity;
+  /** 顺序异常（可覆盖），由保存流程据此要求原因与确认。 */
+  orderConflict?: boolean;
+  /** 冲突节点及时间，供前端展示。 */
+  conflicts?: Array<{ label: string; time: string }>;
 }
 
 /**
  * 关键时间必须服从当前麻醉方式对应的临床先后顺序。
  * 允许相邻节点记录在同一分钟，但不得越过已经记录的前一/后一节点。
+ *
+ * 顺序异常不再硬拦截：返回 severity=warning + orderConflict=true，
+ * 由保存流程要求填写原因并确认后覆盖保存（审计标记 timeline_order_override）。
+ * 无效时间/不属于节点仍为 error，不可覆盖。
  */
 export function validateTimelineNodeTime(
   record: SurgeryCase,
@@ -99,7 +111,7 @@ export function validateTimelineNodeTime(
   isoTime: string,
 ): TimelineTimeValidationResult {
   const candidate = dayjs(isoTime);
-  if (!candidate.isValid()) return { valid: false, message: `${node.label}时间无效` };
+  if (!candidate.isValid()) return { valid: false, severity: 'error', message: `${node.label}时间无效` };
 
   const states = buildTimelineNodeStates(record, methods);
   const index = states.findIndex((item) => item.key === node.key);
@@ -107,22 +119,25 @@ export function validateTimelineNodeTime(
     // 普通术中事件也允许拖动，但只能位于患者入室与离室窗口内；
     // 它们不参与“诱导→插管→手术”等麻醉方式节点的严格排序。
     if (!node.key.startsWith('event-')) {
-      return { valid: false, message: `${node.label}不属于当前麻醉方式的关键时间` };
+      return { valid: false, severity: 'error', message: `${node.label}不属于当前麻醉方式的关键时间` };
     }
     if (record.roomInTime && candidate.isBefore(dayjs(record.roomInTime))) {
-      return { valid: false, message: `${node.label}不得早于入室（${formatTimelineClock(record.roomInTime)}）` };
+      return { valid: false, severity: 'error', orderConflict: false, message: `${node.label}不得早于入室（${formatTimelineClock(record.roomInTime)}）` };
     }
     if (record.leaveRoomTime && candidate.isAfter(dayjs(record.leaveRoomTime))) {
-      return { valid: false, message: `${node.label}不得晚于离室（${formatTimelineClock(record.leaveRoomTime)}）` };
+      return { valid: false, severity: 'error', orderConflict: false, message: `${node.label}不得晚于离室（${formatTimelineClock(record.leaveRoomTime)}）` };
     }
-    return { valid: true };
+    return { valid: true, severity: 'ok' };
   }
 
   const previous = states.slice(0, index).reverse().find((item) => item.recorded && item.time);
   if (previous?.time && candidate.isBefore(dayjs(previous.time))) {
     return {
       valid: false,
-      message: `${node.label}不得早于${previous.label}（${formatTimelineClock(previous.time)}）`,
+      severity: 'warning',
+      orderConflict: true,
+      message: `${node.label}早于${previous.label}（${formatTimelineClock(previous.time)}），请确认时间是否准确。若属于补录或特殊情况，请填写原因后保存。`,
+      conflicts: [{ label: previous.label, time: previous.time }],
     };
   }
 
@@ -130,11 +145,14 @@ export function validateTimelineNodeTime(
   if (next?.time && candidate.isAfter(dayjs(next.time))) {
     return {
       valid: false,
-      message: `${node.label}不得晚于${next.label}（${formatTimelineClock(next.time)}）`,
+      severity: 'warning',
+      orderConflict: true,
+      message: `${node.label}晚于${next.label}（${formatTimelineClock(next.time)}），请确认时间是否准确。若属于补录或特殊情况，请填写原因后保存。`,
+      conflicts: [{ label: next.label, time: next.time }],
     };
   }
 
-  return { valid: true };
+  return { valid: true, severity: 'ok' };
 }
 
 export function buildTimedKeyOperationNoteLines(
@@ -189,12 +207,44 @@ export function resolveKeyOperationsDisplayText(
   return stored ?? fallbackPlain;
 }
 
+export type TimelineNodeSource = 'HULI扫描' | 'HULI原始(已修正)' | '人工录入' | '快捷事件' | '设备采集' | '未记录';
+
+/** 判定关键时间节点数据来源：入室/离室可能来自 HULI 扫描，其余为 SAMIS 维护。 */
+export function resolveTimelineNodeSource(record: SurgeryCase, node: MethodTimelineNode): TimelineNodeSource {
+  if (node.syncField === 'roomInTime') {
+    return record.originalRoomInTime ? 'HULI原始(已修正)' : 'HULI扫描';
+  }
+  if (node.syncField === 'leaveRoomTime') {
+    return record.originalLeaveRoomTime ? 'HULI原始(已修正)' : 'HULI扫描';
+  }
+  const recorded = Boolean(resolveTimelineNodeTime(record, node));
+  return recorded ? '人工录入' : '未记录';
+}
+
 export function buildTimelineNodeStates(record: SurgeryCase, methods: AnesthesiaMethodKey[]) {
   return getMethodTimelineNodes(methods).map((node) => ({
     ...node,
     time: resolveTimelineNodeTime(record, node),
     recorded: Boolean(resolveTimelineNodeTime(record, node)),
+    source: resolveTimelineNodeSource(record, node),
   }));
+}
+
+/** 清除已记录关键时间（置空 syncField 并移除对应事件），不物理删除历史审计。 */
+export function clearTimelineNodeTime(record: SurgeryCase, node: MethodTimelineNode): void {
+  if (node.syncField) {
+    if (node.syncField === 'roomInTime') record.roomInTime = undefined;
+    if (node.syncField === 'anesthesiaStart') record.anesthesiaStart = undefined;
+    if (node.syncField === 'surgeryStart') record.surgeryStart = undefined;
+    if (node.syncField === 'surgeryEnd') record.surgeryEnd = undefined;
+    if (node.syncField === 'anesthesiaEnd') record.anesthesiaEnd = undefined;
+    if (node.syncField === 'leaveRoomTime') record.leaveRoomTime = undefined;
+  }
+  const eventType = node.eventType;
+  if (eventType) {
+    const idx = record.events.findIndex((event) => event.type === eventType || event.type.includes(eventType));
+    if (idx >= 0) record.events.splice(idx, 1);
+  }
 }
 
 export function buildMilestoneStatusEvents(record: SurgeryCase) {

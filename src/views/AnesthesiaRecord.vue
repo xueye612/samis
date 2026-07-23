@@ -691,7 +691,7 @@ import { useAnesthesiaStore } from '@/stores/anesthesia';
 import { anesthesiaMethodOptions } from '@/mock/anesthesiaRecordPrototype';
 import type { AnesthesiaMethodKey, TemplateLandingItem, TemplateQualityTip } from '@/mock/anesthesiaRecordPrototype';
 import type { MethodTimelineNode } from '@/services/methodTimelineEngine';
-import { buildTimelineNodeStates, getMethodTimelineNodes, validateTimelineNodeTime } from '@/services/methodTimelineEngine';
+import { buildTimelineNodeStates, getMethodTimelineNodes, resolveTimelineNodeTime, validateTimelineNodeTime, formatTimelineClock } from '@/services/methodTimelineEngine';
 import type { AbnormalVitalByDictionary } from '@/services/anesthesiaRecordEngine';
 import type { QualityDefect } from '@/types/quality';
 import type { RecordRecentEntry } from '@/types/recordRecent';
@@ -2117,7 +2117,7 @@ const addEvent = (type: string) => {
   const payload = buildQuickEventPayload(type, current.value, resolveRecordSheetNowIso(current.value));
   const timelineNode = resolveQuickEventTimelineNode(type, sheetMethodKeys.value);
   if (timelineNode) {
-    saveTimelineNode(timelineNode, payload.time);
+    saveTimelineNode(timelineNode, payload.time, { source: '快捷事件' });
     return;
   }
   store.appendEvent(selectedId.value, payload);
@@ -2186,22 +2186,82 @@ watch(selectedMethodKeys, (keys) => {
 });
 const saveSummaryField = (patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryFields>) => store.updateRecordSummary(selectedId.value, patch);
 const saveSummaryNotes = (patch: Partial<import('@/types/anesthesiaRecord').RecordSummaryNotes>) => store.updateRecordSummaryNotes(selectedId.value, patch);
-const saveTimelineNode = (node: MethodTimelineNode, isoTime: string) => {
+const commitTimelineNode = (node: MethodTimelineNode, isoTime: string, opts: { reason?: string; previousTime?: string; source?: string; overrideOrder?: boolean; clear?: boolean }) => {
   const record = current.value;
   if (!record) return;
-  const validation = validateTimelineNodeTime(record, sheetMethodKeys.value, node, isoTime);
-  if (!validation.valid) {
-    Message.warning(validation.message ?? '关键时间不符合临床先后顺序');
-    return;
-  }
-  const pageNo = store.applyTimelineNode(selectedId.value, node, isoTime);
+  const pageNo = store.applyTimelineNode(selectedId.value, node, isoTime, opts);
   if (pageNo >= 1) livePageNo.value = pageNo;
   activeTimelineKey.value = node.key;
-  recentEventLabel.value = `${node.label} ${dayjs(isoTime).format('HH:mm')}`;
-  pushRecentEntry({ kind: 'timeline', label: node.label, time: isoTime, target: 'timeline', refId: node.key });
+  if (opts.clear) {
+    recentEventLabel.value = `清除 ${node.label}`;
+    pushRecentEntry({ kind: 'timeline', label: `清除${node.label}`, time: opts.previousTime || '', target: 'timeline', refId: node.key });
+  } else {
+    recentEventLabel.value = `${node.label} ${dayjs(isoTime).format('HH:mm')}`;
+    pushRecentEntry({ kind: 'timeline', label: node.label, time: isoTime, target: 'timeline', refId: node.key });
+  }
   activeTab.value = 'anesthesia';
   liveSheetRef.value?.flashEventType(node.eventType ?? node.label);
-  Message.success(`已更新：${node.label}`);
+  Message.success(opts.clear ? `已清除：${node.label}（历史审计保留）` : `已更新：${node.label}`);
+};
+
+/**
+ * 关键时间统一保存入口（当前任务弹窗 / 顶部快捷事件 / 时间轴拖动 均走此函数）。
+ * 区分首录/修改/清除/异常覆盖，强制原因与审计，不建立第二套时间数据。
+ */
+const saveTimelineNode = (
+  node: MethodTimelineNode,
+  isoTime: string,
+  options: { reason?: string; overrideOrder?: boolean; clear?: boolean; source?: string } = {},
+) => {
+  const record = current.value;
+  if (!record) return;
+  const previousTime = resolveTimelineNodeTime(record, node);
+  const source = options.source ?? '人工录入';
+
+  // 1) 清除已记录时间 → 视为修改，二次确认 + 原因必填。
+  if (options.clear) {
+    if (!options.reason?.trim()) { Message.warning('清除关键时间需填写原因'); return; }
+    Modal.confirm({
+      title: `确认清除「${node.label}」`,
+      content: `原时间 ${previousTime ? formatTimelineClock(previousTime) : '—'} 将被清除，历史审计保留不删除。`,
+      onOk: () => { commitTimelineNode(node, '', { reason: options.reason, previousTime, source, clear: true }); },
+    });
+    return;
+  }
+
+  // 2) 修改且原时间与新时间相同 → 不提交。
+  if (previousTime && isoTime && isoTime === previousTime) {
+    Message.info('时间未变化，未提交');
+    return;
+  }
+
+  // 3) 顺序校验：error（无效/越界）不可覆盖；warning（顺序异常）可填原因覆盖。
+  const validation = validateTimelineNodeTime(record, sheetMethodKeys.value, node, isoTime);
+  if (validation.severity === 'error') {
+    Message.warning(validation.message ?? '关键时间无效');
+    return;
+  }
+  const isModify = Boolean(previousTime);
+  const orderConflict = validation.orderConflict === true;
+
+  // 4) 修改/异常覆盖必须带原因（弹窗已收集则直接保存；拖动/快捷事件未带则拦截引导）。
+  if ((isModify || orderConflict) && !options.reason?.trim()) {
+    Message.warning(orderConflict
+      ? (validation.message ?? '时间顺序异常，请在关键时间弹窗填写原因后保存')
+      : '修改已记录时间需填写原因，请在关键时间弹窗操作');
+    return;
+  }
+  if (orderConflict && !options.overrideOrder) {
+    Message.warning('时间顺序异常，请填写原因后点“确认仍然保存”');
+    return;
+  }
+
+  commitTimelineNode(node, isoTime, {
+    reason: options.reason,
+    previousTime,
+    source,
+    overrideOrder: options.overrideOrder === true,
+  });
 };
 const focusWorkbenchTimelineNode = (node: MethodTimelineNode) => {
   activeTimelineKey.value = node.key;

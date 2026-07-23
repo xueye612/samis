@@ -106,6 +106,18 @@ export function updateNumberedNoteLineClock(text: string | undefined, lineIndex:
     .join('\n');
 }
 
+/** 清除某 label 对应的关键时间行，返回重排序后的文本。 */
+export function removeTimedKeyOperationLine(text: string | undefined, label: string): string {
+  if (!text) return '';
+  const lines = parseNumberedNoteLines(text);
+  const kept = lines.filter((line) => {
+    const content = line.displayContent || line.content;
+    return !content.includes(label);
+  });
+  if (!kept.length) return '';
+  return kept.map((line, index) => `${index + 1}. ${line.clock ? `${line.clock} ` : ''}${line.displayContent || line.content}`).join('\n');
+}
+
 export function upsertTimedKeyOperationLine(
   notes: string | undefined,
   label: string,
