@@ -1938,6 +1938,11 @@ const decreaseSheetZoom = () => { userZoomed.value = true; manualSheetZoom.value
 const fitSheetWidth = () => { userZoomed.value = false; syncSheetWorkbenchWidth(); };
 const startRecord = () => {
   if (!requireCurrent()) return;
+  // 已完成病例（患者已离室/归档）：不重复启动记录，引导直接补录。
+  if (isTerminal.value) {
+    Message.info('该病例已完成（患者已离室），可直接在记录单补录，无需启动记录');
+    return;
+  }
   const result = store.startAnesthesiaRecord(selectedId.value);
   if (!result.ok) {
     Message.warning(result.message);
