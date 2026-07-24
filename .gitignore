@@ -27,4 +27,10 @@ Thumbs.db
 AGENTS.md
 
 artifacts/
-t samisWeb]- git count-objects -vH
+
+# 工具/草稿产物，不提交
+.superpowers/
+samisWeb-ui-polish/
+.kilo/
+.kilocode/
+.opencode/
