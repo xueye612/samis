@@ -169,7 +169,8 @@ const dragPercent = ref(0);
 const dragIso = ref('');
 let dragStartX = 0;
 let dragMoved = false;
-let dragNode: MethodTimelineNode | null = null;
+type RailNode = MethodTimelineNode & { displayPercent: number; time?: string; recorded?: boolean };
+let dragNode: RailNode | null = null;
 let suppressClick = false;
 
 const nodes = computed(() => buildTimelineNodeStates(props.record, props.methodKeys));
@@ -250,6 +251,18 @@ const openPopover = (node: MethodTimelineNode & { time?: string }) => {
   popoverNode.value = node;
   // 默认时间优先服务器时间：首录用服务器当前，修改时回填原时间。
   editorTime.value = node.time ? dayjs(node.time).format('HH:mm') : getServerNowClock();
+  editorReason.value = '';
+  emit('focus', node);
+};
+
+/**
+ * 拖动已记录/顺序冲突节点后打开编辑弹窗：预填拖动后的 proposedTime（草稿），
+ * 不直接改正式数据；用户填写原因并保存后才提交，取消则节点保持原位。
+ */
+const openPopoverForDrag = (node: MethodTimelineNode & { time?: string }, iso: string) => {
+  popoverKey.value = node.key;
+  popoverNode.value = node;
+  editorTime.value = formatTimelineClock(iso);
   editorReason.value = '';
   emit('focus', node);
 };
@@ -339,7 +352,23 @@ function finishDrag(event: PointerEvent) {
     updateDrag(event.clientX);
     const iso = dragIso.value;
     suppressClick = true;
-    if (iso) emit('save', node, iso);
+    if (iso) {
+      const isModifyNode = Boolean(node.recorded && node.time);
+      const v = validateTimelineNodeTime(props.record, props.methodKeys, node, iso);
+      const conflict = v?.orderConflict === true;
+      const hardError = v?.severity === 'error';
+      if (hardError) {
+        // 无效/越界时间：交给父级提示，不弹窗、不保存。
+        emit('save', node, iso);
+      } else if (isModifyNode || conflict) {
+        // 修改已记录时间 或 顺序冲突：打开编辑弹窗（预填拖动后时间），收集原因后保存；
+        // 保存前不修改正式 Store/时间轴位置。取消则节点保持原位。
+        openPopoverForDrag(node, iso);
+      } else {
+        // 首录且顺序正常：直接保存（reason 可选）。
+        emit('save', node, iso);
+      }
+    }
     window.setTimeout(() => { suppressClick = false; }, 0);
   }
   resetDrag();

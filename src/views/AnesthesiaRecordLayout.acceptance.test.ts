@@ -5,6 +5,7 @@ import topbarViewSource from '@/components/anesthesia/record/RecordWorkstationTo
 import intraopWorkflowSource from '@/components/anesthesia/record/IntraopWorkflowPanel.vue?raw';
 import detailTabsSource from '@/components/anesthesia/record/RecordDetailTabs.vue?raw';
 import roomDeviceApiSource from '@/api/anesthesiaRoomDeviceConfig.ts?raw';
+import timelineRailSource from '@/components/anesthesia/record/TimelineNodeRail.vue?raw';
 
 // 这些验收用例在 node 环境下以“源码级断言”锁定布局契约，等价于 DOM 层面的结构门禁。
 // 任何破坏以下契约的改动都会让 CI 失败，避免右侧菜单/表头折叠/设备入口再次分裂。
@@ -292,5 +293,28 @@ describe('手术间设备配置收尾', () => {
   it('候选带 selectable/disabledReason，前端不 hardcode 占用判断', () => {
     expect(roomDeviceApiSource).toContain('selectable');
     expect(roomDeviceApiSource).toContain('disabledReason');
+  });
+});
+
+describe('关键时间拖动→修改弹窗（不再只提示）', () => {
+  it('拖动已记录/冲突节点后打开编辑弹窗（预填拖动时间），首录无冲突直接保存', () => {
+    // finishDrag 区分：无效(error)→父级提示；已记录或顺序冲突→开弹窗收集原因；首录正常→直接保存。
+    expect(timelineRailSource).toContain('openPopoverForDrag');
+    expect(timelineRailSource).toContain('isModifyNode || conflict');
+    // 预填 proposedTime（拖动后时间）作为草稿，不直接改正式数据。
+    expect(timelineRailSource).toContain('editorTime.value = formatTimelineClock(iso)');
+  });
+
+  it('弹窗展示节点名/原时间/新时间/原因必填/顺序冲突/强制覆盖', () => {
+    expect(timelineRailSource).toContain('原时间');
+    expect(timelineRailSource).toContain('新时间');
+    expect(timelineRailSource).toContain('修改原因{{ reasonRequired');
+    expect(timelineRailSource).toContain('canConfirmOverride');
+    expect(timelineRailSource).toContain('确认仍然保存');
+  });
+
+  it('保存走同一后端接口 saveTimelineNode，取消则不保存', () => {
+    expect(recordViewSource).toContain('anesthesiaTimelineApi.saveTimelineNode');
+    expect(recordViewSource).toContain('newTime: opts.clear ? null : isoTime');
   });
 });
