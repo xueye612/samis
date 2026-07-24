@@ -297,24 +297,25 @@ describe('手术间设备配置收尾', () => {
 });
 
 describe('关键时间拖动→修改弹窗（不再只提示）', () => {
-  it('拖动已记录/冲突节点后打开编辑弹窗（预填拖动时间），首录无冲突直接保存', () => {
-    // finishDrag 区分：无效(error)→父级提示；已记录或顺序冲突→开弹窗收集原因；首录正常→直接保存。
-    expect(timelineRailSource).toContain('openPopoverForDrag');
+  it('拖动已记录/冲突节点后请求父级打开弹窗（携带 proposedTime 草稿），首录无冲突直接保存', () => {
+    expect(timelineRailSource).toContain("'request-edit'");
     expect(timelineRailSource).toContain('isModifyNode || conflict');
-    // 预填 proposedTime（拖动后时间）作为草稿，不直接改正式数据。
-    expect(timelineRailSource).toContain('editorTime.value = formatTimelineClock(iso)');
+    expect(timelineRailSource).toContain('emit(\'request-edit\', node, iso)');
   });
 
-  it('弹窗展示节点名/原时间/新时间/原因必填/顺序冲突/强制覆盖', () => {
-    expect(timelineRailSource).toContain('原时间');
-    expect(timelineRailSource).toContain('新时间');
-    expect(timelineRailSource).toContain('修改原因{{ reasonRequired');
-    expect(timelineRailSource).toContain('canConfirmOverride');
-    expect(timelineRailSource).toContain('确认仍然保存');
+  it('父级确定性 Modal 展示节点/原时间/新时间/原因必填/顺序冲突/强制覆盖', () => {
+    expect(recordViewSource).toContain('timelineEditVisible');
+    expect(recordViewSource).toContain('openTimelineEditFromDrag');
+    expect(recordViewSource).toContain('修改关键时间');
+    expect(recordViewSource).toContain('原时间');
+    expect(recordViewSource).toContain('新时间');
+    expect(recordViewSource).toContain('确认仍然保存');
+    expect(recordViewSource).toContain('cancelTimelineEdit');
   });
 
-  it('保存走同一后端接口 saveTimelineNode，取消则不保存', () => {
+  it('取消不保存、保存走同一后端接口 saveTimelineNode', () => {
+    expect(recordViewSource).toContain('节点保持原位');
     expect(recordViewSource).toContain('anesthesiaTimelineApi.saveTimelineNode');
-    expect(recordViewSource).toContain('newTime: opts.clear ? null : isoTime');
+    expect(recordViewSource).toContain('saveTimelineNode(draft.node, draft.proposedIso');
   });
 });

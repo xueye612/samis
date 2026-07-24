@@ -157,6 +157,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   save: [node: MethodTimelineNode, isoTime: string, options?: { reason?: string; overrideOrder?: boolean; clear?: boolean; source?: string }];
   focus: [node: MethodTimelineNode];
+  /** 拖动已记录/顺序冲突节点结束：请求父级打开修改弹窗（携带 proposedTime 草稿）。 */
+  'request-edit': [node: MethodTimelineNode, isoTime: string];
 }>();
 
 const trackRef = ref<HTMLElement | null>(null);
@@ -255,18 +257,6 @@ const openPopover = (node: MethodTimelineNode & { time?: string }) => {
   emit('focus', node);
 };
 
-/**
- * 拖动已记录/顺序冲突节点后打开编辑弹窗：预填拖动后的 proposedTime（草稿），
- * 不直接改正式数据；用户填写原因并保存后才提交，取消则节点保持原位。
- */
-const openPopoverForDrag = (node: MethodTimelineNode & { time?: string }, iso: string) => {
-  popoverKey.value = node.key;
-  popoverNode.value = node;
-  editorTime.value = formatTimelineClock(iso);
-  editorReason.value = '';
-  emit('focus', node);
-};
-
 const closePopover = () => {
   popoverKey.value = '';
   popoverNode.value = null;
@@ -361,9 +351,9 @@ function finishDrag(event: PointerEvent) {
         // 无效/越界时间：交给父级提示，不弹窗、不保存。
         emit('save', node, iso);
       } else if (isModifyNode || conflict) {
-        // 修改已记录时间 或 顺序冲突：打开编辑弹窗（预填拖动后时间），收集原因后保存；
+        // 修改已记录时间 或 顺序冲突：请求父级打开修改弹窗（预填拖动后 proposedTime 草稿），
         // 保存前不修改正式 Store/时间轴位置。取消则节点保持原位。
-        openPopoverForDrag(node, iso);
+        emit('request-edit', node, iso);
       } else {
         // 首录且顺序正常：直接保存（reason 可选）。
         emit('save', node, iso);

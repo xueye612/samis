@@ -276,9 +276,10 @@
                 :can-revise="canReviseTimeline"
                 :can-override="canOverrideTimelineOrder"
                 :active-key="activeTimelineKey"
-                @save="saveTimelineNode"
-                @focus="focusWorkbenchTimelineNode"
-              />
+                 @save="saveTimelineNode"
+                 @request-edit="openTimelineEditFromDrag"
+                 @focus="focusWorkbenchTimelineNode"
+               />
             </a-card>
 
             <section v-if="runningPumps.length" class="toolbox-pumps" data-testid="side-running-pumps">
@@ -435,6 +436,30 @@
       </div>
     </a-drawer>
 
+    <!-- 拖动已记录/冲突节点 → 修改关键时间弹窗（确定性 Modal，不依赖 popover 指针时序） -->
+    <a-modal
+      v-model:visible="timelineEditVisible"
+      :title="timelineEditDraft.isModify ? '修改关键时间' : '记录关键时间'"
+      :on-before-ok="() => { confirmTimelineEdit(); return false; }"
+      ok-text="保存"
+      :mask-closable="false"
+      :width="420"
+      class="no-print"
+      @cancel="cancelTimelineEdit"
+    >
+      <div class="tl-edit-grid">
+        <div><span>节点</span><strong>{{ timelineEditDraft.nodeName }}</strong></div>
+        <div v-if="timelineEditDraft.isModify"><span>原时间</span><strong>{{ timelineEditDraft.originalTime ? formatTimelineClock(timelineEditDraft.originalTime) : '—' }}</strong></div>
+        <div><span>新时间</span><strong>{{ formatTimelineClock(timelineEditDraft.proposedIso) }}</strong></div>
+      </div>
+      <a-alert v-if="timelineEditDraft.conflictMessage" type="warning" show-icon style="margin: 8px 0">{{ timelineEditDraft.conflictMessage }}</a-alert>
+      <label class="tl-edit-reason">
+        <span>修改原因{{ timelineEditDraft.isModify || timelineEditDraft.conflictMessage ? '（必填）' : '' }}</span>
+        <a-input v-model="timelineEditDraft.reason" placeholder="请填写修改原因" />
+      </label>
+      <a-checkbox v-if="timelineEditDraft.conflictMessage && canOverrideTimelineOrder" v-model="timelineEditDraft.override" style="margin-top: 8px">确认仍然保存（强制覆盖顺序）</a-checkbox>
+    </a-modal>
+
     <!-- 设备详情 -->
     <a-modal v-model:visible="deviceDetailVisible" title="当前病例设备详情" :footer="false" :width="460" class="no-print">
       <div class="device-detail-grid">
@@ -444,7 +469,10 @@
         <div><span>中央采集编号</span><strong>{{ deviceDetailConfig?.centralDeviceNo || '—' }}</strong></div>
         <div><span>关联时间</span><strong>{{ deviceSessionState.binding?.effectiveFrom || '—' }}</strong></div>
         <div><span>关联方式</span><strong>{{ deviceSessionState.binding?.bindingMode || '—' }}</strong></div>
-        <div><span>采集状态</span><strong>{{ deviceSessionState.ended ? '已停止' : (deviceSessionState.binding ? '采集中' : '未关联') }}</strong></div>
+        <div><span>采集状态</span><strong>{{ collectionStatusLabel }}</strong></div>
+        <div v-if="collectionStatusInfo?.deviceCode"><span>主监护仪</span><strong>{{ collectionStatusInfo.deviceCode }}</strong></div>
+        <div v-if="collectionStatusInfo?.latestObservedAt"><span>最后数据</span><strong>{{ collectionStatusInfo.latestObservedAt }}</strong></div>
+        <div v-if="collectionStatusInfo?.source"><span>数据来源</span><strong>{{ collectionStatusInfo.source === 'virtual' ? '虚拟数据' : (collectionStatusInfo.source === 'real' ? '真实数据' : collectionStatusInfo.source) }}</strong></div>
       </div>
     </a-modal>
 
@@ -913,6 +941,27 @@ const isTerminal = computed(() => {
   const s = collectionStatusInfo.value?.collectionStatus;
   return s === 'stopped' || s === 'archived';
 });
+/** 统一采集状态中文标签（后端为唯一真值，覆盖旧的 binding 定时器判断）。 */
+const COLLECTION_STATUS_LABEL: Record<string, string> = {
+  not_started: '未启动', waiting_for_entry: '等待入室', room_missing: '无手术间',
+  device_not_configured: '未配置设备', checking: '检查中', collecting: '采集中',
+  paused: '采集暂停', gateway_unreachable: '接口不可用', data_stale: '数据过期',
+  stopped: '已停止', archived: '已归档',
+};
+const collectionStatusLabel = computed(() => {
+  const s = collectionStatusInfo.value?.collectionStatus;
+  return s ? (COLLECTION_STATUS_LABEL[s] ?? s) : '—';
+});
+/** 节流刷新统一采集状态（≥15s 一次），供设备会话轮询顺带调用，避免每 3s 打一次接口。 */
+let collectionStatusLastFetchAt = 0;
+const refreshCollectionStatusThrottled = async (operationId: string) => {
+  const now = Date.now();
+  if (now - collectionStatusLastFetchAt < 15000) return;
+  collectionStatusLastFetchAt = now;
+  try {
+    collectionStatusInfo.value = await anesthesiaRoomDeviceConfigApi.collectionStatus(operationId);
+  } catch { /* 状态查询失败不阻断设备会话轮询 */ }
+};
 let deviceSessionPoller: DeviceSessionPoller | null = null;
 // 后端正式落点轮询（普通5分钟/抢救1分钟），生成正式生命体征，取代前端模拟每分钟写入。
 let deviceFormalPointPoller: DeviceFormalPointPoller | null = null;
@@ -998,7 +1047,11 @@ const restartDeviceSessionPolling = async (operationId: string) => {
   if (!operationId) return;
   deviceSessionPoller = createDeviceSessionPoller({
     operationId,
-    onState: (state) => { deviceSessionState.value = state; },
+    onState: (state) => {
+      deviceSessionState.value = state;
+      // 设备会话每次轮询时顺带节流刷新统一采集状态，使 Gateway 断开/数据过期/恢复 实时反映到设备区与暂停逻辑。
+      void refreshCollectionStatusThrottled(operationId);
+    },
   });
   deviceSessionPoller.start();
   // 统一采集状态：后端判定（终态/未配置/未入室/暂停/采集中）。终态或不可采集时不启动正式落点轮询。
@@ -2280,6 +2333,66 @@ const commitTimelineNode = async (node: MethodTimelineNode, isoTime: string, opt
   }
 };
 
+// ---- 拖动已记录/冲突节点 → 确定性“修改关键时间”弹窗（不依赖 popover 指针时序）----
+interface TimelineEditDraft {
+  node: MethodTimelineNode | null;
+  nodeName: string;
+  originalTime: string;
+  proposedIso: string;
+  reason: string;
+  override: boolean;
+  conflictMessage: string;
+  isModify: boolean;
+}
+const timelineEditVisible = ref(false);
+const timelineEditDraft = ref<TimelineEditDraft>({
+  node: null, nodeName: '', originalTime: '', proposedIso: '', reason: '', override: false, conflictMessage: '', isModify: false,
+});
+
+const openTimelineEditFromDrag = (node: MethodTimelineNode, isoTime: string) => {
+  const record = current.value;
+  if (!record) return;
+  if (record.locked) { Message.warning('记录已锁定，不能修改'); return; }
+  const originalTime = resolveTimelineNodeTime(record, node) ?? '';
+  const validation = validateTimelineNodeTime(record, sheetMethodKeys.value, node, isoTime);
+  const isModify = Boolean(originalTime);
+  const conflict = validation?.orderConflict === true;
+  timelineEditDraft.value = {
+    node,
+    nodeName: node.label,
+    originalTime,
+    proposedIso: isoTime,
+    reason: '',
+    override: false,
+    conflictMessage: conflict ? (validation?.message ?? '时间顺序异常') : '',
+    isModify,
+  };
+  timelineEditVisible.value = true;
+};
+
+const confirmTimelineEdit = async () => {
+  const draft = timelineEditDraft.value;
+  if (!draft.node) return false;
+  if (draft.isModify && !draft.reason.trim()) {
+    Message.warning('修改已记录时间需填写原因');
+    return false;
+  }
+  if (draft.conflictMessage && !draft.override) {
+    Message.warning('时间顺序异常，请勾选“确认仍然保存”');
+    return false;
+  }
+  // 复用统一保存路径：携带 reason + overrideOrder，由 saveTimelineNode→commitTimelineNode 提交。
+  timelineEditVisible.value = false;
+  saveTimelineNode(draft.node, draft.proposedIso, { reason: draft.reason.trim(), overrideOrder: draft.override });
+  return true;
+};
+
+const cancelTimelineEdit = () => {
+  // 取消：节点保持原位（保存前从未改正式数据），清空草稿，不产生任何请求。
+  timelineEditVisible.value = false;
+  timelineEditDraft.value = { node: null, nodeName: '', originalTime: '', proposedIso: '', reason: '', override: false, conflictMessage: '', isModify: false };
+};
+
 /**
  * 关键时间统一保存入口（当前任务弹窗 / 顶部快捷事件 / 时间轴拖动 均走此函数）。
  * 区分首录/修改/清除/异常覆盖，强制原因与审计，不建立第二套时间数据。
@@ -2798,6 +2911,13 @@ const qualityColor = (status: string) => status === '通过' ? 'green' : status 
   font-size: 13px;
   word-break: break-all;
 }
+
+.tl-edit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.tl-edit-grid > div { display: grid; gap: 2px; }
+.tl-edit-grid span { color: #64748b; font-size: 11px; }
+.tl-edit-grid strong { color: #0f172a; font-size: 13px; }
+.tl-edit-reason { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.tl-edit-reason span { color: #475569; font-size: 12px; }
 
 .device-op-tip {
   margin: 0 0 10px;
