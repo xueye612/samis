@@ -312,7 +312,7 @@
 
               <!-- 设备：统一以设备采集会话为唯一来源 -->
               <div v-show="sideTab === 'device'" class="toolbox-tab-pane" data-testid="side-pane-device">
-              <DeviceSessionVentilatorPanel :state="deviceSessionState" :display-paused="deviceDisplayPaused" @open-room-config="openMoreTools(); moreToolTab = 'roomDevice'" />
+              <DeviceSessionVentilatorPanel :state="deviceSessionState" :display-paused="deviceDisplayPaused" :collection-status="collectionStatusInfo?.collectionStatus" @open-room-config="openMoreTools(); moreToolTab = 'roomDevice'" />
               <section class="device-ops no-print" data-testid="device-case-ops">
                 <a-button v-if="deviceBound" size="mini" @click="openDeviceDetail">设备详情</a-button>
                 <a-button v-if="deviceDisplayPaused" size="mini" type="primary" @click="deviceDisplayPaused = false">恢复显示</a-button>
@@ -2433,15 +2433,14 @@ const saveTimelineNode = (
   const isModify = Boolean(previousTime);
   const orderConflict = validation.orderConflict === true;
 
-  // 4) 修改/异常覆盖必须带原因（弹窗已收集则直接保存；拖动/快捷事件未带则拦截引导）。
+  // 4) 修改/异常覆盖必须带原因：拖动/快捷事件未带 reason 时，直接打开“修改关键时间”弹窗
+  //    收集原因（而非仅提示），保存前不修改正式数据。
   if ((isModify || orderConflict) && !options.reason?.trim()) {
-    Message.warning(orderConflict
-      ? (validation.message ?? '时间顺序异常，请在关键时间弹窗填写原因后保存')
-      : '修改已记录时间需填写原因，请在关键时间弹窗操作');
+    openTimelineEditFromDrag(node, isoTime);
     return;
   }
   if (orderConflict && !options.overrideOrder) {
-    Message.warning('时间顺序异常，请填写原因后点“确认仍然保存”');
+    openTimelineEditFromDrag(node, isoTime);
     return;
   }
 

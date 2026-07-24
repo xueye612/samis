@@ -72,13 +72,23 @@ import dayjs from 'dayjs';
 import { computed } from 'vue';
 import type { DeviceSessionState } from '@/services/anesthesia/deviceSessionPoller';
 
-const props = defineProps<{ state: DeviceSessionState; displayPaused?: boolean }>();
+const props = defineProps<{ state: DeviceSessionState; displayPaused?: boolean; collectionStatus?: string }>();
 defineEmits<{ 'open-room-config': [] }>();
 
 const waiting = computed(() => props.state.waitingForPatientEntry && !props.state.binding);
 // associating 仅在尚未建立 binding 时为真；已有 binding 后普通轮询不再回到关联中。
 const associating = computed(() => !waiting.value && !props.state.binding && props.state.loading);
 const isPreview = computed(() => !waiting.value && (props.state.source === 'preview' || props.state.status === 'preview'));
+// 统一采集状态（后端为唯一真值）：有值时覆盖旧的 binding 定时器判断。
+const COLLECTION_LABEL: Record<string, string> = {
+  not_started: '未启动', waiting_for_entry: '等待入室', room_missing: '无手术间',
+  device_not_configured: '未配置设备', collecting: '采集中', paused: '采集暂停',
+  gateway_unreachable: '接口不可用', data_stale: '数据过期', stopped: '已停止', archived: '已归档',
+};
+const collectionLabel = computed(() => {
+  const s = props.collectionStatus;
+  return s ? (COLLECTION_LABEL[s] ?? s) : '';
+});
 const roomLabel = computed(() => {
   const code = props.state.bindingRoomCode || props.state.binding?.roomCode || '';
   const name = props.state.bindingRoomName || props.state.binding?.roomName || '';
@@ -90,6 +100,7 @@ const headerDeviceLabel = computed(() => {
   return associating.value ? '正在关联设备…' : '未关联设备';
 });
 const modeLabel = computed(() => {
+  if (collectionLabel.value) return collectionLabel.value;
   if (waiting.value) return '等待入室';
   if (props.state.binding) {
     const m = props.state.binding.bindingMode;
