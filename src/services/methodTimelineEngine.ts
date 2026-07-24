@@ -44,6 +44,9 @@ export function getMethodTimelineNodes(methods: AnesthesiaMethodKey[]): MethodTi
 
 export function resolveTimelineNodeTime(record: SurgeryCase, node: MethodTimelineNode): string | undefined {
   if (node.syncField && record[node.syncField]) return record[node.syncField];
+  // room-in 回退：旧 case_payload 快照可能把入室扫描(FIRST_SCANNING)落到 actualStart 而非 roomInTime，
+  // 导致入室节点不显示。actualStart 保存了 HULI 入室扫描时间时，作为入室时间回退显示。
+  if (node.syncField === 'roomInTime' && record.actualStart) return record.actualStart;
   if (!node.eventType) return undefined;
   const match = record.events.find((event) => event.type === node.eventType || event.type.includes(node.eventType!));
   return match?.time;
