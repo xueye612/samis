@@ -14,7 +14,7 @@ import { ANESTHESIA_SYNC_QUEUE_API_PATH, readEntityBaseSyncVersion, enqueueSyncI
 
 import { triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthesiaSyncService';
 
-import { useRealDevice } from '@/config/apiFlags';
+import { useRealDevice, useBackendDeviceFormalPoints } from '@/config/apiFlags';
 
 import { buildMonitorSample } from '@/services/anesthesia/deviceMockSamples';
 import { notifySimulatedDeviceDataCollected } from '@/services/anesthesia/deviceRealtimeSource';
@@ -215,6 +215,11 @@ export function startMonitorMockService(
   };
 
   const maybePersistDisplayVital = async (ts: string, sample: ReturnType<typeof buildMonitorSample>, caseItem: SurgeryCase) => {
+    // 正式代表点改由后端设备查询接口（queryRecordPoint normal/rescue、queryManualPoint）生成；
+    // 启用后端查询时，模拟服务不再直接写正式生命体征，仅保留原始采集用于实时展示。
+    if (useBackendDeviceFormalPoints()) {
+      return;
+    }
     // 时间槽与后端 ingest 一致：常规整 5 分钟、抢救 1 分钟，按 floor(分钟/间隔) 整刻度对齐。
     // 间隔每 tick 按当前病例抢救态解析（退出抢救后立即恢复 5 分钟）。
     const displayIntervalMinutes = displayIntervalFor(caseItem);

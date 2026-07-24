@@ -14,7 +14,7 @@ import { ANESTHESIA_SYNC_QUEUE_API_PATH, readEntityBaseSyncVersion, enqueueSyncI
 
 import { triggerAnesthesiaSyncAfterChange } from '@/services/anesthesia/anesthesiaSyncService';
 
-import { useRealDevice } from '@/config/apiFlags';
+import { useRealDevice, useBackendDeviceFormalPoints } from '@/config/apiFlags';
 
 import { buildVentilatorSample } from '@/services/anesthesia/deviceMockSamples';
 import { notifySimulatedDeviceDataCollected } from '@/services/anesthesia/deviceRealtimeSource';
@@ -149,6 +149,10 @@ export function startVentilatorMockService(
   };
 
   const maybePersistDisplayVital = async (ts: string, sample: ReturnType<typeof buildVentilatorSample>, caseItem: SurgeryCase) => {
+    // 正式代表点改由后端设备查询接口生成；启用后端查询时模拟服务不再写正式生命体征。
+    if (useBackendDeviceFormalPoints()) {
+      return;
+    }
     // 时间槽与后端 ingest 一致，与 monitor 复用同一分桶规则。间隔每 tick 按当前抢救态解析。
     const displayIntervalMinutes = displayIntervalFor(caseItem);
     const slotTime = resolveVitalSlotTime(ts, displayIntervalMinutes);

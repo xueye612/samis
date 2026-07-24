@@ -41,6 +41,18 @@ export function useRealDevice(): boolean {
 }
 
 /**
+ * 麻醉记录正式生命体征是否由后端设备查询接口（queryRecordPoint/queryManualPoint）生成。
+ *
+ * 默认 true：正式代表点只能由后端 normal(5分钟)/rescue(1分钟)/manual 查询生成，
+ * 前端模拟服务不再直接写正式生命体征（只保留实时原始数据展示）。
+ * 显式设 VITE_BACKEND_DEVICE_FORMAL_POINTS=false 可回退到旧前端模拟正式写入（仅调试）。
+ */
+export function useBackendDeviceFormalPoints(): boolean {
+  const flag = (import.meta.env.VITE_BACKEND_DEVICE_FORMAL_POINTS as string | undefined) ?? '';
+  return flag !== 'false' && flag !== '0';
+}
+
+/**
  * 手术间设备配置专用 mock 开关（默认关闭）。
  *
  * 该功能（房间列表 + HULI 设备候选）默认必须直连真实后端，读取 HULI operation_room

@@ -138,4 +138,28 @@ export const anesthesiaRoomDeviceConfigApi = {
     const qs = query.toString();
     return roomDeviceRequest(`/anesthesiaDevice/roomDeviceConfigHistory${qs ? `?${qs}` : ''}`);
   },
+  /** 正式落点查询：普通5分钟(normal)/抢救1分钟(rescue)。写正式生命体征，同桶幂等，手工点优先。 */
+  queryRecordPoint(params: { operationId: string; targetTime: string; mode?: 'normal' | 'rescue' }): Promise<{
+    operationId: string; bucketTime: string; mode: string; deviceCode: string;
+    actualObservedAt: string; source: string; metrics: Record<string, number>; skipped: string;
+  }> {
+    const q = new URLSearchParams({ operationId: params.operationId, targetTime: params.targetTime, mode: params.mode ?? 'normal' });
+    return roomDeviceRequest(`/anesthesiaDevice/queryRecordPoint?${q.toString()}`);
+  },
+  /** 手工指定时间查询：只查询不保存。 */
+  queryManualPoint(params: { operationId: string; targetTime: string; deviceType?: string }): Promise<{
+    requestedTime: string; actualObservedAt: string; deviceCode: string; deviceType: string; source: string; metrics: Record<string, number>;
+  }> {
+    const q = new URLSearchParams({ operationId: params.operationId, targetTime: params.targetTime });
+    if (params.deviceType) q.set('deviceType', params.deviceType);
+    return roomDeviceRequest(`/anesthesiaDevice/queryManualPoint?${q.toString()}`);
+  },
+  /** 确认保存手工查询点（source=device_manual），后续自动点不覆盖。 */
+  confirmManualPoint(body: { operationId: string; targetTime: string; operator?: string; reason?: string; deviceType?: string }): Promise<{ requestedTime: string; actualObservedAt: string; source: string; saved: boolean }> {
+    return roomDeviceRequest(`/anesthesiaDevice/confirmManualPoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
 };

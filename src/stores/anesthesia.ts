@@ -83,6 +83,7 @@ import {
   isCaseAssignedToDoctor,
   normalizeCaseSchedule,
   sortCasesByClinicalPriority,
+  dedupeCasesByOperationId,
 } from '@/services/scheduleHelpers';
 import {
   applyTimelineNodeTime,
@@ -755,9 +756,9 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
         const localCases = await loadAllCasesFromLocalDb();
         this.hasRestoredLocalData = localCases.length > 0;
         if (useRealOperationInfo()) {
-          this.cases = await hydrateAnesthesiaCasesFromLocalDb([], { appendOrphans: true });
+          this.cases = dedupeCasesByOperationId(await hydrateAnesthesiaCasesFromLocalDb([], { appendOrphans: true }));
         } else {
-          this.cases = await hydrateAnesthesiaCasesFromLocalDb(clone(buildInitialClinicalState().cases));
+          this.cases = dedupeCasesByOperationId(await hydrateAnesthesiaCasesFromLocalDb(clone(buildInitialClinicalState().cases)));
         }
         this.localDbReady = true;
         this.localPersistenceReady = true;
@@ -798,7 +799,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
       inpatientNo?: string;
     }) {
       const result = await fetchOperationList(params);
-      this.cases = result.cases;
+      this.cases = dedupeCasesByOperationId(result.cases);
       this.operationListSource = result.source;
       if (result.cases.length) {
         result.cases.forEach((item) => syncCaseToDataset(getMutableDataset(), item));
@@ -810,7 +811,7 @@ export const useAnesthesiaStore = defineStore('anesthesia', {
     },
     async loadTodayWorkbench() {
       const result = await fetchTodayWorkbench();
-      this.cases = result.cases;
+      this.cases = dedupeCasesByOperationId(result.cases);
       this.operationListSource = result.source;
       this.workbenchSummary = { ...result.summary, source: result.source };
       this.workbenchRoomStatus = result.roomStatus;

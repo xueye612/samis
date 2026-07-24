@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { anesthesiaCases } from '@/mock/anesthesiaCases';
+import type { SurgeryCase } from '@/types/anesthesia';
 import {
+  dedupeCasesByOperationId,
   getDoctorCases,
   groupCasesByRoom,
   normalizeCaseSchedule,
@@ -78,5 +80,37 @@ describe('scheduleHelpers', () => {
     ];
 
     expect(summarizeRoomAssignments(cases)).toEqual({ total: 3, assigned: 2, unassigned: 1 });
+  });
+});
+
+describe('dedupeCasesByOperationId', () => {
+  const mk = (id: string, over: Partial<SurgeryCase> = {}): SurgeryCase => ({ ...anesthesiaCases[0], id, ...over } as SurgeryCase);
+
+  it('相同 operationId 只保留一项（多来源/轮询重复）', () => {
+    const a = mk('OP-1001', { patientName: '宋纪东' });
+    const aDup = mk('OP-1001', { patientName: '宋纪东', vitals: [{ id: 'v1', time: '08:00', HR: 80 } as never] });
+    const out = dedupeCasesByOperationId([a, aDup, a]);
+    expect(out.filter((c) => c.id === 'OP-1001')).toHaveLength(1);
+  });
+
+  it('同名不同 operationId 的两台手术都保留（不按姓名去重）', () => {
+    const out = dedupeCasesByOperationId([
+      mk('OP-1001', { patientName: '宋纪东', surgeryName: '手术甲' }),
+      mk('OP-1002', { patientName: '宋纪东', surgeryName: '手术乙' }),
+    ]);
+    expect(out).toHaveLength(2);
+    expect(new Set(out.map((c) => c.id)).size).toBe(2);
+  });
+
+  it('operationId 为空的记录被过滤，不生成选项', () => {
+    const out = dedupeCasesByOperationId([mk('OP-1001'), mk(''), mk('   ')]);
+    expect(out).toHaveLength(1);
+  });
+
+  it('保留信息更完整的记录', () => {
+    const sparse = mk('OP-1001', { surgeryName: '' });
+    const full = mk('OP-1001', { surgeryName: '手术甲', recordStatus: '采集中' });
+    const out = dedupeCasesByOperationId([sparse, full]);
+    expect(out[0].surgeryName).toBe('手术甲');
   });
 });

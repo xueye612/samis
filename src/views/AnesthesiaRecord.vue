@@ -97,6 +97,7 @@
             <p>{{ item.surgeryName }}</p>
             <div class="patient-card-tags">
               <span class="card-status">{{ item.recordStatus ?? item.status }}</span>
+              <span class="op-id-tail" :title="`operationId: ${item.id}`">#{{ String(item.id).slice(-6) }}</span>
               <span v-for="risk in patientRiskTags(item)" :key="risk" class="risk-tag">{{ risk }}</span>
             </div>
           </button>
@@ -664,6 +665,8 @@ import {
   type DeviceSessionPoller,
   type DeviceSessionState,
 } from '@/services/anesthesia/deviceSessionPoller';
+import { createDeviceFormalPointPoller, type DeviceFormalPointPoller } from '@/services/anesthesia/deviceFormalPointPoller';
+import { useBackendDeviceFormalPoints } from '@/config/apiFlags';
 import DeviceSessionVentilatorPanel from '@/components/anesthesia/record/DeviceSessionVentilatorPanel.vue';
 import { buildRecordReturnTarget, buildRecordRoute, normalizeRecordEntrySource } from '@/services/recordNavigation';
 import { buildRecordPagination } from '@/services/recordPaginationEngine';
@@ -690,7 +693,7 @@ import {
   type SurgeryScenarioKey,
   type TemplateLandingDraft,
 } from '@/services/anesthesiaRecordMethodEngine';
-import { sortCasesByClinicalPriority } from '@/services/scheduleHelpers';
+import { sortCasesByClinicalPriority, dedupeCasesByOperationId } from '@/services/scheduleHelpers';
 import { useAnesthesiaStore } from '@/stores/anesthesia';
 import { anesthesiaMethodOptions } from '@/mock/anesthesiaRecordPrototype';
 import type { AnesthesiaMethodKey, TemplateLandingItem, TemplateQualityTip } from '@/mock/anesthesiaRecordPrototype';
@@ -904,9 +907,13 @@ let simulatedRealtimeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 // 后端设备采集会话（呼吸机预览，统一契约，cursor 增量轮询）。
 const deviceSessionState = ref<DeviceSessionState>(emptyDeviceSessionState(selectedId.value));
 let deviceSessionPoller: DeviceSessionPoller | null = null;
+// 后端正式落点轮询（普通5分钟/抢救1分钟），生成正式生命体征，取代前端模拟每分钟写入。
+let deviceFormalPointPoller: DeviceFormalPointPoller | null = null;
 const stopDeviceSessionPolling = () => {
   deviceSessionPoller?.stop();
   deviceSessionPoller = null;
+  deviceFormalPointPoller?.stop();
+  deviceFormalPointPoller = null;
 };
 // 设备标签病例操作：暂停显示（仅前端，后端继续采集）/ 设备详情 / 更换当前设备 / 停止解除关联。
 const deviceDisplayPaused = ref(false);
@@ -987,6 +994,15 @@ const restartDeviceSessionPolling = (operationId: string) => {
     onState: (state) => { deviceSessionState.value = state; },
   });
   deviceSessionPoller.start();
+  // 正式落点：启用后端设备查询时，按当前抢救态轮询 queryRecordPoint 生成正式代表点。
+  if (useBackendDeviceFormalPoints()) {
+    deviceFormalPointPoller = createDeviceFormalPointPoller({
+      operationId: () => selectedId.value,
+      rescueActive: () => rescueModeActive.value,
+      onFormalPoint: () => { void store.reloadCaseFromServer(operationId); },
+    });
+    deviceFormalPointPoller.start();
+  }
 };
 const stopRealtimeDevicePolling = () => {
   realtimeDevicePoller?.stop();
@@ -1151,7 +1167,8 @@ watch(toolboxCollapseKeys, (keys, previous) => {
   void scrollToolboxCollapseItem(String(opened[opened.length - 1]));
 }, { deep: true });
 
-const sortedCases = computed(() => sortCasesByClinicalPriority(store.cases));
+// 病例列表：先按 operationId 去重（防止远端/本地合并或轮询追加导致重复选项），再按临床优先级排序。
+const sortedCases = computed(() => sortCasesByClinicalPriority(dedupeCasesByOperationId(store.cases)));
 const queueRoomOptions = computed(() => [...new Set(sortedCases.value.map((item) => item.room))].map((room) => ({ label: room, value: room })));
 const queueStatusOptions = computed(() => [...new Set(sortedCases.value.map((item) => item.recordStatus ?? item.status))].map((status) => ({ label: status, value: status })));
 const queueRiskOptions = [
