@@ -15,6 +15,12 @@
       </div>
     </header>
 
+    <!-- 已完成病例（患者已离室）：明确标注仅支持补录、不采集 -->
+    <div v-if="isCompletedCase" class="dsp-completed-banner" data-testid="device-session-completed">
+      <strong>该病例已完成（患者已离室）</strong>
+      <span>仅支持补录，不进行设备采集</span>
+    </div>
+
     <div class="dsp-body">
       <div v-if="waiting" class="dsp-waiting" data-testid="device-session-waiting">
         <strong>等待患者入室</strong>
@@ -89,6 +95,8 @@ const collectionLabel = computed(() => {
   const s = props.collectionStatus;
   return s ? (COLLECTION_LABEL[s] ?? s) : '';
 });
+/** 已完成病例（患者已离室/归档）：采集停止，但仍可补录（记录未锁定时编辑不受影响）。 */
+const isCompletedCase = computed(() => props.collectionStatus === 'stopped' || props.collectionStatus === 'archived');
 const roomLabel = computed(() => {
   const code = props.state.bindingRoomCode || props.state.binding?.roomCode || '';
   const name = props.state.bindingRoomName || props.state.binding?.roomName || '';
@@ -161,6 +169,9 @@ const emptyHint = computed(() => {
 .dsp-head-main span { color: #64748b; font-size: 11px; }
 .dsp-mode { color: #2563eb !important; }
 .dsp-head-tags { display: flex; align-items: center; gap: 4px; flex: none; }
+.dsp-completed-banner { background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 6px 10px; margin: 6px 0; display: flex; flex-direction: column; gap: 2px; }
+.dsp-completed-banner strong { color: #92400e; font-size: 12px; }
+.dsp-completed-banner span { color: #b45309; font-size: 11px; }
 .dsp-body { display: grid; gap: 6px; min-height: 0; }
 .dsp-preview-notice, .dsp-room-changed, .dsp-error { font-size: 11px; }
 .dsp-vent-mode { display: flex; align-items: center; gap: 8px; padding: 4px 7px; border-radius: 5px; background: #eef6ff; font-size: 11px; }
