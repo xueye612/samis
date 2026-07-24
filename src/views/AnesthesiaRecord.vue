@@ -1463,7 +1463,17 @@ const ensureRouteCaseLoaded = async () => {
   if (existing) return existing;
   routeCaseLoading.value = true;
   try {
-    const loaded = await store.loadOperationCaseById(routeId);
+    // 通知单（HULI 通知）已删除/归档/暂时查不到时，不应阻止打开已有麻醉记录：
+    // 先尝试通知单主数据，失败则回退到 anes_record（getRecordDetail）。
+    let loaded: SurgeryCase | null = null;
+    try {
+      loaded = await store.loadOperationCaseById(routeId);
+    } catch {
+      loaded = null;
+    }
+    if (!loaded) {
+      loaded = await store.reloadCaseFromServer(routeId);
+    }
     if (!loaded) Message.warning('手术通知单不存在');
     return loaded;
   } finally {
