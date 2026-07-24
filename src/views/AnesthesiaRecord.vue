@@ -2293,17 +2293,31 @@ const timelineSyncVersion = ref(0);
 const commitTimelineNode = async (node: MethodTimelineNode, isoTime: string, opts: { reason?: string; previousTime?: string; source?: string; overrideOrder?: boolean; clear?: boolean }) => {
   const record = current.value;
   if (!record) return;
+  const payload = {
+    operationId: record.id,
+    nodeCode: node.key,
+    nodeName: node.label,
+    newTime: opts.clear ? null : isoTime,
+    reason: opts.reason,
+    timelineOrderOverride: opts.overrideOrder === true,
+    source: opts.source,
+    expectedVersion: timelineSyncVersion.value,
+  };
   try {
-    const result = await anesthesiaTimelineApi.saveTimelineNode({
-      operationId: record.id,
-      nodeCode: node.key,
-      nodeName: node.label,
-      newTime: opts.clear ? null : isoTime,
-      reason: opts.reason,
-      timelineOrderOverride: opts.overrideOrder === true,
-      source: opts.source,
-      expectedVersion: timelineSyncVersion.value,
-    });
+    let result;
+    try {
+      result = await anesthesiaTimelineApi.saveTimelineNode(payload);
+    } catch (e1) {
+      const err1 = e1 as { code?: number };
+      // 3003 麻醉记录不存在：记录尚未同步到服务器。立即推送同步后重试一次，覆盖打开即编辑的时序竞态。
+      if (err1.code === 3003) {
+        try { await flushAnesthesiaSyncNow(record.id); } catch { /* 忽略，重试时再判定 */ }
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        result = await anesthesiaTimelineApi.saveTimelineNode(payload);
+      } else {
+        throw e1;
+      }
+    }
     // 后端保存成功：用返回值更新 Store（IndexedDB 仅缓存，后端为真值）。
     timelineSyncVersion.value = result.syncVersion;
     const appliedTime = opts.clear ? '' : (result.eventTime ?? isoTime);
