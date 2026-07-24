@@ -193,6 +193,27 @@ const openHistory = async (room: RoomDeviceConfigListItem) => {
 };
 
 const readonly = computed(() => Boolean((window as unknown as { __SAMIS_READONLY__?: boolean }).__SAMIS_READONLY__));
+
+// ---- 设备联通测试（真实 HTTP 经 Gateway，不依赖 operationId、不创建记录）----
+const testVisible = ref(false);
+const testing = ref(false);
+const testResult = ref<Awaited<ReturnType<typeof anesthesiaRoomDeviceConfigApi.testRoomConnection>> | null>(null);
+const STATUS_LABEL: Record<string, string> = {
+  online: '在线', unreachable: '接口不可用', stale: '数据过期', no_data: '无数据', not_configured: '未配置',
+};
+const runTestConnection = async (room: RoomDeviceConfigListItem) => {
+  testing.value = true;
+  testResult.value = null;
+  testVisible.value = true;
+  try {
+    testResult.value = await anesthesiaRoomDeviceConfigApi.testRoomConnection(room.roomId);
+  } catch (e) {
+    Message.error((e as Error)?.message ?? '测试连接失败');
+    testVisible.value = false;
+  } finally {
+    testing.value = false;
+  }
+};
 </script>
 
 <template>
@@ -270,8 +291,9 @@ const readonly = computed(() => Boolean((window as unknown as { __SAMIS_READONLY
           </div>
         </div>
 
-        <div class="rdc-section">
+        <div class="rdc-section rdc-section-actions">
           <a-button size="mini" @click="openHistory(selected)">查看配置历史</a-button>
+          <a-button size="mini" type="outline" :loading="testing" @click="runTestConnection(selected)">测试连接</a-button>
         </div>
       </section>
       <section v-else class="rdc-detail rdc-empty">请选择左侧手术间</section>
@@ -347,6 +369,36 @@ const readonly = computed(() => Boolean((window as unknown as { __SAMIS_READONLY
         </template>
       </a-table>
     </a-modal>
+
+    <!-- 设备联通测试结果 -->
+    <a-modal v-model:visible="testVisible" :title="`设备联通测试 · ${testResult?.roomName ?? ''}`" :footer="false" :width="560">
+      <div v-if="testResult" class="rdc-test">
+        <div class="rdc-test-overall">
+          <span class="rdc-test-room">{{ testResult.roomCode }} · {{ testResult.roomName }}</span>
+          <a-tag :color="testResult.overallStatus === 'online' ? 'green' : (testResult.overallStatus === 'not_configured' ? 'gray' : 'red')">
+            总体：{{ STATUS_LABEL[testResult.overallStatus] ?? testResult.overallStatus }}
+          </a-tag>
+          <span class="rdc-test-time">测试时间 {{ testResult.testedAt }}</span>
+        </div>
+        <div v-for="d in testResult.devices" :key="d.deviceType" class="rdc-test-device">
+          <div class="rdc-test-line">
+            <strong>{{ d.deviceType === 'monitor' ? '监护仪' : (d.deviceType === 'ventilator' ? '呼吸机' : d.deviceType) }}</strong>
+            <span>{{ d.deviceCode || '（未配置）' }}</span>
+            <a-tag size="small" :color="d.status === 'online' ? 'green' : (d.status === 'not_configured' ? 'gray' : 'orange')">{{ STATUS_LABEL[d.status] ?? d.status }}</a-tag>
+          </div>
+          <div class="rdc-test-line">
+            <span>型号：{{ d.deviceModel || '—' }}</span>
+            <span>来源：{{ d.source ?? '—' }}</span>
+            <span>最后数据：{{ d.latestObservedAt ?? '—' }}</span>
+            <span v-if="d.dataAgeSeconds !== null">延迟：{{ d.dataAgeSeconds }}秒</span>
+          </div>
+          <div v-if="d.sample && Object.keys(d.sample).length" class="rdc-test-sample">
+            样例：HR {{ d.sample.HR ?? '—' }} · SBP {{ d.sample.SBP ?? '—' }} · SpO2 {{ d.sample.SpO2 ?? '—' }} · RR {{ d.sample.RR ?? '—' }}
+          </div>
+          <div v-if="d.errorMessage" class="rdc-test-err">{{ d.errorMessage }}</div>
+        </div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -394,4 +446,12 @@ const readonly = computed(() => Boolean((window as unknown as { __SAMIS_READONLY
 .rdc-empty-note { color: #b45309; font-size: 11px; }
 .rdc-empty-opt { display: inline-block; padding: 8px; color: #94a3b8; font-size: 12px; }
 @media (max-width: 760px) { .rdc-body { grid-template-columns: 1fr; } .rdc-rooms { max-height: 240px; } }
+.rdc-test { display: flex; flex-direction: column; gap: 12px; }
+.rdc-test-overall { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rdc-test-room { font-weight: 600; }
+.rdc-test-time { color: #94a3b8; font-size: 12px; margin-left: auto; }
+.rdc-test-device { border: 1px solid #eef2f7; border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.rdc-test-line { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 13px; }
+.rdc-test-sample { color: #475569; font-size: 12px; }
+.rdc-test-err { color: #dc2626; font-size: 12px; }
 </style>

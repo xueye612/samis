@@ -162,4 +162,27 @@ export const anesthesiaRoomDeviceConfigApi = {
       body: JSON.stringify(body),
     });
   },
+  /** 手术间设备联通测试（不依赖 operationId、不创建记录、不产生正式点）。 */
+  testRoomConnection(roomId: number): Promise<{
+    roomId: number; roomCode: string; roomName: string; overallStatus: string; testedAt: string;
+    devices: Array<{
+      deviceType: string; deviceCode: string; deviceModel: string; configured: boolean;
+      reachable: boolean; latestObservedAt: string | null; dataAgeSeconds: number | null;
+      source: string | null; qualityStatus: string | null; sample: Record<string, number>;
+      status: string; errorCode: string | null; errorMessage: string | null;
+    }>;
+  }> {
+    return roomDeviceRequest(`/anesthesiaDevice/testRoomConnection`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId }),
+    });
+  },
+  /** 统一采集状态（后端为唯一真值：顶部与设备区域共用）。 */
+  collectionStatus(operationId: string): Promise<{
+    operationId: string; collectionStatus: string; message: string; recordStatus: string | null;
+    deviceCode: string | null; latestObservedAt: string | null; source: string | null; dataAgeSeconds: number | null;
+  }> {
+    return roomDeviceRequest(`/anesthesiaDevice/collectionStatus?operationId=${encodeURIComponent(operationId)}`);
+  },
 };

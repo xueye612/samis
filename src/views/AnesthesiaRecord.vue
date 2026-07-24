@@ -906,6 +906,13 @@ let simulatedRealtimeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
 // 后端设备采集会话（呼吸机预览，统一契约，cursor 增量轮询）。
 const deviceSessionState = ref<DeviceSessionState>(emptyDeviceSessionState(selectedId.value));
+// 统一采集状态（后端为唯一真值，顶部与设备区域共用；终态/未配置时停止采集）。
+const collectionStatusInfo = ref<Awaited<ReturnType<typeof anesthesiaRoomDeviceConfigApi.collectionStatus>> | null>(null);
+const isCollecting = computed(() => collectionStatusInfo.value?.collectionStatus === 'collecting');
+const isTerminal = computed(() => {
+  const s = collectionStatusInfo.value?.collectionStatus;
+  return s === 'stopped' || s === 'archived';
+});
 let deviceSessionPoller: DeviceSessionPoller | null = null;
 // 后端正式落点轮询（普通5分钟/抢救1分钟），生成正式生命体征，取代前端模拟每分钟写入。
 let deviceFormalPointPoller: DeviceFormalPointPoller | null = null;
@@ -984,7 +991,7 @@ const doDeviceStop = async () => {
   } catch (e) { Message.error((e as Error)?.message ?? '停止失败'); }
   finally { deviceOpLoading.value = false; }
 };
-const restartDeviceSessionPolling = (operationId: string) => {
+const restartDeviceSessionPolling = async (operationId: string) => {
   stopDeviceSessionPolling();
   // 切换病例：清除旧 cursor 与 items，不复用旧 binding。
   deviceSessionState.value = emptyDeviceSessionState(operationId);
@@ -994,8 +1001,13 @@ const restartDeviceSessionPolling = (operationId: string) => {
     onState: (state) => { deviceSessionState.value = state; },
   });
   deviceSessionPoller.start();
-  // 正式落点：启用后端设备查询时，按当前抢救态轮询 queryRecordPoint 生成正式代表点。
-  if (useBackendDeviceFormalPoints()) {
+  // 统一采集状态：后端判定（终态/未配置/未入室/暂停/采集中）。终态或不可采集时不启动正式落点轮询。
+  try {
+    collectionStatusInfo.value = await anesthesiaRoomDeviceConfigApi.collectionStatus(operationId);
+  } catch {
+    collectionStatusInfo.value = null;
+  }
+  if (useBackendDeviceFormalPoints() && isCollecting.value) {
     deviceFormalPointPoller = createDeviceFormalPointPoller({
       operationId: () => selectedId.value,
       rescueActive: () => rescueModeActive.value,
